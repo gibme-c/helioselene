@@ -95,6 +95,21 @@ if(NOT FORCE_REF10 AND CMAKE_SYSTEM_PROCESSOR MATCHES "^([xX]86_64|[aA][mM][dD]6
         src/x64/fq_sqn.cpp
         src/x64/fq_sqrt.cpp
         src/x64/fq_tobytes.cpp
+        src/x64/fp_sqrt.cpp
+        src/x64/helios_dbl.cpp
+        src/x64/helios_madd.cpp
+        src/x64/helios_add.cpp
+        src/x64/helios_tobytes.cpp
+        src/x64/helios_frombytes.cpp
+        src/x64/helios_scalarmult.cpp
+        src/x64/helios_scalarmult_vartime.cpp
+        src/x64/selene_dbl.cpp
+        src/x64/selene_madd.cpp
+        src/x64/selene_add.cpp
+        src/x64/selene_tobytes.cpp
+        src/x64/selene_frombytes.cpp
+        src/x64/selene_scalarmult.cpp
+        src/x64/selene_scalarmult_vartime.cpp
     )
     list(APPEND HELIOSELENE_SRC ${HELIOSELENE_X64_SRC})
     message(STATUS "HELIOSELENE: 64-bit optimized field arithmetic enabled (radix-2^51)")
