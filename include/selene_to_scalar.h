@@ -24,32 +24,26 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#ifndef HELIOSELENE_HELIOS_SCALARMULT_VARTIME_H
-#define HELIOSELENE_HELIOS_SCALARMULT_VARTIME_H
+#ifndef HELIOSELENE_SELENE_TO_SCALAR_H
+#define HELIOSELENE_SELENE_TO_SCALAR_H
 
-#include "helios.h"
+#include "fq_tobytes.h"
+#include "selene_ops.h"
 
-#if HELIOSELENE_SIMD
-#include "helioselene_dispatch.h"
-static inline void
-    helios_scalarmult_vartime(helios_jacobian *r, const unsigned char scalar[32], const helios_jacobian *p)
+/*
+ * Extract the affine x-coordinate of a Selene point as 32 canonical LE bytes.
+ *
+ * This is the core primitive for curve-cycle layer alternation: the output
+ * bytes can be used as a Helios scalar (since Selene base field = Helios
+ * scalar field).
+ *
+ * Identity (Z=0) maps to 32 zero bytes (scalar 0).
+ */
+static inline void selene_point_to_bytes(unsigned char out[32], const selene_jacobian *P)
 {
-    helioselene_get_dispatch().helios_scalarmult_vartime(r, scalar, p);
+    selene_affine a;
+    selene_to_affine(&a, P);
+    fq_tobytes(out, a.x);
 }
-#elif HELIOSELENE_PLATFORM_64BIT
-void helios_scalarmult_vartime_x64(helios_jacobian *r, const unsigned char scalar[32], const helios_jacobian *p);
-static inline void
-    helios_scalarmult_vartime(helios_jacobian *r, const unsigned char scalar[32], const helios_jacobian *p)
-{
-    helios_scalarmult_vartime_x64(r, scalar, p);
-}
-#else
-void helios_scalarmult_vartime_portable(helios_jacobian *r, const unsigned char scalar[32], const helios_jacobian *p);
-static inline void
-    helios_scalarmult_vartime(helios_jacobian *r, const unsigned char scalar[32], const helios_jacobian *p)
-{
-    helios_scalarmult_vartime_portable(r, scalar, p);
-}
-#endif
 
-#endif // HELIOSELENE_HELIOS_SCALARMULT_VARTIME_H
+#endif // HELIOSELENE_SELENE_TO_SCALAR_H

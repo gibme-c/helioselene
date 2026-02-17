@@ -129,8 +129,10 @@ void selene_scalarmult_portable(selene_jacobian *r, const unsigned char scalar[3
     int8_t digits[64];
     scalar_recode_signed4(digits, scalar);
 
-    unsigned int abs_d = (unsigned int)((digits[63] < 0) ? -digits[63] : digits[63]);
-    unsigned int neg = (digits[63] < 0) ? 1u : 0u;
+    int32_t d = (int32_t)digits[63];
+    int32_t sign_mask = d >> 31;
+    unsigned int abs_d = (unsigned int)((d ^ sign_mask) - sign_mask);
+    unsigned int neg = (unsigned int)(sign_mask & 1);
 
     selene_affine selected;
     fq_0(selected.x);
@@ -142,15 +144,18 @@ void selene_scalarmult_portable(selene_jacobian *r, const unsigned char scalar[3
         selene_affine_cmov(&selected, &table[j], eq);
     }
 
-    if (abs_d == 0)
-    {
-        selene_identity(r);
-    }
-    else
-    {
-        selene_affine_cneg(&selected, neg);
-        selene_from_affine(r, &selected);
-    }
+    /* CT conditional negate + select identity or table point */
+    selene_affine_cneg(&selected, neg);
+
+    selene_jacobian from_table;
+    selene_from_affine(&from_table, &selected);
+
+    selene_jacobian ident;
+    selene_identity(&ident);
+
+    unsigned int nonzero = 1u ^ ((abs_d - 1u) >> 31);
+    selene_copy(r, &ident);
+    selene_cmov(r, &from_table, nonzero);
 
     for (int i = 62; i >= 0; i--)
     {
@@ -159,8 +164,10 @@ void selene_scalarmult_portable(selene_jacobian *r, const unsigned char scalar[3
         selene_dbl(r, r);
         selene_dbl(r, r);
 
-        abs_d = (unsigned int)((digits[i] < 0) ? -digits[i] : digits[i]);
-        neg = (digits[i] < 0) ? 1u : 0u;
+        d = (int32_t)digits[i];
+        sign_mask = d >> 31;
+        abs_d = (unsigned int)((d ^ sign_mask) - sign_mask);
+        neg = (unsigned int)(sign_mask & 1);
 
         fq_1(selected.x);
         fq_1(selected.y);
@@ -172,7 +179,7 @@ void selene_scalarmult_portable(selene_jacobian *r, const unsigned char scalar[3
 
         selene_affine_cneg(&selected, neg);
 
-        unsigned int nonzero = 1u ^ ((abs_d - 1u) >> 31);
+        nonzero = 1u ^ ((abs_d - 1u) >> 31);
         unsigned int z_nonzero = (unsigned int)fq_isnonzero(r->Z);
 
         selene_jacobian tmp;

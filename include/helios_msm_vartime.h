@@ -38,7 +38,14 @@
 
 #include "helios.h"
 
-#if HELIOSELENE_PLATFORM_64BIT
+#if HELIOSELENE_SIMD
+#include "helioselene_dispatch.h"
+static inline void
+    helios_msm_vartime(helios_jacobian *result, const unsigned char *scalars, const helios_jacobian *points, size_t n)
+{
+    helioselene_get_dispatch().helios_msm_vartime(result, scalars, points, n);
+}
+#elif HELIOSELENE_PLATFORM_64BIT
 void helios_msm_vartime_x64(
     helios_jacobian *result,
     const unsigned char *scalars,

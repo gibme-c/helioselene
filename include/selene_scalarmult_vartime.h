@@ -29,7 +29,14 @@
 
 #include "selene.h"
 
-#if HELIOSELENE_PLATFORM_64BIT
+#if HELIOSELENE_SIMD
+#include "helioselene_dispatch.h"
+static inline void
+    selene_scalarmult_vartime(selene_jacobian *r, const unsigned char scalar[32], const selene_jacobian *p)
+{
+    helioselene_get_dispatch().selene_scalarmult_vartime(r, scalar, p);
+}
+#elif HELIOSELENE_PLATFORM_64BIT
 void selene_scalarmult_vartime_x64(selene_jacobian *r, const unsigned char scalar[32], const selene_jacobian *p);
 static inline void
     selene_scalarmult_vartime(selene_jacobian *r, const unsigned char scalar[32], const selene_jacobian *p)

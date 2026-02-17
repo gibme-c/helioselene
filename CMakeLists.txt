@@ -182,6 +182,70 @@ if(FORCE_PORTABLE)
     message(STATUS "HELIOSELENE: Forced portable (32-bit) implementation via FORCE_PORTABLE")
 endif()
 
+# ── SIMD backend options ──
+# Detect x86_64 specifically (SIMD backends are x86_64-only)
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "^([xX]86_64|[aA][mM][dD]64)$")
+    set(HELIOSELENE_IS_X86_64 TRUE)
+else()
+    set(HELIOSELENE_IS_X86_64 FALSE)
+endif()
+
+# SIMD options: default ON for x86_64, OFF otherwise
+if(HELIOSELENE_IS_X86_64 AND NOT FORCE_PORTABLE)
+    option(ENABLE_AVX512 "Enable AVX-512 IFMA backend" ON)
+    option(ENABLE_AVX2 "Enable AVX2 backend" ON)
+else()
+    option(ENABLE_AVX512 "Enable AVX-512 IFMA backend" OFF)
+    option(ENABLE_AVX2 "Enable AVX2 backend" OFF)
+endif()
+
+# Force SIMD off when portable is active
+if(FORCE_PORTABLE)
+    set(ENABLE_AVX512 OFF CACHE BOOL "" FORCE)
+    set(ENABLE_AVX2 OFF CACHE BOOL "" FORCE)
+endif()
+
+# SIMD dispatch infrastructure
+if(ENABLE_AVX2 OR ENABLE_AVX512)
+    set(HELIOSELENE_SIMD_SRC
+        src/cpuid.cpp
+        src/dispatch.cpp
+    )
+    list(APPEND HELIOSELENE_SRC ${HELIOSELENE_SIMD_SRC})
+
+    # AVX2 backend sources
+    set(HELIOSELENE_AVX2_SRC
+        src/x64/avx2/helios_scalarmult.cpp
+        src/x64/avx2/helios_scalarmult_vartime.cpp
+        src/x64/avx2/helios_msm_vartime.cpp
+        src/x64/avx2/selene_scalarmult.cpp
+        src/x64/avx2/selene_scalarmult_vartime.cpp
+        src/x64/avx2/selene_msm_vartime.cpp
+    )
+
+    # IFMA backend sources
+    set(HELIOSELENE_IFMA_SRC
+        src/x64/ifma/helios_scalarmult.cpp
+        src/x64/ifma/helios_scalarmult_vartime.cpp
+        src/x64/ifma/helios_msm_vartime.cpp
+        src/x64/ifma/selene_scalarmult.cpp
+        src/x64/ifma/selene_scalarmult_vartime.cpp
+        src/x64/ifma/selene_msm_vartime.cpp
+    )
+
+    if(ENABLE_AVX2)
+        list(APPEND HELIOSELENE_SRC ${HELIOSELENE_AVX2_SRC})
+        message(STATUS "HELIOSELENE: AVX2 backend enabled")
+    endif()
+
+    if(ENABLE_AVX512)
+        list(APPEND HELIOSELENE_SRC ${HELIOSELENE_IFMA_SRC})
+        message(STATUS "HELIOSELENE: AVX-512 IFMA backend enabled")
+    endif()
+
+    message(STATUS "HELIOSELENE: SIMD dispatch enabled")
+endif()
+
 option(ENABLE_LTO "Enable link-time optimization" OFF)
 if(ENABLE_LTO)
     if(MSVC)
@@ -199,6 +263,36 @@ add_library(helioselene STATIC ${HELIOSELENE_SRC})
 target_include_directories(helioselene PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 if(FORCE_PORTABLE)
     target_compile_definitions(helioselene PUBLIC FORCE_PORTABLE=1)
+endif()
+
+# SIMD compile definitions
+if(ENABLE_AVX2 OR ENABLE_AVX512)
+    target_compile_definitions(helioselene PUBLIC HELIOSELENE_SIMD=1)
+
+    if(NOT ENABLE_AVX512)
+        target_compile_definitions(helioselene PUBLIC HELIOSELENE_NO_AVX512=1)
+    endif()
+    if(NOT ENABLE_AVX2)
+        target_compile_definitions(helioselene PUBLIC HELIOSELENE_NO_AVX2=1)
+    endif()
+
+    # Per-TU SIMD flags for AVX2 sources
+    if(ENABLE_AVX2 AND HELIOSELENE_AVX2_SRC)
+        if(MSVC)
+            set_source_files_properties(${HELIOSELENE_AVX2_SRC} PROPERTIES COMPILE_FLAGS "/arch:AVX2")
+        else()
+            set_source_files_properties(${HELIOSELENE_AVX2_SRC} PROPERTIES COMPILE_FLAGS "-mavx2")
+        endif()
+    endif()
+
+    # Per-TU SIMD flags for IFMA sources
+    if(ENABLE_AVX512 AND HELIOSELENE_IFMA_SRC)
+        if(MSVC)
+            set_source_files_properties(${HELIOSELENE_IFMA_SRC} PROPERTIES COMPILE_FLAGS "/arch:AVX512")
+        else()
+            set_source_files_properties(${HELIOSELENE_IFMA_SRC} PROPERTIES COMPILE_FLAGS "-mavx512f -mavx512ifma")
+        endif()
+    endif()
 endif()
 
 option(BUILD_TESTS "Build unit tests and benchmarks" OFF)

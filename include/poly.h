@@ -56,7 +56,7 @@ struct fq_poly
 
 /* ---- F_p polynomials ---- */
 
-/* Multiply: r = a * b */
+/* Multiply: r = a * b (auto-selects schoolbook or Karatsuba) */
 void fp_poly_mul(fp_poly *r, const fp_poly *a, const fp_poly *b);
 
 /* Evaluate polynomial at point x (Horner's method) */
@@ -68,11 +68,17 @@ void fp_poly_from_roots(fp_poly *r, const fp_fe *roots, size_t n);
 /* Polynomial division: a = b*q + rem. Writes quotient to q, remainder to rem. */
 void fp_poly_divmod(fp_poly *q, fp_poly *rem, const fp_poly *a, const fp_poly *b);
 
+/* Lagrange interpolation: given n (x,y) pairs, produce polynomial of degree n-1 */
+void fp_poly_interpolate(fp_poly *out, const fp_fe *xs, const fp_fe *ys, size_t n);
+
 /* ---- F_q polynomials ---- */
 
 void fq_poly_mul(fq_poly *r, const fq_poly *a, const fq_poly *b);
 void fq_poly_eval(fq_fe result, const fq_poly *p, const fq_fe x);
 void fq_poly_from_roots(fq_poly *r, const fq_fe *roots, size_t n);
 void fq_poly_divmod(fq_poly *q, fq_poly *rem, const fq_poly *a, const fq_poly *b);
+
+/* Lagrange interpolation: given n (x,y) pairs, produce polynomial of degree n-1 */
+void fq_poly_interpolate(fq_poly *out, const fq_fe *xs, const fq_fe *ys, size_t n);
 
 #endif // HELIOSELENE_POLY_H

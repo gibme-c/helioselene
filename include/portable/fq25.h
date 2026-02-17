@@ -53,10 +53,11 @@ static const int32_t GAMMA_25[5] = {47724641, 4940641, 43315753, 10110164, 16908
  * q bytes (LE): 9f c7 27 79 72 d2 b6 6e 58 6b 65 b7 2c 78 7f bf
  *               ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff 7f
  *
- * The 10-limb values are derived from the frombytes algorithm applied to q.
+ * Derived by splitting q into alternating 26/25-bit limbs:
+ *   Q_25[i] = (q >> bit_position_i) & mask_i
  */
 static const int32_t Q_25[10] =
-    {19383199, 28613978, 24192183, 23444267, 19199199, 33554431, 67108863, 33554431, 67108863, 33554431};
+    {19384223, 28613790, 23793110, 23444267, 50200032, 33554431, 67108863, 33554431, 67108863, 33554431};
 
 /* Masks for alternating 26/25-bit limbs */
 static const int32_t FQ25_MASK26 = (1 << 26) - 1;

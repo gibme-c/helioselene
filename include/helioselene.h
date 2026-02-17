@@ -58,8 +58,10 @@
 #ifndef HELIOSELENE_H
 #define HELIOSELENE_H
 
-/* Platform detection and secure erase */
+/* Platform detection, CPUID, dispatch, and secure erase */
 #include "ct_barrier.h"
+#include "helioselene_cpuid.h"
+#include "helioselene_dispatch.h"
 #include "helioselene_platform.h"
 #include "helioselene_secure_erase.h"
 
@@ -100,8 +102,10 @@
 #include "helios_msm_vartime.h"
 #include "helios_ops.h"
 #include "helios_pedersen.h"
+#include "helios_scalar.h"
 #include "helios_scalarmult.h"
 #include "helios_scalarmult_vartime.h"
+#include "helios_to_scalar.h"
 #include "helios_tobytes.h"
 #include "helios_validate.h"
 
@@ -117,8 +121,10 @@
 #include "selene_msm_vartime.h"
 #include "selene_ops.h"
 #include "selene_pedersen.h"
+#include "selene_scalar.h"
 #include "selene_scalarmult.h"
 #include "selene_scalarmult_vartime.h"
+#include "selene_to_scalar.h"
 #include "selene_tobytes.h"
 #include "selene_validate.h"
 

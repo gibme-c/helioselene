@@ -24,32 +24,61 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#ifndef HELIOSELENE_HELIOS_SCALARMULT_VARTIME_H
-#define HELIOSELENE_HELIOS_SCALARMULT_VARTIME_H
+#ifndef HELIOSELENE_CPUID_H
+#define HELIOSELENE_CPUID_H
 
-#include "helios.h"
+#include "helioselene_platform.h"
 
-#if HELIOSELENE_SIMD
-#include "helioselene_dispatch.h"
-static inline void
-    helios_scalarmult_vartime(helios_jacobian *r, const unsigned char scalar[32], const helios_jacobian *p)
+#include <cstdint>
+
+enum helioselene_cpu_flag : uint32_t
 {
-    helioselene_get_dispatch().helios_scalarmult_vartime(r, scalar, p);
-}
-#elif HELIOSELENE_PLATFORM_64BIT
-void helios_scalarmult_vartime_x64(helios_jacobian *r, const unsigned char scalar[32], const helios_jacobian *p);
-static inline void
-    helios_scalarmult_vartime(helios_jacobian *r, const unsigned char scalar[32], const helios_jacobian *p)
+    HELIOSELENE_CPU_AVX2 = 1 << 0,
+    HELIOSELENE_CPU_AVX512F = 1 << 1,
+    HELIOSELENE_CPU_AVX512IFMA = 1 << 2,
+};
+
+#if HELIOSELENE_PLATFORM_X64
+
+uint32_t helioselene_cpu_features();
+
+static inline bool helioselene_has_avx2()
 {
-    helios_scalarmult_vartime_x64(r, scalar, p);
+    return (helioselene_cpu_features() & HELIOSELENE_CPU_AVX2) != 0;
 }
+
+static inline bool helioselene_has_avx512f()
+{
+    return (helioselene_cpu_features() & HELIOSELENE_CPU_AVX512F) != 0;
+}
+
+static inline bool helioselene_has_avx512ifma()
+{
+    return (helioselene_cpu_features() & HELIOSELENE_CPU_AVX512IFMA) != 0;
+}
+
 #else
-void helios_scalarmult_vartime_portable(helios_jacobian *r, const unsigned char scalar[32], const helios_jacobian *p);
-static inline void
-    helios_scalarmult_vartime(helios_jacobian *r, const unsigned char scalar[32], const helios_jacobian *p)
-{
-    helios_scalarmult_vartime_portable(r, scalar, p);
-}
-#endif
 
-#endif // HELIOSELENE_HELIOS_SCALARMULT_VARTIME_H
+static inline uint32_t helioselene_cpu_features()
+{
+    return 0;
+}
+
+static inline bool helioselene_has_avx2()
+{
+    return false;
+}
+
+static inline bool helioselene_has_avx512f()
+{
+    return false;
+}
+
+static inline bool helioselene_has_avx512ifma()
+{
+    return false;
+}
+
+#endif // HELIOSELENE_PLATFORM_X64
+
+#endif // HELIOSELENE_CPUID_H

@@ -161,9 +161,11 @@ void helios_scalarmult_x64(helios_jacobian *r, const unsigned char scalar[32], c
     scalar_recode_signed4(digits, scalar);
 
     /* Step 3: Main loop — start from the top digit */
-    /* Initialize with the top digit */
-    unsigned int abs_d = (unsigned int)((digits[63] < 0) ? -digits[63] : digits[63]);
-    unsigned int neg = (digits[63] < 0) ? 1u : 0u;
+    /* Initialize with the top digit (branchless abs + sign extraction) */
+    int32_t d = (int32_t)digits[63];
+    int32_t sign_mask = d >> 31;
+    unsigned int abs_d = (unsigned int)((d ^ sign_mask) - sign_mask);
+    unsigned int neg = (unsigned int)(sign_mask & 1);
 
     /* CT table lookup for initial value */
     helios_affine selected;
@@ -177,16 +179,18 @@ void helios_scalarmult_x64(helios_jacobian *r, const unsigned char scalar[32], c
         helios_affine_cmov(&selected, &table[j], eq);
     }
 
-    /* Handle abs_d == 0: set to identity */
-    if (abs_d == 0)
-    {
-        helios_identity(r);
-    }
-    else
-    {
-        helios_affine_cneg(&selected, neg);
-        helios_from_affine(r, &selected);
-    }
+    /* CT conditional negate + select identity or table point */
+    helios_affine_cneg(&selected, neg);
+
+    helios_jacobian from_table;
+    helios_from_affine(&from_table, &selected);
+
+    helios_jacobian ident;
+    helios_identity(&ident);
+
+    unsigned int nonzero = 1u ^ ((abs_d - 1u) >> 31);
+    helios_copy(r, &ident);
+    helios_cmov(r, &from_table, nonzero);
 
     /* Main loop: digits[62] down to digits[0] */
     for (int i = 62; i >= 0; i--)
@@ -197,9 +201,11 @@ void helios_scalarmult_x64(helios_jacobian *r, const unsigned char scalar[32], c
         helios_dbl(r, r);
         helios_dbl(r, r);
 
-        /* Extract digit */
-        abs_d = (unsigned int)((digits[i] < 0) ? -digits[i] : digits[i]);
-        neg = (digits[i] < 0) ? 1u : 0u;
+        /* Extract digit (branchless) */
+        d = (int32_t)digits[i];
+        sign_mask = d >> 31;
+        abs_d = (unsigned int)((d ^ sign_mask) - sign_mask);
+        neg = (unsigned int)(sign_mask & 1);
 
         /* CT table lookup */
         fp_1(selected.x);
@@ -214,7 +220,7 @@ void helios_scalarmult_x64(helios_jacobian *r, const unsigned char scalar[32], c
         helios_affine_cneg(&selected, neg);
 
         /* Mixed addition if digit != 0 */
-        unsigned int nonzero = 1u ^ ((abs_d - 1u) >> 31);
+        nonzero = 1u ^ ((abs_d - 1u) >> 31);
 
         /* Handle identity accumulator: madd(identity, P) is degenerate.
          * If Z==0 (identity), use from_affine instead. */

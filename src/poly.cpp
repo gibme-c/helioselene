@@ -39,6 +39,9 @@
 #include "fq_sq.h"
 #include "fq_tobytes.h"
 
+/* Karatsuba threshold: use schoolbook below this many coefficients */
+static const size_t KARATSUBA_THRESHOLD = 32;
+
 /* ---- Helpers: copy fp_fe in/out of storage ---- */
 
 static inline void fp_fe_store(fp_fe_storage *dst, const fp_fe src)
@@ -109,34 +112,140 @@ static void fq_poly_strip(fq_poly *p)
     }
 }
 
-/* ================================================================
- * F_p polynomial operations
- * ================================================================ */
+/* ---- Normalize polynomial coefficients ---- */
 
-void fp_poly_mul(fp_poly *r, const fp_poly *a, const fp_poly *b)
+/*
+ * fp_add on 64-bit does not carry-propagate, so after schoolbook accumulation
+ * limb values can grow large. fp_sub uses unsigned bias addition which can
+ * overflow on non-canonical inputs. Force carry-propagation via fp_sub(x, x, 0)
+ * which works on both 64-bit (carries through bias) and 32-bit (signed carries).
+ */
+static void fp_poly_normalize(fp_poly *p)
+{
+    fp_fe zero;
+    fp_0(zero);
+    for (size_t i = 0; i < p->coeffs.size(); i++)
+    {
+        fp_fe tmp;
+        fp_fe_load(tmp, &p->coeffs[i]);
+        fp_sub(tmp, tmp, zero);
+        fp_fe_store(&p->coeffs[i], tmp);
+    }
+}
+
+/* ---- Helpers: polynomial add/sub (used by Karatsuba) ---- */
+
+static void fp_poly_add(fp_poly *r, const fp_poly *a, const fp_poly *b)
+{
+    size_t na = a->coeffs.size();
+    size_t nb = b->coeffs.size();
+    size_t nr = (na > nb) ? na : nb;
+    r->coeffs.resize(nr);
+    for (size_t i = 0; i < nr; i++)
+    {
+        fp_fe ai_val, bi_val;
+        if (i < na)
+            fp_fe_load(ai_val, &a->coeffs[i]);
+        else
+            fp_0(ai_val);
+        if (i < nb)
+            fp_fe_load(bi_val, &b->coeffs[i]);
+        else
+            fp_0(bi_val);
+        fp_add(r->coeffs[i].v, ai_val, bi_val);
+    }
+    fp_poly_normalize(r);
+    fp_poly_strip(r);
+}
+
+static void fp_poly_sub(fp_poly *r, const fp_poly *a, const fp_poly *b)
+{
+    size_t na = a->coeffs.size();
+    size_t nb = b->coeffs.size();
+    size_t nr = (na > nb) ? na : nb;
+    r->coeffs.resize(nr);
+    for (size_t i = 0; i < nr; i++)
+    {
+        fp_fe ai_val, bi_val;
+        if (i < na)
+            fp_fe_load(ai_val, &a->coeffs[i]);
+        else
+            fp_0(ai_val);
+        if (i < nb)
+            fp_fe_load(bi_val, &b->coeffs[i]);
+        else
+            fp_0(bi_val);
+        fp_sub(r->coeffs[i].v, ai_val, bi_val);
+    }
+    fp_poly_strip(r);
+}
+
+static void fq_poly_add(fq_poly *r, const fq_poly *a, const fq_poly *b)
+{
+    size_t na = a->coeffs.size();
+    size_t nb = b->coeffs.size();
+    size_t nr = (na > nb) ? na : nb;
+    r->coeffs.resize(nr);
+    for (size_t i = 0; i < nr; i++)
+    {
+        fq_fe ai_val, bi_val;
+        if (i < na)
+            fq_fe_load(ai_val, &a->coeffs[i]);
+        else
+            fq_0(ai_val);
+        if (i < nb)
+            fq_fe_load(bi_val, &b->coeffs[i]);
+        else
+            fq_0(bi_val);
+        fq_add(r->coeffs[i].v, ai_val, bi_val);
+    }
+    fq_poly_strip(r);
+}
+
+static void fq_poly_sub(fq_poly *r, const fq_poly *a, const fq_poly *b)
+{
+    size_t na = a->coeffs.size();
+    size_t nb = b->coeffs.size();
+    size_t nr = (na > nb) ? na : nb;
+    r->coeffs.resize(nr);
+    for (size_t i = 0; i < nr; i++)
+    {
+        fq_fe ai_val, bi_val;
+        if (i < na)
+            fq_fe_load(ai_val, &a->coeffs[i]);
+        else
+            fq_0(ai_val);
+        if (i < nb)
+            fq_fe_load(bi_val, &b->coeffs[i]);
+        else
+            fq_0(bi_val);
+        fq_sub(r->coeffs[i].v, ai_val, bi_val);
+    }
+    fq_poly_strip(r);
+}
+
+/* ---- Schoolbook multiplication (internal) ---- */
+
+static void fp_poly_mul_schoolbook(fp_poly *r, const fp_poly *a, const fp_poly *b)
 {
     size_t na = a->coeffs.size();
     size_t nb = b->coeffs.size();
 
     if (na == 0 || nb == 0)
     {
-        r->coeffs.clear();
-        fp_fe_storage z;
-        fp_0(z.v);
-        r->coeffs.push_back(z);
+        r->coeffs.resize(1);
+        fp_0(r->coeffs[0].v);
         return;
     }
 
     size_t nr = na + nb - 1;
     r->coeffs.resize(nr);
 
-    /* Zero-initialize all output coefficients */
     for (size_t k = 0; k < nr; k++)
     {
         fp_0(r->coeffs[k].v);
     }
 
-    /* Schoolbook multiplication: r[k] = sum_{i} a[i] * b[k-i] */
     for (size_t i = 0; i < na; i++)
     {
         fp_fe ai;
@@ -152,7 +261,197 @@ void fp_poly_mul(fp_poly *r, const fp_poly *a, const fp_poly *b)
         }
     }
 
+    fp_poly_normalize(r);
     fp_poly_strip(r);
+}
+
+static void fq_poly_mul_schoolbook(fq_poly *r, const fq_poly *a, const fq_poly *b)
+{
+    size_t na = a->coeffs.size();
+    size_t nb = b->coeffs.size();
+
+    if (na == 0 || nb == 0)
+    {
+        r->coeffs.resize(1);
+        fq_0(r->coeffs[0].v);
+        return;
+    }
+
+    size_t nr = na + nb - 1;
+    r->coeffs.resize(nr);
+
+    for (size_t k = 0; k < nr; k++)
+    {
+        fq_0(r->coeffs[k].v);
+    }
+
+    for (size_t i = 0; i < na; i++)
+    {
+        fq_fe ai;
+        fq_fe_load(ai, &a->coeffs[i]);
+        for (size_t j = 0; j < nb; j++)
+        {
+            fq_fe bj, prod, sum;
+            fq_fe_load(bj, &b->coeffs[j]);
+            fq_mul(prod, ai, bj);
+            fq_fe_load(sum, &r->coeffs[i + j]);
+            fq_add(sum, sum, prod);
+            fq_fe_store(&r->coeffs[i + j], sum);
+        }
+    }
+
+    fq_poly_strip(r);
+}
+
+/* ---- Helpers: extract sub-polynomial (slice) ---- */
+
+static void fp_poly_slice(fp_poly *r, const fp_poly *p, size_t start, size_t len)
+{
+    size_t n = p->coeffs.size();
+    if (start >= n || len == 0)
+    {
+        r->coeffs.resize(1);
+        fp_0(r->coeffs[0].v);
+        return;
+    }
+    size_t actual = (start + len > n) ? (n - start) : len;
+    r->coeffs.resize(actual);
+    for (size_t i = 0; i < actual; i++)
+    {
+        std::memcpy(r->coeffs[i].v, p->coeffs[start + i].v, sizeof(fp_fe));
+    }
+    fp_poly_strip(r);
+}
+
+static void fq_poly_slice(fq_poly *r, const fq_poly *p, size_t start, size_t len)
+{
+    size_t n = p->coeffs.size();
+    if (start >= n || len == 0)
+    {
+        r->coeffs.resize(1);
+        fq_0(r->coeffs[0].v);
+        return;
+    }
+    size_t actual = (start + len > n) ? (n - start) : len;
+    r->coeffs.resize(actual);
+    for (size_t i = 0; i < actual; i++)
+    {
+        std::memcpy(r->coeffs[i].v, p->coeffs[start + i].v, sizeof(fq_fe));
+    }
+    fq_poly_strip(r);
+}
+
+/* ---- Helpers: shift polynomial by m positions (multiply by x^m) ---- */
+
+static void fp_poly_shift(fp_poly *r, const fp_poly *p, size_t m)
+{
+    if (m == 0)
+    {
+        *r = *p;
+        return;
+    }
+    size_t n = p->coeffs.size();
+    r->coeffs.resize(n + m);
+    for (size_t i = 0; i < m; i++)
+        fp_0(r->coeffs[i].v);
+    for (size_t i = 0; i < n; i++)
+        std::memcpy(r->coeffs[i + m].v, p->coeffs[i].v, sizeof(fp_fe));
+}
+
+static void fq_poly_shift(fq_poly *r, const fq_poly *p, size_t m)
+{
+    if (m == 0)
+    {
+        *r = *p;
+        return;
+    }
+    size_t n = p->coeffs.size();
+    r->coeffs.resize(n + m);
+    for (size_t i = 0; i < m; i++)
+        fq_0(r->coeffs[i].v);
+    for (size_t i = 0; i < n; i++)
+        std::memcpy(r->coeffs[i + m].v, p->coeffs[i].v, sizeof(fq_fe));
+}
+
+/* ================================================================
+ * F_p polynomial operations
+ * ================================================================ */
+
+/*
+ * Karatsuba polynomial multiplication (recursive).
+ *
+ * Given A, B, split at midpoint m:
+ *   A = A_lo + x^m * A_hi
+ *   B = B_lo + x^m * B_hi
+ *   z0 = A_lo * B_lo
+ *   z2 = A_hi * B_hi
+ *   z1 = (A_lo + A_hi) * (B_lo + B_hi) - z0 - z2
+ *   result = z0 + x^m * z1 + x^(2m) * z2
+ */
+static void fp_poly_mul_karatsuba(fp_poly *r, const fp_poly *a, const fp_poly *b)
+{
+    size_t na = a->coeffs.size();
+    size_t nb = b->coeffs.size();
+
+    /* Base case: fall through to schoolbook */
+    if (na < KARATSUBA_THRESHOLD || nb < KARATSUBA_THRESHOLD)
+    {
+        fp_poly_mul_schoolbook(r, a, b);
+        return;
+    }
+
+    size_t m = ((na > nb) ? na : nb) / 2;
+
+    fp_poly a_lo, a_hi, b_lo, b_hi;
+    fp_poly_slice(&a_lo, a, 0, m);
+    fp_poly_slice(&a_hi, a, m, na - m);
+    fp_poly_slice(&b_lo, b, 0, m);
+    fp_poly_slice(&b_hi, b, m, nb - m);
+
+    /* z0 = a_lo * b_lo */
+    fp_poly z0;
+    fp_poly_mul(&z0, &a_lo, &b_lo);
+
+    /* z2 = a_hi * b_hi */
+    fp_poly z2;
+    fp_poly_mul(&z2, &a_hi, &b_hi);
+
+    /* z1 = (a_lo + a_hi) * (b_lo + b_hi) - z0 - z2 */
+    fp_poly a_sum, b_sum, z1_raw, z1_tmp, z1;
+    fp_poly_add(&a_sum, &a_lo, &a_hi);
+    fp_poly_add(&b_sum, &b_lo, &b_hi);
+    fp_poly_mul(&z1_raw, &a_sum, &b_sum);
+    fp_poly_sub(&z1_tmp, &z1_raw, &z0);
+    fp_poly_sub(&z1, &z1_tmp, &z2);
+
+    /* result = z0 + x^m * z1 + x^(2m) * z2 */
+    fp_poly z1_shifted, z2_shifted, tmp;
+    fp_poly_shift(&z1_shifted, &z1, m);
+    fp_poly_shift(&z2_shifted, &z2, 2 * m);
+    fp_poly_add(&tmp, &z0, &z1_shifted);
+    fp_poly_add(r, &tmp, &z2_shifted);
+}
+
+void fp_poly_mul(fp_poly *r, const fp_poly *a, const fp_poly *b)
+{
+    size_t na = a->coeffs.size();
+    size_t nb = b->coeffs.size();
+
+    if (na == 0 || nb == 0)
+    {
+        r->coeffs.resize(1);
+        fp_0(r->coeffs[0].v);
+        return;
+    }
+
+    if (na >= KARATSUBA_THRESHOLD && nb >= KARATSUBA_THRESHOLD)
+    {
+        fp_poly_mul_karatsuba(r, a, b);
+    }
+    else
+    {
+        fp_poly_mul_schoolbook(r, a, b);
+    }
 }
 
 void fp_poly_eval(fp_fe result, const fp_poly *p, const fp_fe x)
@@ -265,9 +564,122 @@ void fp_poly_divmod(fp_poly *q, fp_poly *rem, const fp_poly *a, const fp_poly *b
     fp_poly_strip(q);
 }
 
+void fp_poly_interpolate(fp_poly *out, const fp_fe *xs, const fp_fe *ys, size_t n)
+{
+    if (n == 0)
+    {
+        out->coeffs.resize(1);
+        fp_0(out->coeffs[0].v);
+        return;
+    }
+
+    if (n == 1)
+    {
+        out->coeffs.resize(1);
+        fp_copy(out->coeffs[0].v, ys[0]);
+        return;
+    }
+
+    /* Build vanishing polynomial v(x) = prod(x - x_i) */
+    fp_poly v;
+    fp_poly_from_roots(&v, xs, n);
+
+    /* Initialize output to zero polynomial of degree n-1 */
+    out->coeffs.resize(n);
+    for (size_t k = 0; k < n; k++)
+    {
+        fp_0(out->coeffs[k].v);
+    }
+
+    /* For each point, compute Lagrange basis L_i(x) and accumulate */
+    for (size_t i = 0; i < n; i++)
+    {
+        /* L_num_i(x) = v(x) / (x - x_i) */
+        fp_poly lin;
+        lin.coeffs.resize(2);
+        fp_neg(lin.coeffs[0].v, xs[i]);
+        fp_1(lin.coeffs[1].v);
+
+        fp_poly L_num, remainder;
+        fp_poly_divmod(&L_num, &remainder, &v, &lin);
+
+        /* w_i = prod_{j!=i}(x_i - x_j) */
+        fp_fe wi;
+        fp_1(wi);
+        for (size_t j = 0; j < n; j++)
+        {
+            if (j == i)
+                continue;
+            fp_fe diff, tmp;
+            fp_sub(diff, xs[i], xs[j]);
+            fp_mul(tmp, wi, diff);
+            fp_copy(wi, tmp);
+        }
+
+        fp_fe wi_inv;
+        fp_invert(wi_inv, wi);
+
+        /* scale = y_i / w_i */
+        fp_fe scale;
+        fp_mul(scale, ys[i], wi_inv);
+
+        /* Accumulate: out += scale * L_num(x) */
+        for (size_t k = 0; k < L_num.coeffs.size() && k < n; k++)
+        {
+            fp_fe lk, prod, cur;
+            fp_fe_load(lk, &L_num.coeffs[k]);
+            fp_mul(prod, scale, lk);
+            fp_fe_load(cur, &out->coeffs[k]);
+            fp_add(cur, cur, prod);
+            fp_fe_store(&out->coeffs[k], cur);
+        }
+    }
+
+    fp_poly_strip(out);
+}
+
 /* ================================================================
  * F_q polynomial operations
  * ================================================================ */
+
+static void fq_poly_mul_karatsuba(fq_poly *r, const fq_poly *a, const fq_poly *b)
+{
+    size_t na = a->coeffs.size();
+    size_t nb = b->coeffs.size();
+
+    if (na < KARATSUBA_THRESHOLD || nb < KARATSUBA_THRESHOLD)
+    {
+        fq_poly_mul_schoolbook(r, a, b);
+        return;
+    }
+
+    size_t m = ((na > nb) ? na : nb) / 2;
+
+    fq_poly a_lo, a_hi, b_lo, b_hi;
+    fq_poly_slice(&a_lo, a, 0, m);
+    fq_poly_slice(&a_hi, a, m, na - m);
+    fq_poly_slice(&b_lo, b, 0, m);
+    fq_poly_slice(&b_hi, b, m, nb - m);
+
+    fq_poly z0;
+    fq_poly_mul(&z0, &a_lo, &b_lo);
+
+    fq_poly z2;
+    fq_poly_mul(&z2, &a_hi, &b_hi);
+
+    fq_poly a_sum, b_sum, z1_raw, z1_tmp, z1;
+    fq_poly_add(&a_sum, &a_lo, &a_hi);
+    fq_poly_add(&b_sum, &b_lo, &b_hi);
+    fq_poly_mul(&z1_raw, &a_sum, &b_sum);
+    fq_poly_sub(&z1_tmp, &z1_raw, &z0);
+    fq_poly_sub(&z1, &z1_tmp, &z2);
+
+    fq_poly z1_shifted, z2_shifted, tmp;
+    fq_poly_shift(&z1_shifted, &z1, m);
+    fq_poly_shift(&z2_shifted, &z2, 2 * m);
+    fq_poly_add(&tmp, &z0, &z1_shifted);
+    fq_poly_add(r, &tmp, &z2_shifted);
+}
 
 void fq_poly_mul(fq_poly *r, const fq_poly *a, const fq_poly *b)
 {
@@ -276,37 +688,19 @@ void fq_poly_mul(fq_poly *r, const fq_poly *a, const fq_poly *b)
 
     if (na == 0 || nb == 0)
     {
-        r->coeffs.clear();
-        fq_fe_storage z;
-        fq_0(z.v);
-        r->coeffs.push_back(z);
+        r->coeffs.resize(1);
+        fq_0(r->coeffs[0].v);
         return;
     }
 
-    size_t nr = na + nb - 1;
-    r->coeffs.resize(nr);
-
-    for (size_t k = 0; k < nr; k++)
+    if (na >= KARATSUBA_THRESHOLD && nb >= KARATSUBA_THRESHOLD)
     {
-        fq_0(r->coeffs[k].v);
+        fq_poly_mul_karatsuba(r, a, b);
     }
-
-    for (size_t i = 0; i < na; i++)
+    else
     {
-        fq_fe ai;
-        fq_fe_load(ai, &a->coeffs[i]);
-        for (size_t j = 0; j < nb; j++)
-        {
-            fq_fe bj, prod, sum;
-            fq_fe_load(bj, &b->coeffs[j]);
-            fq_mul(prod, ai, bj);
-            fq_fe_load(sum, &r->coeffs[i + j]);
-            fq_add(sum, sum, prod);
-            fq_fe_store(&r->coeffs[i + j], sum);
-        }
+        fq_poly_mul_schoolbook(r, a, b);
     }
-
-    fq_poly_strip(r);
 }
 
 void fq_poly_eval(fq_fe result, const fq_poly *p, const fq_fe x)
@@ -406,4 +800,73 @@ void fq_poly_divmod(fq_poly *q, fq_poly *rem, const fq_poly *a, const fq_poly *b
     rem->coeffs.resize(nb - 1 > 0 ? nb - 1 : 1);
     fq_poly_strip(rem);
     fq_poly_strip(q);
+}
+
+void fq_poly_interpolate(fq_poly *out, const fq_fe *xs, const fq_fe *ys, size_t n)
+{
+    if (n == 0)
+    {
+        out->coeffs.resize(1);
+        fq_0(out->coeffs[0].v);
+        return;
+    }
+
+    if (n == 1)
+    {
+        out->coeffs.resize(1);
+        fq_copy(out->coeffs[0].v, ys[0]);
+        return;
+    }
+
+    /* Build vanishing polynomial v(x) = prod(x - x_i) */
+    fq_poly v;
+    fq_poly_from_roots(&v, xs, n);
+
+    /* Initialize output to zero polynomial of degree n-1 */
+    out->coeffs.resize(n);
+    for (size_t k = 0; k < n; k++)
+    {
+        fq_0(out->coeffs[k].v);
+    }
+
+    for (size_t i = 0; i < n; i++)
+    {
+        fq_poly lin;
+        lin.coeffs.resize(2);
+        fq_neg(lin.coeffs[0].v, xs[i]);
+        fq_1(lin.coeffs[1].v);
+
+        fq_poly L_num, remainder;
+        fq_poly_divmod(&L_num, &remainder, &v, &lin);
+
+        fq_fe wi;
+        fq_1(wi);
+        for (size_t j = 0; j < n; j++)
+        {
+            if (j == i)
+                continue;
+            fq_fe diff, tmp;
+            fq_sub(diff, xs[i], xs[j]);
+            fq_mul(tmp, wi, diff);
+            fq_copy(wi, tmp);
+        }
+
+        fq_fe wi_inv;
+        fq_invert(wi_inv, wi);
+
+        fq_fe scale;
+        fq_mul(scale, ys[i], wi_inv);
+
+        for (size_t k = 0; k < L_num.coeffs.size() && k < n; k++)
+        {
+            fq_fe lk, prod, cur;
+            fq_fe_load(lk, &L_num.coeffs[k]);
+            fq_mul(prod, scale, lk);
+            fq_fe_load(cur, &out->coeffs[k]);
+            fq_add(cur, cur, prod);
+            fq_fe_store(&out->coeffs[k], cur);
+        }
+    }
+
+    fq_poly_strip(out);
 }

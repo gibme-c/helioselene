@@ -3021,6 +3021,579 @@ static void test_divisor_extended()
     }
 }
 
+static void test_point_to_scalar()
+{
+    std::cout << std::endl << "=== Point-to-scalar ===" << std::endl;
+
+    /* Helios: extract x-coordinate of G as bytes */
+    {
+        helios_jacobian G;
+        fp_copy(G.X, HELIOS_GX);
+        fp_copy(G.Y, HELIOS_GY);
+        fp_1(G.Z);
+
+        unsigned char xbytes[32];
+        helios_point_to_bytes(xbytes, &G);
+
+        /* G.x == 3, so bytes should be {3, 0, ..., 0} */
+        unsigned char expected_gx[32] = {0x03};
+        check_bytes("helios G.x == 3", expected_gx, xbytes, 32);
+    }
+
+    /* Selene: extract x-coordinate of G as bytes */
+    {
+        selene_jacobian G;
+        fq_copy(G.X, SELENE_GX);
+        fq_copy(G.Y, SELENE_GY);
+        fq_1(G.Z);
+
+        unsigned char xbytes[32];
+        selene_point_to_bytes(xbytes, &G);
+
+        /* G.x == 1, so bytes should be {1, 0, ..., 0} */
+        unsigned char expected_gx[32] = {0x01};
+        check_bytes("selene G.x == 1", expected_gx, xbytes, 32);
+    }
+
+    /* Round-trip: 7*G, extract x, verify tobytes(affine.x) matches */
+    {
+        helios_jacobian G, P;
+        fp_copy(G.X, HELIOS_GX);
+        fp_copy(G.Y, HELIOS_GY);
+        fp_1(G.Z);
+
+        unsigned char scalar_7[32] = {0x07};
+        helios_scalarmult_vartime(&P, scalar_7, &G);
+
+        unsigned char pt_bytes[32];
+        helios_point_to_bytes(pt_bytes, &P);
+
+        /* Verify via independent affine conversion */
+        helios_affine a;
+        helios_to_affine(&a, &P);
+        unsigned char ref_bytes[32];
+        fp_tobytes(ref_bytes, a.x);
+        check_bytes("helios 7G round-trip x", ref_bytes, pt_bytes, 32);
+    }
+
+    /* Identity: should produce 32 zero bytes */
+    {
+        helios_jacobian id;
+        helios_identity(&id);
+        unsigned char xbytes[32];
+        helios_point_to_bytes(xbytes, &id);
+        check_bytes("helios identity -> zero bytes", zero_bytes, xbytes, 32);
+
+        selene_jacobian sid;
+        selene_identity(&sid);
+        unsigned char sxbytes[32];
+        selene_point_to_bytes(sxbytes, &sid);
+        check_bytes("selene identity -> zero bytes", zero_bytes, sxbytes, 32);
+    }
+
+    /* Cross-curve: Helios point -> Fp bytes -> Selene scalar -> Selene point -> Fq bytes -> Helios scalar */
+    {
+        helios_jacobian HG, HP;
+        fp_copy(HG.X, HELIOS_GX);
+        fp_copy(HG.Y, HELIOS_GY);
+        fp_1(HG.Z);
+
+        unsigned char scalar_5[32] = {0x05};
+        helios_scalarmult_vartime(&HP, scalar_5, &HG);
+
+        /* Extract Helios x-coordinate as bytes (element of Fp = Selene scalar field) */
+        unsigned char hp_x[32];
+        helios_point_to_bytes(hp_x, &HP);
+
+        /* Use as Selene scalar for scalarmult */
+        selene_jacobian SG, SP;
+        fq_copy(SG.X, SELENE_GX);
+        fq_copy(SG.Y, SELENE_GY);
+        fq_1(SG.Z);
+        selene_scalarmult_vartime(&SP, hp_x, &SG);
+
+        /* Extract Selene x-coordinate as bytes (element of Fq = Helios scalar field) */
+        unsigned char sp_x[32];
+        selene_point_to_bytes(sp_x, &SP);
+
+        /* Use as Helios scalar */
+        helios_jacobian HP2;
+        helios_scalarmult_vartime(&HP2, sp_x, &HG);
+
+        /* Verify the chain produced a valid non-identity point */
+        unsigned char hp2_bytes[32];
+        helios_point_to_bytes(hp2_bytes, &HP2);
+        check_nonzero("cross-curve chain produces non-identity", std::memcmp(hp2_bytes, zero_bytes, 32) != 0 ? 1 : 0);
+    }
+}
+
+static void test_helios_scalar()
+{
+    std::cout << std::endl << "=== Helios scalar ===" << std::endl;
+
+    fq_fe a, b;
+    fq_frombytes(a, test_a_bytes);
+    fq_frombytes(b, test_b_bytes);
+
+    /* a + (-a) == 0 */
+    {
+        fq_fe neg_a, sum;
+        helios_scalar_neg(neg_a, a);
+        helios_scalar_add(sum, a, neg_a);
+        unsigned char out[32];
+        helios_scalar_to_bytes(out, sum);
+        check_bytes("helios scalar a + (-a) == 0", zero_bytes, out, 32);
+    }
+
+    /* a * 1 == a */
+    {
+        fq_fe one, prod;
+        helios_scalar_one(one);
+        helios_scalar_mul(prod, a, one);
+        unsigned char out[32], expected[32];
+        helios_scalar_to_bytes(out, prod);
+        helios_scalar_to_bytes(expected, a);
+        check_bytes("helios scalar a * 1 == a", expected, out, 32);
+    }
+
+    /* a * a^(-1) == 1 */
+    {
+        fq_fe inv, prod;
+        helios_scalar_invert(inv, a);
+        helios_scalar_mul(prod, a, inv);
+        unsigned char out[32];
+        helios_scalar_to_bytes(out, prod);
+        check_bytes("helios scalar a * a^-1 == 1", one_bytes, out, 32);
+    }
+
+    /* Distributivity: a * (b + c) == a*b + a*c where c = 1 */
+    {
+        fq_fe one, b_plus_one, lhs, ab, a_one, rhs;
+        helios_scalar_one(one);
+        helios_scalar_add(b_plus_one, b, one);
+        helios_scalar_mul(lhs, a, b_plus_one);
+        helios_scalar_mul(ab, a, b);
+        helios_scalar_mul(a_one, a, one);
+        helios_scalar_add(rhs, ab, a_one);
+        unsigned char lhs_bytes[32], rhs_bytes[32];
+        helios_scalar_to_bytes(lhs_bytes, lhs);
+        helios_scalar_to_bytes(rhs_bytes, rhs);
+        check_bytes("helios scalar distributivity", lhs_bytes, rhs_bytes, 32);
+    }
+
+    /* Serialization round-trip */
+    {
+        unsigned char buf[32];
+        helios_scalar_to_bytes(buf, a);
+        fq_fe a2;
+        helios_scalar_from_bytes(a2, buf);
+        unsigned char buf2[32];
+        helios_scalar_to_bytes(buf2, a2);
+        check_bytes("helios scalar round-trip", buf, buf2, 32);
+    }
+
+    /* is_zero */
+    {
+        fq_fe z;
+        helios_scalar_zero(z);
+        check_int("helios scalar is_zero(0)", 1, helios_scalar_is_zero(z));
+        check_int("helios scalar !is_zero(a)", 0, helios_scalar_is_zero(a));
+    }
+
+    /* Wide reduction: reduce known 64-byte value */
+    {
+        /* All-zero 64 bytes should give zero */
+        unsigned char wide_zero[64] = {};
+        fq_fe result;
+        helios_scalar_reduce_wide(result, wide_zero);
+        unsigned char out[32];
+        helios_scalar_to_bytes(out, result);
+        check_bytes("helios scalar reduce_wide(0) == 0", zero_bytes, out, 32);
+
+        /* lo = 1, hi = 0 -> result = 1 */
+        unsigned char wide_one[64] = {0x01};
+        helios_scalar_reduce_wide(result, wide_one);
+        helios_scalar_to_bytes(out, result);
+        check_bytes("helios scalar reduce_wide(lo=1,hi=0) == 1", one_bytes, out, 32);
+    }
+}
+
+static void test_selene_scalar()
+{
+    std::cout << std::endl << "=== Selene scalar ===" << std::endl;
+
+    fp_fe a, b;
+    fp_frombytes(a, test_a_bytes);
+    fp_frombytes(b, test_b_bytes);
+
+    /* a + (-a) == 0 */
+    {
+        fp_fe neg_a, sum;
+        selene_scalar_neg(neg_a, a);
+        selene_scalar_add(sum, a, neg_a);
+        unsigned char out[32];
+        selene_scalar_to_bytes(out, sum);
+        check_bytes("selene scalar a + (-a) == 0", zero_bytes, out, 32);
+    }
+
+    /* a * 1 == a */
+    {
+        fp_fe one, prod;
+        selene_scalar_one(one);
+        selene_scalar_mul(prod, a, one);
+        unsigned char out[32], expected[32];
+        selene_scalar_to_bytes(out, prod);
+        selene_scalar_to_bytes(expected, a);
+        check_bytes("selene scalar a * 1 == a", expected, out, 32);
+    }
+
+    /* a * a^(-1) == 1 */
+    {
+        fp_fe inv, prod;
+        selene_scalar_invert(inv, a);
+        selene_scalar_mul(prod, a, inv);
+        unsigned char out[32];
+        selene_scalar_to_bytes(out, prod);
+        check_bytes("selene scalar a * a^-1 == 1", one_bytes, out, 32);
+    }
+
+    /* Distributivity */
+    {
+        fp_fe one, b_plus_one, lhs, ab, a_one, rhs;
+        selene_scalar_one(one);
+        selene_scalar_add(b_plus_one, b, one);
+        selene_scalar_mul(lhs, a, b_plus_one);
+        selene_scalar_mul(ab, a, b);
+        selene_scalar_mul(a_one, a, one);
+        selene_scalar_add(rhs, ab, a_one);
+        unsigned char lhs_bytes[32], rhs_bytes[32];
+        selene_scalar_to_bytes(lhs_bytes, lhs);
+        selene_scalar_to_bytes(rhs_bytes, rhs);
+        check_bytes("selene scalar distributivity", lhs_bytes, rhs_bytes, 32);
+    }
+
+    /* Serialization round-trip */
+    {
+        unsigned char buf[32];
+        selene_scalar_to_bytes(buf, a);
+        fp_fe a2;
+        selene_scalar_from_bytes(a2, buf);
+        unsigned char buf2[32];
+        selene_scalar_to_bytes(buf2, a2);
+        check_bytes("selene scalar round-trip", buf, buf2, 32);
+    }
+
+    /* is_zero */
+    {
+        fp_fe z;
+        selene_scalar_zero(z);
+        check_int("selene scalar is_zero(0)", 1, selene_scalar_is_zero(z));
+        check_int("selene scalar !is_zero(a)", 0, selene_scalar_is_zero(a));
+    }
+
+    /* Wide reduction */
+    {
+        unsigned char wide_zero[64] = {};
+        fp_fe result;
+        selene_scalar_reduce_wide(result, wide_zero);
+        unsigned char out[32];
+        selene_scalar_to_bytes(out, result);
+        check_bytes("selene scalar reduce_wide(0) == 0", zero_bytes, out, 32);
+
+        unsigned char wide_one[64] = {0x01};
+        selene_scalar_reduce_wide(result, wide_one);
+        selene_scalar_to_bytes(out, result);
+        check_bytes("selene scalar reduce_wide(lo=1,hi=0) == 1", one_bytes, out, 32);
+    }
+}
+
+static void test_poly_interpolate()
+{
+    std::cout << std::endl << "=== Polynomial interpolation ===" << std::endl;
+
+    /* Fp: interpolate through 3 known points: (1,1), (2,4), (3,9) -> f(x) = x^2 */
+    {
+        fp_fe xs[3], ys[3];
+        unsigned char x1[32] = {1}, x2[32] = {2}, x3[32] = {3};
+        unsigned char y1[32] = {1}, y4[32] = {4}, y9[32] = {9};
+        fp_frombytes(xs[0], x1);
+        fp_frombytes(xs[1], x2);
+        fp_frombytes(xs[2], x3);
+        fp_frombytes(ys[0], y1);
+        fp_frombytes(ys[1], y4);
+        fp_frombytes(ys[2], y9);
+
+        fp_poly out;
+        fp_poly_interpolate(&out, xs, ys, 3);
+
+        /* Verify evaluations: f(1)=1, f(2)=4, f(3)=9 */
+        fp_fe result;
+        fp_poly_eval(result, &out, xs[0]);
+        unsigned char rb[32];
+        fp_tobytes(rb, result);
+        check_bytes("fp interp f(1)==1", y1, rb, 32);
+
+        fp_poly_eval(result, &out, xs[1]);
+        fp_tobytes(rb, result);
+        check_bytes("fp interp f(2)==4", y4, rb, 32);
+
+        fp_poly_eval(result, &out, xs[2]);
+        fp_tobytes(rb, result);
+        check_bytes("fp interp f(3)==9", y9, rb, 32);
+
+        /* Degree check: 3 points -> degree 2 polynomial (3 coefficients) */
+        check_int("fp interp degree == 2", 3, (int)out.coeffs.size());
+    }
+
+    /* Fq: interpolate through 3 known points: (1,2), (2,5), (3,10) -> f(x) = x^2 + 1 */
+    {
+        fq_fe xs[3], ys[3];
+        unsigned char x1[32] = {1}, x2[32] = {2}, x3[32] = {3};
+        unsigned char y2[32] = {2}, y5[32] = {5}, y10[32] = {10};
+        fq_frombytes(xs[0], x1);
+        fq_frombytes(xs[1], x2);
+        fq_frombytes(xs[2], x3);
+        fq_frombytes(ys[0], y2);
+        fq_frombytes(ys[1], y5);
+        fq_frombytes(ys[2], y10);
+
+        fq_poly out;
+        fq_poly_interpolate(&out, xs, ys, 3);
+
+        fq_fe result;
+        fq_poly_eval(result, &out, xs[0]);
+        unsigned char rb[32];
+        fq_tobytes(rb, result);
+        check_bytes("fq interp f(1)==2", y2, rb, 32);
+
+        fq_poly_eval(result, &out, xs[1]);
+        fq_tobytes(rb, result);
+        check_bytes("fq interp f(2)==5", y5, rb, 32);
+
+        fq_poly_eval(result, &out, xs[2]);
+        fq_tobytes(rb, result);
+        check_bytes("fq interp f(3)==10", y10, rb, 32);
+
+        check_int("fq interp degree == 2", 3, (int)out.coeffs.size());
+    }
+
+    /* Single-point interpolation */
+    {
+        fp_fe xs[1], ys[1];
+        unsigned char x1[32] = {7}, y42[32] = {42};
+        fp_frombytes(xs[0], x1);
+        fp_frombytes(ys[0], y42);
+        fp_poly out;
+        fp_poly_interpolate(&out, xs, ys, 1);
+        check_int("fp interp n=1 degree", 1, (int)out.coeffs.size());
+
+        fp_fe result;
+        fp_poly_eval(result, &out, xs[0]);
+        unsigned char rb[32];
+        fp_tobytes(rb, result);
+        check_bytes("fp interp n=1 eval", y42, rb, 32);
+    }
+}
+
+static void test_karatsuba()
+{
+    std::cout << std::endl << "=== Karatsuba ===" << std::endl;
+
+    /*
+     * Verify Karatsuba matches schoolbook for polynomials built from roots.
+     * Build two poly of degree 32+ by using from_roots, then multiply them.
+     * Verify by evaluating at a test point.
+     */
+
+    /* Fp: build A from 33 roots, B from 33 roots, multiply via Karatsuba */
+    {
+        /* Create roots: just small integers */
+        fp_fe roots_a[33], roots_b[33];
+        for (int i = 0; i < 33; i++)
+        {
+            unsigned char buf[32] = {};
+            buf[0] = (unsigned char)(i + 1);
+            fp_frombytes(roots_a[i], buf);
+            buf[0] = (unsigned char)(i + 34);
+            fp_frombytes(roots_b[i], buf);
+        }
+
+        fp_poly A, B, C;
+        fp_poly_from_roots(&A, roots_a, 33);
+        fp_poly_from_roots(&B, roots_b, 33);
+
+        /* C = A * B (will use Karatsuba since both have 34 coefficients >= 32) */
+        fp_poly_mul(&C, &A, &B);
+
+        /* Verify: eval C at root of A should be 0 (since A(root)=0, C=A*B, so C(root)=0) */
+        fp_fe result;
+        fp_poly_eval(result, &C, roots_a[0]);
+        unsigned char rb[32];
+        fp_tobytes(rb, result);
+        check_bytes("fp karatsuba: C(root_a[0]) == 0", zero_bytes, rb, 32);
+
+        fp_poly_eval(result, &C, roots_a[16]);
+        fp_tobytes(rb, result);
+        check_bytes("fp karatsuba: C(root_a[16]) == 0", zero_bytes, rb, 32);
+
+        /* Verify degree: (33+33) = 66 roots -> degree 66 product */
+        check_int("fp karatsuba degree", 67, (int)C.coeffs.size());
+
+        /* Verify at a non-root point: C(0) should be A(0)*B(0) */
+        fp_fe zero_pt, a_at_0, b_at_0, expected_c0, c_at_0;
+        fp_0(zero_pt);
+        fp_poly_eval(a_at_0, &A, zero_pt);
+        fp_poly_eval(b_at_0, &B, zero_pt);
+        fp_mul(expected_c0, a_at_0, b_at_0);
+        fp_poly_eval(c_at_0, &C, zero_pt);
+
+        unsigned char exp_bytes[32], act_bytes[32];
+        fp_tobytes(exp_bytes, expected_c0);
+        fp_tobytes(act_bytes, c_at_0);
+        check_bytes("fp karatsuba: C(0) == A(0)*B(0)", exp_bytes, act_bytes, 32);
+    }
+
+    /* Fq: same test */
+    {
+        fq_fe roots_a[33], roots_b[33];
+        for (int i = 0; i < 33; i++)
+        {
+            unsigned char buf[32] = {};
+            buf[0] = (unsigned char)(i + 1);
+            fq_frombytes(roots_a[i], buf);
+            buf[0] = (unsigned char)(i + 34);
+            fq_frombytes(roots_b[i], buf);
+        }
+
+        fq_poly A, B, C;
+        fq_poly_from_roots(&A, roots_a, 33);
+        fq_poly_from_roots(&B, roots_b, 33);
+        fq_poly_mul(&C, &A, &B);
+
+        fq_fe result;
+        fq_poly_eval(result, &C, roots_a[0]);
+        unsigned char rb[32];
+        fq_tobytes(rb, result);
+        check_bytes("fq karatsuba: C(root_a[0]) == 0", zero_bytes, rb, 32);
+
+        check_int("fq karatsuba degree", 67, (int)C.coeffs.size());
+
+        fq_fe zero_pt, a_at_0, b_at_0, expected_c0, c_at_0;
+        fq_0(zero_pt);
+        fq_poly_eval(a_at_0, &A, zero_pt);
+        fq_poly_eval(b_at_0, &B, zero_pt);
+        fq_mul(expected_c0, a_at_0, b_at_0);
+        fq_poly_eval(c_at_0, &C, zero_pt);
+
+        unsigned char exp_bytes[32], act_bytes[32];
+        fq_tobytes(exp_bytes, expected_c0);
+        fq_tobytes(act_bytes, c_at_0);
+        check_bytes("fq karatsuba: C(0) == A(0)*B(0)", exp_bytes, act_bytes, 32);
+    }
+
+    /* Mixed sizes: one small (< threshold), one large (>= threshold) -> schoolbook */
+    {
+        fp_fe roots_a[5], roots_b[33];
+        for (int i = 0; i < 5; i++)
+        {
+            unsigned char buf[32] = {};
+            buf[0] = (unsigned char)(i + 1);
+            fp_frombytes(roots_a[i], buf);
+        }
+        for (int i = 0; i < 33; i++)
+        {
+            unsigned char buf[32] = {};
+            buf[0] = (unsigned char)(i + 10);
+            fp_frombytes(roots_b[i], buf);
+        }
+
+        fp_poly A, B, C;
+        fp_poly_from_roots(&A, roots_a, 5);
+        fp_poly_from_roots(&B, roots_b, 33);
+        fp_poly_mul(&C, &A, &B);
+
+        fp_fe result;
+        fp_poly_eval(result, &C, roots_a[2]);
+        unsigned char rb[32];
+        fp_tobytes(rb, result);
+        check_bytes("fp mixed-size: C(root_a[2]) == 0", zero_bytes, rb, 32);
+
+        check_int("fp mixed-size degree", 39, (int)C.coeffs.size());
+    }
+}
+
+static void test_dispatch()
+{
+    std::cout << "  dispatch" << std::endl;
+
+#if HELIOSELENE_SIMD
+    // Test that init() can be called (no-op if already called, or first time)
+    helioselene_init();
+
+    // After init, dispatch should still produce correct results.
+    // Run scalarmult through dispatch wrappers and verify against KAT.
+
+    // Helios scalarmult via dispatch
+    {
+        helios_jacobian G;
+        fp_copy(G.X, HELIOS_GX);
+        fp_copy(G.Y, HELIOS_GY);
+        fp_1(G.Z);
+
+        // 7*G via dispatch
+        unsigned char scalar_7[32] = {0x07};
+        helios_jacobian result;
+        helios_scalarmult(&result, scalar_7, &G);
+
+        unsigned char result_bytes[32];
+        helios_tobytes(result_bytes, &result);
+        check_bytes("helios dispatch scalarmult 7*G", result_bytes, helios_7g_compressed, 32);
+
+        // vartime
+        helios_scalarmult_vartime(&result, scalar_7, &G);
+        helios_tobytes(result_bytes, &result);
+        check_bytes("helios dispatch scalarmult_vt 7*G", result_bytes, helios_7g_compressed, 32);
+
+        // MSM: 7*G via MSM(scalar=7, point=G, n=1)
+        helios_msm_vartime(&result, scalar_7, &G, 1);
+        helios_tobytes(result_bytes, &result);
+        check_bytes("helios dispatch msm 7*G", result_bytes, helios_7g_compressed, 32);
+    }
+
+    // Selene scalarmult via dispatch
+    {
+        selene_jacobian G;
+        fq_copy(G.X, SELENE_GX);
+        fq_copy(G.Y, SELENE_GY);
+        fq_1(G.Z);
+
+        unsigned char scalar_7[32] = {0x07};
+        selene_jacobian result;
+        selene_scalarmult(&result, scalar_7, &G);
+
+        unsigned char result_bytes[32];
+        selene_tobytes(result_bytes, &result);
+        check_bytes("selene dispatch scalarmult 7*G", result_bytes, selene_7g_compressed, 32);
+
+        selene_scalarmult_vartime(&result, scalar_7, &G);
+        selene_tobytes(result_bytes, &result);
+        check_bytes("selene dispatch scalarmult_vt 7*G", result_bytes, selene_7g_compressed, 32);
+
+        selene_msm_vartime(&result, scalar_7, &G, 1);
+        selene_tobytes(result_bytes, &result);
+        check_bytes("selene dispatch msm 7*G", result_bytes, selene_7g_compressed, 32);
+    }
+
+    // Test double init is safe (idempotent via call_once)
+    helioselene_init();
+#else
+    // No-SIMD build: init/autotune are no-ops, dispatch not used
+    helioselene_init();
+    helioselene_autotune();
+    std::cout << "    (SIMD disabled, dispatch stubs only)" << std::endl;
+#endif
+}
+
 int main()
 {
     std::cout << "Helioselene Unit Tests" << std::endl;
@@ -3058,6 +3631,12 @@ int main()
     test_pedersen_extended();
     test_poly_extended();
     test_divisor_extended();
+    test_point_to_scalar();
+    test_helios_scalar();
+    test_selene_scalar();
+    test_poly_interpolate();
+    test_karatsuba();
+    test_dispatch();
 
     std::cout << std::endl << "======================" << std::endl;
     std::cout << "Total:  " << tests_run << std::endl;

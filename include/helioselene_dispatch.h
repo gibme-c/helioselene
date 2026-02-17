@@ -24,32 +24,39 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#ifndef HELIOSELENE_HELIOS_SCALARMULT_VARTIME_H
-#define HELIOSELENE_HELIOS_SCALARMULT_VARTIME_H
+#ifndef HELIOSELENE_DISPATCH_H
+#define HELIOSELENE_DISPATCH_H
 
-#include "helios.h"
+#include "helioselene_platform.h"
 
 #if HELIOSELENE_SIMD
-#include "helioselene_dispatch.h"
-static inline void
-    helios_scalarmult_vartime(helios_jacobian *r, const unsigned char scalar[32], const helios_jacobian *p)
-{
-    helioselene_get_dispatch().helios_scalarmult_vartime(r, scalar, p);
-}
-#elif HELIOSELENE_PLATFORM_64BIT
-void helios_scalarmult_vartime_x64(helios_jacobian *r, const unsigned char scalar[32], const helios_jacobian *p);
-static inline void
-    helios_scalarmult_vartime(helios_jacobian *r, const unsigned char scalar[32], const helios_jacobian *p)
-{
-    helios_scalarmult_vartime_x64(r, scalar, p);
-}
-#else
-void helios_scalarmult_vartime_portable(helios_jacobian *r, const unsigned char scalar[32], const helios_jacobian *p);
-static inline void
-    helios_scalarmult_vartime(helios_jacobian *r, const unsigned char scalar[32], const helios_jacobian *p)
-{
-    helios_scalarmult_vartime_portable(r, scalar, p);
-}
-#endif
 
-#endif // HELIOSELENE_HELIOS_SCALARMULT_VARTIME_H
+#include "helios.h"
+#include "selene.h"
+
+#include <cstddef>
+
+struct helioselene_dispatch_table
+{
+    void (*helios_scalarmult)(helios_jacobian *, const unsigned char[32], const helios_jacobian *);
+    void (*helios_scalarmult_vartime)(helios_jacobian *, const unsigned char[32], const helios_jacobian *);
+    void (*helios_msm_vartime)(helios_jacobian *, const unsigned char *, const helios_jacobian *, size_t);
+    void (*selene_scalarmult)(selene_jacobian *, const unsigned char[32], const selene_jacobian *);
+    void (*selene_scalarmult_vartime)(selene_jacobian *, const unsigned char[32], const selene_jacobian *);
+    void (*selene_msm_vartime)(selene_jacobian *, const unsigned char *, const selene_jacobian *, size_t);
+};
+
+const helioselene_dispatch_table &helioselene_get_dispatch();
+
+void helioselene_init(void);
+
+void helioselene_autotune(void);
+
+#else
+
+static inline void helioselene_init(void) {}
+static inline void helioselene_autotune(void) {}
+
+#endif // HELIOSELENE_SIMD
+
+#endif // HELIOSELENE_DISPATCH_H

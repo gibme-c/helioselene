@@ -27,6 +27,7 @@
 #include "helioselene.h"
 #include "helioselene_benchmark.h"
 
+#include <cstring>
 #include <iostream>
 #include <vector>
 
@@ -41,9 +42,44 @@ static const unsigned char test_scalar[32] = {0xef, 0xcd, 0xab, 0x90, 0x78, 0x56
                                               0xca, 0xef, 0xbe, 0xad, 0xde, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06,
                                               0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10};
 
-int main()
+int main(int argc, char *argv[])
 {
+    const char *dispatch_label = "baseline (x64/portable)";
+    for (int i = 1; i < argc; i++)
+    {
+        if (std::strcmp(argv[i], "--autotune") == 0)
+        {
+            helioselene_autotune();
+            dispatch_label = "autotune";
+        }
+        else if (std::strcmp(argv[i], "--init") == 0)
+        {
+            helioselene_init();
+            dispatch_label = "init (CPUID heuristic)";
+        }
+        else
+        {
+            std::cerr << "Unknown option: " << argv[i] << std::endl;
+            std::cerr << "Usage: helioselene-benchmark [--init|--autotune]" << std::endl;
+            return 1;
+        }
+    }
+
     auto state = benchmark_setup();
+
+    std::cout << "Dispatch: " << dispatch_label << std::endl;
+#if HELIOSELENE_SIMD
+    std::cout << "CPU features:";
+    if (helioselene_has_avx2())
+        std::cout << " AVX2";
+    if (helioselene_has_avx512f())
+        std::cout << " AVX512F";
+    if (helioselene_has_avx512ifma())
+        std::cout << " AVX512IFMA";
+    if (!helioselene_cpu_features())
+        std::cout << " (none)";
+    std::cout << std::endl;
+#endif
 
     fp_fe fp_a, fp_b, fp_c;
     fp_frombytes(fp_a, test_a_bytes);

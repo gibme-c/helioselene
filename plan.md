@@ -117,7 +117,7 @@ This library is **not** a greenfield build. The `gibme-c/ed25519` library (devel
 **What is genuinely new (no ed25519 analog):**
 
 - **F_q Crandall reduction**: The two-round reduction algorithm specific to q = 2^255 − γ where γ ≈ 2^127. This is the most significant novel field arithmetic work — the wide γ constant means the reduction is structurally different from ed25519's per-limb ×19 fold (see §4.2).
-- **Jacobian point formulas**: The `a = −3` doubling optimization (3M + 4S), mixed Jacobian+affine addition (7M + 4S), general Jacobian addition (11M + 5S). These replace the Edwards unified addition. Note: GLV endomorphism does not apply to these curves (CM discriminant D = −7857907 does not yield an efficient endomorphism).
+- **Jacobian point formulas**: The `a = −3` doubling optimization (3M + 5S), mixed Jacobian+affine addition (7M + 4S), general Jacobian addition (11M + 5S). These replace the Edwards unified addition. Note: GLV endomorphism does not apply to these curves (CM discriminant D = −7857907 does not yield an efficient endomorphism).
 - **Wei25519 bridge (receive-side only)**: Helioselene accepts a raw 32-byte Wei25519 x-coordinate and returns a Selene scalar. The Ed25519 → Wei25519 coordinate transform is the caller's responsibility — helioselene has no dependency on any ed25519 library. This is a trivial function (~5 lines: deserialize bytes as F_p element, validate range, return as SeleneScalar).
 - **Hash-to-curve (SSWU)**: RFC 9380 mapping for short Weierstrass curves. Ed25519 uses Elligator, which is a different mapping.
 - **Dual-curve API**: The ed25519 library operates over a single curve. Helioselene exposes two curves with cross-curve scalar extraction, which requires careful API design to prevent mixing types.
@@ -164,7 +164,7 @@ In ed25519, after the 5×5 schoolbook you have 9 partial sums h0..h8, and the up
 5. **Second reduction round**: If the result exceeds 255 bits, split again and repeat with the much smaller overflow (at most ~128 bits × 2γ). This second round always fits.
 6. **Final conditional subtraction**: If result ≥ q, subtract q.
 
-The θ optimization (γ − 1 divisible by 2^10, so 2γ = 2 + 2^11 × θ where θ is 119 bits / 3 limbs) reduces the wide multiply: `hi × 2γ = 2*hi + (hi << 11) × θ`, where `hi × θ` is a 5-limb × 3-limb multiply.
+The θ optimization (γ − 1 divisible by 2^10, so 2γ = 2 + 2^11 × θ where θ is 119 bits / 3 limbs) reduces the wide multiply: `hi × 2γ = 2*hi + (hi << 11) × θ`, where `hi × θ` is a 5-limb × 3-limb multiply. Note: this decomposition is described here for completeness but is a performance optimization implemented in Phase 5 (§13). The base implementation uses direct GAMMA_51 multiply, which is correct.
 
 **Squaring**: Same reduction approach. The schoolbook squaring saves ~40% of multiplies via symmetry (same as ed25519's `fe51_sq_inline`), but the reduction tail uses the full Crandall method above.
 
@@ -208,7 +208,7 @@ All field operations on secret-dependent values must be constant-time:
 Both Helios and Selene are short Weierstrass curves of prime order with a = −3. The natural coordinate system choices are:
 
 **Jacobian coordinates (X:Y:Z)** where x = X/Z², y = Y/Z³:
-- **Doubling** with a = −3: 3M + 4S (using the `a = −3` optimization where `3x² + a = 3(x−1)(x+1)` in affine, translating to `3(X−Z²)(X+Z²)` in Jacobian). This is the primary reason the curves were constructed with a = −3.
+- **Doubling** with a = −3: 3M + 5S (using the `a = −3` optimization where `3x² + a = 3(x−1)(x+1)` in affine, translating to `3(X−Z²)(X+Z²)` in Jacobian). This is the primary reason the curves were constructed with a = −3.
 - **Mixed addition** (Jacobian + Affine): 7M + 4S. Critical for precomputed-table scalar multiplication.
 - **General addition** (Jacobian + Jacobian): 11M + 5S.
 
@@ -233,11 +233,12 @@ The API should make it impossible to use an unvalidated external point in a secr
 ### 5.3 Scalar Multiplication
 
 **Secret-path (constant-time)**:
-- Fixed-window method with width w=5 (2^(w-1) = 16 precomputed points).
+- Fixed-window method with width w=4 (2^(w-1) = 8 precomputed points).
 - Precomputation uses mixed coordinates; table stored in affine.
-- Table lookup via constant-time full-scan: iterate over all 16 entries, conditionally selecting the correct one.
-- Main loop: 51 window positions, each consisting of 5 doublings followed by 1 mixed addition from the precomputed table (total: 255 doublings + 51 additions).
+- Table lookup via constant-time full-scan: iterate over all 8 entries, conditionally selecting the correct one.
+- Main loop: 64 window positions, each consisting of 4 doublings followed by 1 mixed addition from the precomputed table (total: 256 doublings + 64 additions).
 - Regular recoding of the scalar to avoid branches on zero digits (use signed digit representation with no zeros).
+- Note: w=4 and w=5 are break-even for variable-base CT scalarmult. Fixed-base w=5 (16-entry table amortized across calls) is a Phase 5 optimization.
 
 **Variable-time verification path**:
 - wNAF (width-5 Non-Adjacent Form) with standard precomputation.
@@ -364,7 +365,7 @@ The divisor computation (proving that a set of points sums to zero via the divis
 
 The module provides:
 - Polynomial arithmetic over F_p and F_q: multiplication, division, evaluation, interpolation.
-- Polynomial multiplication strategy: schoolbook for small degree (n ≤ 64), Karatsuba for moderate degree (64 < n ≤ 1024), and a built-in NTT/FFT implementation for larger polynomials if the field supports sufficient 2-adicity (q−1 divisibility by powers of 2 needs verification — if insufficient, Bluestein's algorithm or Schönhage–Strassen).
+- Polynomial multiplication strategy: schoolbook for small degree (n ≤ 64), Karatsuba for moderate degree (64 < n ≤ 1024). NTT/FFT polynomial multiplication for large degree (n > 1024) is implemented in Phase 5 (§13). Phases 1–4 provide schoolbook and Karatsuba.
 - Point evaluation of divisors along challenge lines.
 - SIMD-accelerated polynomial operations: the field element vectors used for polynomial coefficients naturally benefit from the same AVX2/IFMA batch arithmetic used elsewhere in the library (`fe10x4` / `fe51x8` for 4-way/8-way parallel coefficient operations).
 
@@ -646,8 +647,11 @@ Note: ed25519 uses `-O3` for release builds. This is safe because auto-vectoriza
 
 ### Phase 5: Algorithmic Optimizations (Weeks 15–18)
 
-Performance-critical algorithmic work not covered by SIMD vectorization. These optimizations are essential for FCMP++ to be viable on a cryptocurrency blockchain where proof generation and verification latency directly impacts transaction throughput and user experience.
+Performance-critical algorithmic work not covered by SIMD vectorization. These optimizations are essential for FCMP++ to be viable on a cryptocurrency blockchain where proof generation and verification latency directly impacts transaction throughput and user experience. Phase 5 focuses on algorithmic optimizations. The public C++ API wrapping the internal C-style dispatch layer is Phase 6.
 
+- **Crandall theta optimization**: Decompose 2γ = 2 + 2^11 × θ (where θ = (γ−1)/2^10, 119 bits) in fq51_crandall_reduce to replace the 5×3 limb multiply by a shift-by-11 plus a smaller 5×3 multiply by θ. Constants TWO_GAMMA_51 are already defined in fq51.h. Apply to x64 scalar path (fq51_inline.h). SIMD paths may also benefit.
+- **Fq inversion addition chain**: Replace the generic bit-scan loop in fq_invert (src/x64/fq_invert.cpp, src/portable/fq_invert.cpp) with an optimized addition chain for q-2, matching the structure of fp_invert's 11-step chain. Target ~3-4x speedup for Fq field inversion. Derive the optimal chain for the specific bit pattern of q-2.
+- **Fixed-base CT scalarmult with w=5**: For known/cached base points (Pedersen generators), implement a w=5 fixed-window CT scalarmult with 16-entry precomputed affine tables cached at initialization. The larger table is amortized across multiple calls, saving ~13 mixed additions per scalarmult vs the variable-base w=4 path. Variable-base CT scalarmult retains w=4 (break-even analysis shows no benefit from w=5 when the table is rebuilt each call).
 - **Polynomial multiplication: Karatsuba** for moderate degree (n ≈ 64–1024). The schoolbook O(n²) path becomes a bottleneck for EC-divisor computation at the point counts used in curve tree layers. Karatsuba's O(n^1.585) crossover should be empirically tuned — likely around degree 32–64.
 - **Polynomial multiplication: NTT/FFT** for large degree (n > 1024). Verify F_q 2-adicity (q−1 divisibility by powers of 2) to determine whether radix-2 NTT is viable or whether Bluestein's algorithm / mixed-radix / Schönhage–Strassen is needed. The ec-divisors competition showed 95%+ improvement from FFT-based polynomial multiplication (Fabrizio's submission). This is not optional for production FCMP++.
 - **Polynomial auto-selection**: `fp_poly_mul` / `fq_poly_mul` should automatically select schoolbook, Karatsuba, or NTT based on input degree. Thresholds determined by benchmarking.
@@ -659,8 +663,9 @@ Performance-critical algorithmic work not covered by SIMD vectorization. These o
 - **Endomorphism investigation**: While the CM discriminant D = −7857907 doesn't yield a cheap GLV endomorphism, investigate whether any structural property of these specific curves enables scalar decomposition or other non-obvious speedups.
 - Benchmark all optimizations against the Rust `helioselene` crate: target ≥ parity on scalar paths, 2–3x advantage with SIMD+algorithmic combined.
 
-### Phase 6: Hardening & Audit Prep (Weeks 19–22)
+### Phase 6: Public API, Hardening & Audit Prep (Weeks 19–22)
 
+- Implement the public C++ API (§11): HeliosPoint, SelenePoint, HeliosScalar, SeleneScalar classes with `std::optional` returns from deserialization, RAII, and type safety. This wraps the internal C-style dispatch layer.
 - `helioselene_secure_erase()` integration in constant-time scalar multiplication paths.
 - Comprehensive fuzzing campaign (AFL/libfuzzer on deserialization, validation, arithmetic).
 - Side-channel testing: constant-time validation under valgrind with secret-marked memory.
