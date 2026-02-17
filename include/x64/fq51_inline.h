@@ -1,8 +1,34 @@
+// Copyright (c) 2025-2026, Brandon Lehmann
+//
+// Redistribution and use in source and binary forms, with or without modification, are
+// permitted provided that the following conditions are met:
+//
+// 1. Redistributions of source code must retain the above copyright notice, this list of
+//    conditions and the following disclaimer.
+//
+// 2. Redistributions in binary form must reproduce the above copyright notice, this list
+//    of conditions and the following disclaimer in the documentation and/or other
+//    materials provided with the distribution.
+//
+// 3. Neither the name of the copyright holder nor the names of its contributors may be
+//    used to endorse or promote products derived from this software without specific
+//    prior written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY
+// EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+// MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL
+// THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+// SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+// PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+// STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
+// THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 #ifndef HELIOSELENE_X64_FQ51_INLINE_H
 #define HELIOSELENE_X64_FQ51_INLINE_H
 
-#include "helioselene_platform.h"
 #include "fq.h"
+#include "helioselene_platform.h"
 #include "x64/fq51.h"
 #include "x64/mul128.h"
 
@@ -45,12 +71,12 @@ static HELIOSELENE_FORCE_INLINE void fq51_crandall_reduce(fq_fe h, const uint64_
     /* Each product pair: hi[i] * gamma[j] at position (i+j) */
     helioselene_uint128 r0 = (helioselene_uint128)l[0] + mul64(l[5], GAMMA_51[0]);
     helioselene_uint128 r1 = (helioselene_uint128)l[1] + mul64(l[5], GAMMA_51[1]) + mul64(l[6], GAMMA_51[0]);
-    helioselene_uint128 r2 = (helioselene_uint128)l[2] + mul64(l[5], GAMMA_51[2]) + mul64(l[6], GAMMA_51[1])
-                             + mul64(l[7], GAMMA_51[0]);
-    helioselene_uint128 r3 = (helioselene_uint128)l[3] + mul64(l[6], GAMMA_51[2]) + mul64(l[7], GAMMA_51[1])
-                             + mul64(l[8], GAMMA_51[0]);
-    helioselene_uint128 r4 = (helioselene_uint128)l[4] + mul64(l[7], GAMMA_51[2]) + mul64(l[8], GAMMA_51[1])
-                             + mul64(l[9], GAMMA_51[0]);
+    helioselene_uint128 r2 =
+        (helioselene_uint128)l[2] + mul64(l[5], GAMMA_51[2]) + mul64(l[6], GAMMA_51[1]) + mul64(l[7], GAMMA_51[0]);
+    helioselene_uint128 r3 =
+        (helioselene_uint128)l[3] + mul64(l[6], GAMMA_51[2]) + mul64(l[7], GAMMA_51[1]) + mul64(l[8], GAMMA_51[0]);
+    helioselene_uint128 r4 =
+        (helioselene_uint128)l[4] + mul64(l[7], GAMMA_51[2]) + mul64(l[8], GAMMA_51[1]) + mul64(l[9], GAMMA_51[0]);
     helioselene_uint128 r5 = mul64(l[8], GAMMA_51[2]) + mul64(l[9], GAMMA_51[1]);
     helioselene_uint128 r6 = mul64(l[9], GAMMA_51[2]);
 
@@ -80,7 +106,7 @@ static HELIOSELENE_FORCE_INLINE void fq51_crandall_reduce(fq_fe h, const uint64_
      */
     uint64_t hi2_0 = (uint64_t)r5;
     uint64_t hi2_1 = (uint64_t)r6 & FQ51_MASK;
-    uint64_t hi2_2 = (uint64_t)(r6 >> 51);  /* at most ~23 bits */
+    uint64_t hi2_2 = (uint64_t)(r6 >> 51); /* at most ~23 bits */
 
     /*
      * Second Crandall round: fold hi2[0..2] * gamma[0..2] back into lo.
@@ -89,12 +115,10 @@ static HELIOSELENE_FORCE_INLINE void fq51_crandall_reduce(fq_fe h, const uint64_
      * Result positions: hi2[i] * gamma[j] -> position (i+j)
      */
     helioselene_uint128 s0 = (helioselene_uint128)(uint64_t)r0 + mul64(hi2_0, GAMMA_51[0]);
-    helioselene_uint128 s1 = (helioselene_uint128)(uint64_t)r1 + mul64(hi2_0, GAMMA_51[1])
-                             + mul64(hi2_1, GAMMA_51[0]);
-    helioselene_uint128 s2 = (helioselene_uint128)(uint64_t)r2 + mul64(hi2_0, GAMMA_51[2])
-                             + mul64(hi2_1, GAMMA_51[1]) + mul64(hi2_2, GAMMA_51[0]);
-    helioselene_uint128 s3 = (helioselene_uint128)(uint64_t)r3 + mul64(hi2_1, GAMMA_51[2])
-                             + mul64(hi2_2, GAMMA_51[1]);
+    helioselene_uint128 s1 = (helioselene_uint128)(uint64_t)r1 + mul64(hi2_0, GAMMA_51[1]) + mul64(hi2_1, GAMMA_51[0]);
+    helioselene_uint128 s2 = (helioselene_uint128)(uint64_t)r2 + mul64(hi2_0, GAMMA_51[2]) + mul64(hi2_1, GAMMA_51[1])
+                             + mul64(hi2_2, GAMMA_51[0]);
+    helioselene_uint128 s3 = (helioselene_uint128)(uint64_t)r3 + mul64(hi2_1, GAMMA_51[2]) + mul64(hi2_2, GAMMA_51[1]);
     helioselene_uint128 s4 = (helioselene_uint128)(uint64_t)r4 + mul64(hi2_2, GAMMA_51[2]);
 
     /* Final carry chain */

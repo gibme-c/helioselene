@@ -644,7 +644,22 @@ Note: ed25519 uses `-O3` for release builds. This is safe because auto-vectoriza
 - Runtime dispatch table and `helioselene_init()` / `helioselene_autotune()` (clone ed25519 dispatch infrastructure).
 - Performance validation: target 2–3x throughput improvement over scalar for multi-scalar mul (matching ed25519's observed gains).
 
-### Phase 5: Hardening & Audit Prep (Weeks 15–18)
+### Phase 5: Algorithmic Optimizations (Weeks 15–18)
+
+Performance-critical algorithmic work not covered by SIMD vectorization. These optimizations are essential for FCMP++ to be viable on a cryptocurrency blockchain where proof generation and verification latency directly impacts transaction throughput and user experience.
+
+- **Polynomial multiplication: Karatsuba** for moderate degree (n ≈ 64–1024). The schoolbook O(n²) path becomes a bottleneck for EC-divisor computation at the point counts used in curve tree layers. Karatsuba's O(n^1.585) crossover should be empirically tuned — likely around degree 32–64.
+- **Polynomial multiplication: NTT/FFT** for large degree (n > 1024). Verify F_q 2-adicity (q−1 divisibility by powers of 2) to determine whether radix-2 NTT is viable or whether Bluestein's algorithm / mixed-radix / Schönhage–Strassen is needed. The ec-divisors competition showed 95%+ improvement from FFT-based polynomial multiplication (Fabrizio's submission). This is not optional for production FCMP++.
+- **Polynomial auto-selection**: `fp_poly_mul` / `fq_poly_mul` should automatically select schoolbook, Karatsuba, or NTT based on input degree. Thresholds determined by benchmarking.
+- **Batch field inversion (Montgomery's trick)**: Amortize field inversions across multiple points — one inversion + 3(n−1) multiplications instead of n inversions. Critical for batch Jacobian→affine conversion in Pippenger bucket accumulation, curve tree layer hashing, and divisor evaluation.
+- **Precomputed generator tables**: For the fixed generators used in Pedersen commitments and curve tree hashing, precompute and cache wNAF lookup tables at initialization. Converts each scalar-mul-by-generator from full double-and-add into a series of additions against precomputed affine points.
+- **Fixed-base MSM specialization**: When all points are known at compile/init time (Pedersen generators), exploit precomputation for ~2x speedup over the generic variable-base Pippenger. The ed25519 library demonstrates this with `ge_precomp_base` tables.
+- **Scalar reduction**: Barrett reduction for scalars mod group order (mod q for Helios scalars, mod p for Selene scalars). Currently scalars are used as raw 256-bit values — proper modular scalar arithmetic is needed for protocols that perform scalar operations (Bulletproofs inner-product argument, Fiat-Shamir challenge computation).
+- **Multi-threaded Pippenger**: For large MSMs (n > 4096, typical in curve tree construction), partition the scalar-point pairs across threads for parallel bucket accumulation. The bucket phase is embarrassingly parallel; only the final running-sum combination requires synchronization.
+- **Endomorphism investigation**: While the CM discriminant D = −7857907 doesn't yield a cheap GLV endomorphism, investigate whether any structural property of these specific curves enables scalar decomposition or other non-obvious speedups.
+- Benchmark all optimizations against the Rust `helioselene` crate: target ≥ parity on scalar paths, 2–3x advantage with SIMD+algorithmic combined.
+
+### Phase 6: Hardening & Audit Prep (Weeks 19–22)
 
 - `helioselene_secure_erase()` integration in constant-time scalar multiplication paths.
 - Comprehensive fuzzing campaign (AFL/libfuzzer on deserialization, validation, arithmetic).

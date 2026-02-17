@@ -9,6 +9,9 @@ endif()
 message(STATUS "Mode: ${CMAKE_BUILD_TYPE}")
 
 set(CMAKE_CONFIGURATION_TYPES Debug RelWithDebInfo Release CACHE STRING INTERNAL)
+set(ARCH native CACHE STRING  "CPU to build for: -march value or native")
+
+message(STATUS "Building for target architecture: ${ARCH}")
 
 set(LIB_MAJOR_VERSION "0")
 set(LIB_MINOR_VERSION "1")
@@ -45,6 +48,12 @@ if(MSVC)
     string(REPLACE "/Ob0" "/Ob2" CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")
     set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /Oi")
 else()
+    if("${ARCH}" STREQUAL "default")
+        set(ARCH_FLAG "")
+    else()
+        set(ARCH_FLAG "-march=${ARCH}")
+    endif()
+
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17 -Wall -Wextra -Wuninitialized -fstack-protector-strong")
 
     # Disable auto-vectorization to prevent the compiler from introducing
@@ -71,14 +80,17 @@ endif()
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 
-option(FORCE_REF10 "Force ref10 (32-bit) implementation even on 64-bit platforms" OFF)
-
 set(HELIOSELENE_SRC
     src/helioselene_secure_erase.cpp
+    src/poly.cpp
+    src/divisor.cpp
 )
 
-if(NOT FORCE_REF10 AND CMAKE_SYSTEM_PROCESSOR MATCHES "^([xX]86_64|[aA][mM][dD]64|[aA][rR][mM]64|[aA][aA][rR][cC][hH]64)$")
+option(FORCE_PORTABLE "Force portable (32-bit) implementation even on 64-bit platforms" OFF)
+
+if(NOT FORCE_PORTABLE AND CMAKE_SYSTEM_PROCESSOR MATCHES "^([xX]86_64|[aA][mM][dD]64|[aA][rR][mM]64|[aA][aA][rR][cC][hH]64)$")
     set(HELIOSELENE_X64_SRC
+        # Field arithmetic (F_p)
         src/x64/fp_frombytes.cpp
         src/x64/fp_invert.cpp
         src/x64/fp_mul.cpp
@@ -86,7 +98,9 @@ if(NOT FORCE_REF10 AND CMAKE_SYSTEM_PROCESSOR MATCHES "^([xX]86_64|[aA][mM][dD]6
         src/x64/fp_sq.cpp
         src/x64/fp_sq2.cpp
         src/x64/fp_sqn.cpp
+        src/x64/fp_sqrt.cpp
         src/x64/fp_tobytes.cpp
+        # Field arithmetic (F_q)
         src/x64/fq_frombytes.cpp
         src/x64/fq_invert.cpp
         src/x64/fq_mul.cpp
@@ -95,7 +109,7 @@ if(NOT FORCE_REF10 AND CMAKE_SYSTEM_PROCESSOR MATCHES "^([xX]86_64|[aA][mM][dD]6
         src/x64/fq_sqn.cpp
         src/x64/fq_sqrt.cpp
         src/x64/fq_tobytes.cpp
-        src/x64/fp_sqrt.cpp
+        # Curve operations (Helios)
         src/x64/helios_dbl.cpp
         src/x64/helios_madd.cpp
         src/x64/helios_add.cpp
@@ -103,6 +117,9 @@ if(NOT FORCE_REF10 AND CMAKE_SYSTEM_PROCESSOR MATCHES "^([xX]86_64|[aA][mM][dD]6
         src/x64/helios_frombytes.cpp
         src/x64/helios_scalarmult.cpp
         src/x64/helios_scalarmult_vartime.cpp
+        src/x64/helios_msm_vartime.cpp
+        src/x64/helios_map_to_curve.cpp
+        # Curve operations (Selene)
         src/x64/selene_dbl.cpp
         src/x64/selene_madd.cpp
         src/x64/selene_add.cpp
@@ -110,21 +127,78 @@ if(NOT FORCE_REF10 AND CMAKE_SYSTEM_PROCESSOR MATCHES "^([xX]86_64|[aA][mM][dD]6
         src/x64/selene_frombytes.cpp
         src/x64/selene_scalarmult.cpp
         src/x64/selene_scalarmult_vartime.cpp
+        src/x64/selene_msm_vartime.cpp
+        src/x64/selene_map_to_curve.cpp
     )
     list(APPEND HELIOSELENE_SRC ${HELIOSELENE_X64_SRC})
     message(STATUS "HELIOSELENE: 64-bit optimized field arithmetic enabled (radix-2^51)")
 else()
-    message(STATUS "HELIOSELENE: No 64-bit backend available (ref10 not yet implemented)")
+    set(HELIOSELENE_REF10_SRC
+        # Field arithmetic (F_p)
+        src/portable/fp_frombytes.cpp
+        src/portable/fp_invert.cpp
+        src/portable/fp_mul.cpp
+        src/portable/fp_pow22523.cpp
+        src/portable/fp_sq.cpp
+        src/portable/fp_sq2.cpp
+        src/portable/fp_sqn.cpp
+        src/portable/fp_sqrt.cpp
+        src/portable/fp_tobytes.cpp
+        # Field arithmetic (F_q)
+        src/portable/fq_frombytes.cpp
+        src/portable/fq_invert.cpp
+        src/portable/fq_mul.cpp
+        src/portable/fq_sq.cpp
+        src/portable/fq_sq2.cpp
+        src/portable/fq_sqn.cpp
+        src/portable/fq_sqrt.cpp
+        src/portable/fq_tobytes.cpp
+        # Curve operations (Helios)
+        src/portable/helios_dbl.cpp
+        src/portable/helios_madd.cpp
+        src/portable/helios_add.cpp
+        src/portable/helios_tobytes.cpp
+        src/portable/helios_frombytes.cpp
+        src/portable/helios_scalarmult.cpp
+        src/portable/helios_scalarmult_vartime.cpp
+        src/portable/helios_msm_vartime.cpp
+        src/portable/helios_map_to_curve.cpp
+        # Curve operations (Selene)
+        src/portable/selene_dbl.cpp
+        src/portable/selene_madd.cpp
+        src/portable/selene_add.cpp
+        src/portable/selene_tobytes.cpp
+        src/portable/selene_frombytes.cpp
+        src/portable/selene_scalarmult.cpp
+        src/portable/selene_scalarmult_vartime.cpp
+        src/portable/selene_msm_vartime.cpp
+        src/portable/selene_map_to_curve.cpp
+    )
+    list(APPEND HELIOSELENE_SRC ${HELIOSELENE_REF10_SRC})
+    message(STATUS "HELIOSELENE: 32-bit ref10 implementation")
 endif()
 
-if(FORCE_REF10)
-    message(STATUS "HELIOSELENE: Forced ref10 (32-bit) implementation via FORCE_REF10")
+if(FORCE_PORTABLE)
+    message(STATUS "HELIOSELENE: Forced portable (32-bit) implementation via FORCE_PORTABLE")
+endif()
+
+option(ENABLE_LTO "Enable link-time optimization" OFF)
+if(ENABLE_LTO)
+    if(MSVC)
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /GL")
+        set(CMAKE_STATIC_LINKER_FLAGS "${CMAKE_STATIC_LINKER_FLAGS} /LTCG")
+        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /LTCG")
+    else()
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -flto")
+        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -flto")
+    endif()
+    message(STATUS "HELIOSELENE: Link-time optimization enabled")
 endif()
 
 add_library(helioselene STATIC ${HELIOSELENE_SRC})
 target_include_directories(helioselene PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
-if(FORCE_REF10)
-    target_compile_definitions(helioselene PUBLIC HELIOSELENE_FORCE_REF10=1)
+if(FORCE_PORTABLE)
+    target_compile_definitions(helioselene PUBLIC FORCE_PORTABLE=1)
 endif()
 
 option(BUILD_TESTS "Build unit tests and benchmarks" OFF)

@@ -1,14 +1,40 @@
+// Copyright (c) 2025-2026, Brandon Lehmann
+//
+// Redistribution and use in source and binary forms, with or without modification, are
+// permitted provided that the following conditions are met:
+//
+// 1. Redistributions of source code must retain the above copyright notice, this list of
+//    conditions and the following disclaimer.
+//
+// 2. Redistributions in binary form must reproduce the above copyright notice, this list
+//    of conditions and the following disclaimer in the documentation and/or other
+//    materials provided with the distribution.
+//
+// 3. Neither the name of the copyright holder nor the names of its contributors may be
+//    used to endorse or promote products derived from this software without specific
+//    prior written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY
+// EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+// MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL
+// THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+// SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+// PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+// STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
+// THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 #include "helios_scalarmult.h"
 
-#include "helios.h"
-#include "helios_ops.h"
-#include "helios_dbl.h"
-#include "helios_madd.h"
-#include "helios_add.h"
-#include "fp_ops.h"
 #include "fp_invert.h"
 #include "fp_mul.h"
+#include "fp_ops.h"
 #include "fp_sq.h"
+#include "helios.h"
+#include "helios_add.h"
+#include "helios_dbl.h"
+#include "helios_madd.h"
+#include "helios_ops.h"
 #include "helioselene_secure_erase.h"
 
 /*
@@ -65,7 +91,8 @@ static void scalar_recode_signed4(int8_t digits[64], const unsigned char scalar[
  */
 static void batch_to_affine(helios_affine *out, const helios_jacobian *in, int n)
 {
-    if (n == 0) return;
+    if (n == 0)
+        return;
 
     fp_fe *z_vals = new fp_fe[n];
     fp_fe *products = new fp_fe[n];
@@ -87,8 +114,8 @@ static void batch_to_affine(helios_affine *out, const helios_jacobian *in, int n
     for (int i = n - 1; i > 0; i--)
     {
         fp_fe z_inv;
-        fp_mul(z_inv, inv, products[i - 1]);    /* z_inv = inv * products[i-1] = 1/z[i] */
-        fp_mul(inv, inv, z_vals[i]);             /* inv = inv * z[i] = 1/(z[0]*...*z[i-1]) */
+        fp_mul(z_inv, inv, products[i - 1]); /* z_inv = inv * products[i-1] = 1/z[i] */
+        fp_mul(inv, inv, z_vals[i]); /* inv = inv * z[i] = 1/(z[0]*...*z[i-1]) */
 
         fp_fe z_inv2, z_inv3;
         fp_sq(z_inv2, z_inv);
@@ -116,14 +143,14 @@ void helios_scalarmult_x64(helios_jacobian *r, const unsigned char scalar[32], c
 {
     /* Step 1: Precompute table [P, 2P, 3P, 4P, 5P, 6P, 7P, 8P] */
     helios_jacobian table_jac[8];
-    helios_copy(&table_jac[0], p);              /* 1P */
-    helios_dbl(&table_jac[1], p);               /* 2P */
+    helios_copy(&table_jac[0], p); /* 1P */
+    helios_dbl(&table_jac[1], p); /* 2P */
     helios_add(&table_jac[2], &table_jac[1], p); /* 3P */
-    helios_dbl(&table_jac[3], &table_jac[1]);   /* 4P */
+    helios_dbl(&table_jac[3], &table_jac[1]); /* 4P */
     helios_add(&table_jac[4], &table_jac[3], p); /* 5P */
-    helios_dbl(&table_jac[5], &table_jac[2]);   /* 6P */
+    helios_dbl(&table_jac[5], &table_jac[2]); /* 6P */
     helios_add(&table_jac[6], &table_jac[5], p); /* 7P */
-    helios_dbl(&table_jac[7], &table_jac[3]);   /* 8P */
+    helios_dbl(&table_jac[7], &table_jac[3]); /* 8P */
 
     /* Convert to affine (single inversion) */
     helios_affine table[8];

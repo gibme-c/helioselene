@@ -1,12 +1,38 @@
+// Copyright (c) 2025-2026, Brandon Lehmann
+//
+// Redistribution and use in source and binary forms, with or without modification, are
+// permitted provided that the following conditions are met:
+//
+// 1. Redistributions of source code must retain the above copyright notice, this list of
+//    conditions and the following disclaimer.
+//
+// 2. Redistributions in binary form must reproduce the above copyright notice, this list
+//    of conditions and the following disclaimer in the documentation and/or other
+//    materials provided with the distribution.
+//
+// 3. Neither the name of the copyright holder nor the names of its contributors may be
+//    used to endorse or promote products derived from this software without specific
+//    prior written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY
+// EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+// MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL
+// THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+// SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+// PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+// STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
+// THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 #include "helios_scalarmult_vartime.h"
 
-#include "helios.h"
-#include "helios_ops.h"
-#include "helios_dbl.h"
-#include "helios_madd.h"
-#include "helios_add.h"
 #include "fp_ops.h"
 #include "fp_utils.h"
+#include "helios.h"
+#include "helios_add.h"
+#include "helios_dbl.h"
+#include "helios_madd.h"
+#include "helios_ops.h"
 
 /*
  * Variable-time scalar multiplication using wNAF with window width 5.
@@ -104,8 +130,8 @@ void helios_scalarmult_vartime_x64(helios_jacobian *r, const unsigned char scala
     helios_jacobian table[8];
     helios_jacobian p2;
 
-    helios_copy(&table[0], p);      /* 1P */
-    helios_dbl(&p2, p);             /* 2P */
+    helios_copy(&table[0], p); /* 1P */
+    helios_dbl(&p2, p); /* 2P */
 
     for (int i = 1; i < 8; i++)
         helios_add(&table[i], &table[i - 1], &p2); /* (2i+1)P */
