@@ -29,7 +29,7 @@
  * @brief Master include header for the Helioselene library.
  *
  * Helioselene is an elliptic curve library implementing the Helios/Selene
- * curve cycle for Monero's FCMP++ integration. The two curves form a cycle:
+ * curve cycle for FCMP++ integration. The two curves form a cycle:
  *
  * - **Helios**: y^2 = x^3 - 3x + b over F_p (p = 2^255 - 19), group order q
  * - **Selene**: y^2 = x^3 - 3x + b over F_q (q = 2^255 - gamma), group order p
@@ -133,6 +133,7 @@
 
 /* EC-divisor polynomials and divisors */
 #include "divisor.h"
+#include "divisor_eval.h"
 #include "poly.h"
 
 #endif /* HELIOSELENE_H */

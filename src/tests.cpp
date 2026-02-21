@@ -24,7 +24,15 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+#include "fp_batch_invert.h"
+#include "fq_batch_invert.h"
+#include "helios_msm_fixed.h"
+#include "helios_precomp.h"
+#include "helios_scalarmult_fixed.h"
 #include "helioselene.h"
+#include "selene_msm_fixed.h"
+#include "selene_precomp.h"
+#include "selene_scalarmult_fixed.h"
 
 #include <cstring>
 #include <iomanip>
@@ -673,8 +681,10 @@ static void test_helios_msm()
     check_nonzero("msm([], []) == identity", helios_is_identity(&result));
 
     /* Linearity: msm([2, 5], [G, G]) == 7*G */
-    unsigned char two_scalar[32] = {0x02};
-    unsigned char five_scalar[32] = {0x05};
+    unsigned char two_scalar[32] = {};
+    two_scalar[0] = 0x02;
+    unsigned char five_scalar[32] = {};
+    five_scalar[0] = 0x05;
     unsigned char scalars_2_5[64];
     std::memcpy(scalars_2_5, two_scalar, 32);
     std::memcpy(scalars_2_5 + 32, five_scalar, 32);
@@ -799,8 +809,10 @@ static void test_selene_msm()
     check_nonzero("msm([], []) == identity", selene_is_identity(&result));
 
     /* Linearity: msm([2, 5], [G, G]) == 7*G */
-    unsigned char two_scalar[32] = {0x02};
-    unsigned char five_scalar[32] = {0x05};
+    unsigned char two_scalar[32] = {};
+    two_scalar[0] = 0x02;
+    unsigned char five_scalar[32] = {};
+    five_scalar[0] = 0x05;
     unsigned char scalars_2_5[64];
     std::memcpy(scalars_2_5, two_scalar, 32);
     std::memcpy(scalars_2_5 + 32, five_scalar, 32);
@@ -2390,7 +2402,8 @@ static void test_msm_extended()
         fp_copy(G.Y, HELIOS_GY);
         fp_1(G.Z);
 
-        unsigned char s5[32] = {0x05};
+        unsigned char s5[32] = {};
+        s5[0] = 0x05;
         unsigned char scalars[64];
         std::memcpy(scalars, s5, 32);
         std::memcpy(scalars + 32, s5, 32);
@@ -2399,7 +2412,8 @@ static void test_msm_extended()
         helios_copy(&points[1], &G);
         helios_jacobian result;
         helios_msm_vartime(&result, scalars, points, 2);
-        unsigned char s10[32] = {0x0a};
+        unsigned char s10[32] = {};
+        s10[0] = 0x0a;
         helios_jacobian expected;
         helios_scalarmult_vartime(&expected, s10, &G);
         unsigned char r_bytes[32], e_bytes[32];
@@ -2602,6 +2616,581 @@ static void test_batch_affine_extended()
     }
 }
 
+static void test_batch_invert()
+{
+    std::cout << std::endl << "=== Batch field inversion ===" << std::endl;
+
+    /* Fp: batch invert 4 elements, verify each out[i] * in[i] == 1 */
+    {
+        fp_fe elems[4], invs[4];
+        /* Use small known values: 2, 3, 5, 7 */
+        unsigned char v2[32] = {0x02}, v3[32] = {0x03}, v5[32] = {0x05}, v7[32] = {0x07};
+        fp_frombytes(elems[0], v2);
+        fp_frombytes(elems[1], v3);
+        fp_frombytes(elems[2], v5);
+        fp_frombytes(elems[3], v7);
+
+        fp_batch_invert(invs, elems, 4);
+
+        bool all_one = true;
+        for (int i = 0; i < 4; i++)
+        {
+            fp_fe prod;
+            fp_mul(prod, elems[i], invs[i]);
+            unsigned char out[32], one[32] = {};
+            one[0] = 1;
+            fp_tobytes(out, prod);
+            if (std::memcmp(out, one, 32) != 0)
+                all_one = false;
+        }
+        ++tests_run;
+        if (all_one)
+        {
+            ++tests_passed;
+            std::cout << "  PASS: fp batch invert 4 elements" << std::endl;
+        }
+        else
+        {
+            ++tests_failed;
+            std::cout << "  FAIL: fp batch invert 4 elements" << std::endl;
+        }
+    }
+
+    /* Fq: batch invert 4 elements, verify each out[i] * in[i] == 1 */
+    {
+        fq_fe elems[4], invs[4];
+        unsigned char v2[32] = {0x02}, v3[32] = {0x03}, v5[32] = {0x05}, v7[32] = {0x07};
+        fq_frombytes(elems[0], v2);
+        fq_frombytes(elems[1], v3);
+        fq_frombytes(elems[2], v5);
+        fq_frombytes(elems[3], v7);
+
+        fq_batch_invert(invs, elems, 4);
+
+        bool all_one = true;
+        for (int i = 0; i < 4; i++)
+        {
+            fq_fe prod;
+            fq_mul(prod, elems[i], invs[i]);
+            unsigned char out[32], one[32] = {};
+            one[0] = 1;
+            fq_tobytes(out, prod);
+            if (std::memcmp(out, one, 32) != 0)
+                all_one = false;
+        }
+        ++tests_run;
+        if (all_one)
+        {
+            ++tests_passed;
+            std::cout << "  PASS: fq batch invert 4 elements" << std::endl;
+        }
+        else
+        {
+            ++tests_failed;
+            std::cout << "  FAIL: fq batch invert 4 elements" << std::endl;
+        }
+    }
+
+    /* Fp: batch with zero element in position 2 */
+    {
+        fp_fe elems[4], invs[4];
+        unsigned char v2[32] = {0x02}, v3[32] = {0x03}, v0[32] = {}, v7[32] = {0x07};
+        fp_frombytes(elems[0], v2);
+        fp_frombytes(elems[1], v3);
+        fp_frombytes(elems[2], v0); /* zero */
+        fp_frombytes(elems[3], v7);
+
+        fp_batch_invert(invs, elems, 4);
+
+        /* Check zero maps to zero */
+        unsigned char zero_out[32], zero_exp[32] = {};
+        fp_tobytes(zero_out, invs[2]);
+        bool zero_ok = (std::memcmp(zero_out, zero_exp, 32) == 0);
+
+        /* Check nonzero elements still correct */
+        bool nonzero_ok = true;
+        for (int i : {0, 1, 3})
+        {
+            fp_fe prod;
+            fp_mul(prod, elems[i], invs[i]);
+            unsigned char out[32], one[32] = {};
+            one[0] = 1;
+            fp_tobytes(out, prod);
+            if (std::memcmp(out, one, 32) != 0)
+                nonzero_ok = false;
+        }
+        ++tests_run;
+        if (zero_ok && nonzero_ok)
+        {
+            ++tests_passed;
+            std::cout << "  PASS: fp batch invert with zero element" << std::endl;
+        }
+        else
+        {
+            ++tests_failed;
+            std::cout << "  FAIL: fp batch invert with zero element" << std::endl;
+        }
+    }
+
+    /* Fq: batch with zero element in position 2 */
+    {
+        fq_fe elems[4], invs[4];
+        unsigned char v2[32] = {0x02}, v3[32] = {0x03}, v0[32] = {}, v7[32] = {0x07};
+        fq_frombytes(elems[0], v2);
+        fq_frombytes(elems[1], v3);
+        fq_frombytes(elems[2], v0); /* zero */
+        fq_frombytes(elems[3], v7);
+
+        fq_batch_invert(invs, elems, 4);
+
+        unsigned char zero_out[32], zero_exp[32] = {};
+        fq_tobytes(zero_out, invs[2]);
+        bool zero_ok = (std::memcmp(zero_out, zero_exp, 32) == 0);
+
+        bool nonzero_ok = true;
+        for (int i : {0, 1, 3})
+        {
+            fq_fe prod;
+            fq_mul(prod, elems[i], invs[i]);
+            unsigned char out[32], one[32] = {};
+            one[0] = 1;
+            fq_tobytes(out, prod);
+            if (std::memcmp(out, one, 32) != 0)
+                nonzero_ok = false;
+        }
+        ++tests_run;
+        if (zero_ok && nonzero_ok)
+        {
+            ++tests_passed;
+            std::cout << "  PASS: fq batch invert with zero element" << std::endl;
+        }
+        else
+        {
+            ++tests_failed;
+            std::cout << "  FAIL: fq batch invert with zero element" << std::endl;
+        }
+    }
+}
+
+static void test_fixed_base_scalarmult()
+{
+    std::cout << std::endl << "=== Fixed-base scalarmult (w=5) ===" << std::endl;
+
+    /* Helios: fixed_scalarmult(7, G) == scalarmult(7, G) */
+    {
+        helios_jacobian G;
+        fp_copy(G.X, HELIOS_GX);
+        fp_copy(G.Y, HELIOS_GY);
+        fp_1(G.Z);
+
+        helios_affine table[16];
+        helios_scalarmult_fixed_precompute(table, &G);
+
+        unsigned char s7[32] = {0x07};
+        helios_jacobian fixed_result, expected;
+        helios_scalarmult_fixed(&fixed_result, s7, table);
+        helios_scalarmult(&expected, s7, &G);
+
+        unsigned char fr[32], ex[32];
+        helios_tobytes(fr, &fixed_result);
+        helios_tobytes(ex, &expected);
+        check_bytes("helios fixed: 7*G", ex, fr, 32);
+    }
+
+    /* Selene: fixed_scalarmult(7, G) == scalarmult(7, G) */
+    {
+        selene_jacobian G;
+        fq_copy(G.X, SELENE_GX);
+        fq_copy(G.Y, SELENE_GY);
+        fq_1(G.Z);
+
+        selene_affine table[16];
+        selene_scalarmult_fixed_precompute(table, &G);
+
+        unsigned char s7[32] = {0x07};
+        selene_jacobian fixed_result, expected;
+        selene_scalarmult_fixed(&fixed_result, s7, table);
+        selene_scalarmult(&expected, s7, &G);
+
+        unsigned char fr[32], ex[32];
+        selene_tobytes(fr, &fixed_result);
+        selene_tobytes(ex, &expected);
+        check_bytes("selene fixed: 7*G", ex, fr, 32);
+    }
+
+    /* Helios: fixed with large scalar (associativity) */
+    {
+        helios_jacobian G;
+        fp_copy(G.X, HELIOS_GX);
+        fp_copy(G.Y, HELIOS_GY);
+        fp_1(G.Z);
+
+        helios_affine table[16];
+        helios_scalarmult_fixed_precompute(table, &G);
+
+        unsigned char s21[32] = {0x15};
+        helios_jacobian fixed_result, expected;
+        helios_scalarmult_fixed(&fixed_result, s21, table);
+        helios_scalarmult(&expected, s21, &G);
+
+        unsigned char fr[32], ex[32];
+        helios_tobytes(fr, &fixed_result);
+        helios_tobytes(ex, &expected);
+        check_bytes("helios fixed: 21*G", ex, fr, 32);
+    }
+
+    /* Selene: fixed with large scalar */
+    {
+        selene_jacobian G;
+        fq_copy(G.X, SELENE_GX);
+        fq_copy(G.Y, SELENE_GY);
+        fq_1(G.Z);
+
+        selene_affine table[16];
+        selene_scalarmult_fixed_precompute(table, &G);
+
+        unsigned char s21[32] = {0x15};
+        selene_jacobian fixed_result, expected;
+        selene_scalarmult_fixed(&fixed_result, s21, table);
+        selene_scalarmult(&expected, s21, &G);
+
+        unsigned char fr[32], ex[32];
+        selene_tobytes(fr, &fixed_result);
+        selene_tobytes(ex, &expected);
+        check_bytes("selene fixed: 21*G", ex, fr, 32);
+    }
+
+    /* Helios: fixed with multi-byte scalar */
+    {
+        helios_jacobian G;
+        fp_copy(G.X, HELIOS_GX);
+        fp_copy(G.Y, HELIOS_GY);
+        fp_1(G.Z);
+
+        helios_affine table[16];
+        helios_scalarmult_fixed_precompute(table, &G);
+
+        unsigned char sc[32] = {0xab, 0xcd, 0xef, 0x01, 0x23, 0x45, 0x67, 0x89};
+        helios_jacobian fixed_result, expected;
+        helios_scalarmult_fixed(&fixed_result, sc, table);
+        helios_scalarmult(&expected, sc, &G);
+
+        unsigned char fr[32], ex[32];
+        helios_tobytes(fr, &fixed_result);
+        helios_tobytes(ex, &expected);
+        check_bytes("helios fixed: large scalar", ex, fr, 32);
+    }
+
+    /* Selene: fixed with multi-byte scalar */
+    {
+        selene_jacobian G;
+        fq_copy(G.X, SELENE_GX);
+        fq_copy(G.Y, SELENE_GY);
+        fq_1(G.Z);
+
+        selene_affine table[16];
+        selene_scalarmult_fixed_precompute(table, &G);
+
+        unsigned char sc[32] = {0xab, 0xcd, 0xef, 0x01, 0x23, 0x45, 0x67, 0x89};
+        selene_jacobian fixed_result, expected;
+        selene_scalarmult_fixed(&fixed_result, sc, table);
+        selene_scalarmult(&expected, sc, &G);
+
+        unsigned char fr[32], ex[32];
+        selene_tobytes(fr, &fixed_result);
+        selene_tobytes(ex, &expected);
+        check_bytes("selene fixed: large scalar", ex, fr, 32);
+    }
+
+    /* Helios: scalar = 1 (edge case) */
+    {
+        helios_jacobian G;
+        fp_copy(G.X, HELIOS_GX);
+        fp_copy(G.Y, HELIOS_GY);
+        fp_1(G.Z);
+
+        helios_affine table[16];
+        helios_scalarmult_fixed_precompute(table, &G);
+
+        unsigned char s1[32] = {0x01};
+        helios_jacobian fixed_result;
+        helios_scalarmult_fixed(&fixed_result, s1, table);
+
+        unsigned char fr[32], gx[32];
+        helios_tobytes(fr, &fixed_result);
+        helios_tobytes(gx, &G);
+        check_bytes("helios fixed: 1*G == G", gx, fr, 32);
+    }
+
+    /* Selene: scalar = 1 (edge case) */
+    {
+        selene_jacobian G;
+        fq_copy(G.X, SELENE_GX);
+        fq_copy(G.Y, SELENE_GY);
+        fq_1(G.Z);
+
+        selene_affine table[16];
+        selene_scalarmult_fixed_precompute(table, &G);
+
+        unsigned char s1[32] = {0x01};
+        selene_jacobian fixed_result;
+        selene_scalarmult_fixed(&fixed_result, s1, table);
+
+        unsigned char fr[32], gx[32];
+        selene_tobytes(fr, &fixed_result);
+        selene_tobytes(gx, &G);
+        check_bytes("selene fixed: 1*G == G", gx, fr, 32);
+    }
+}
+
+static void test_precomputed_tables()
+{
+    std::cout << std::endl << "=== Precomputed generator tables ===" << std::endl;
+
+    /* Helios: precomputed table matches runtime computation */
+    {
+        helios_affine precomp[16], runtime[16];
+        helios_load_g_table(precomp);
+
+        helios_jacobian G;
+        fp_copy(G.X, HELIOS_GX);
+        fp_copy(G.Y, HELIOS_GY);
+        fp_1(G.Z);
+        helios_scalarmult_fixed_precompute(runtime, &G);
+
+        bool all_match = true;
+        for (int i = 0; i < 16; i++)
+        {
+            unsigned char px[32], py[32], rx[32], ry[32];
+            fp_tobytes(px, precomp[i].x);
+            fp_tobytes(py, precomp[i].y);
+            fp_tobytes(rx, runtime[i].x);
+            fp_tobytes(ry, runtime[i].y);
+            if (std::memcmp(px, rx, 32) != 0 || std::memcmp(py, ry, 32) != 0)
+                all_match = false;
+        }
+        ++tests_run;
+        if (all_match)
+        {
+            ++tests_passed;
+            std::cout << "  PASS: helios precomp table matches runtime" << std::endl;
+        }
+        else
+        {
+            ++tests_failed;
+            std::cout << "  FAIL: helios precomp table mismatch" << std::endl;
+        }
+    }
+
+    /* Selene: precomputed table matches runtime computation */
+    {
+        selene_affine precomp[16], runtime[16];
+        selene_load_g_table(precomp);
+
+        selene_jacobian G;
+        fq_copy(G.X, SELENE_GX);
+        fq_copy(G.Y, SELENE_GY);
+        fq_1(G.Z);
+        selene_scalarmult_fixed_precompute(runtime, &G);
+
+        bool all_match = true;
+        for (int i = 0; i < 16; i++)
+        {
+            unsigned char px[32], py[32], rx[32], ry[32];
+            fq_tobytes(px, precomp[i].x);
+            fq_tobytes(py, precomp[i].y);
+            fq_tobytes(rx, runtime[i].x);
+            fq_tobytes(ry, runtime[i].y);
+            if (std::memcmp(px, rx, 32) != 0 || std::memcmp(py, ry, 32) != 0)
+                all_match = false;
+        }
+        ++tests_run;
+        if (all_match)
+        {
+            ++tests_passed;
+            std::cout << "  PASS: selene precomp table matches runtime" << std::endl;
+        }
+        else
+        {
+            ++tests_failed;
+            std::cout << "  FAIL: selene precomp table mismatch" << std::endl;
+        }
+    }
+
+    /* Helios: fixed scalarmult with precomp table matches regular scalarmult */
+    {
+        helios_affine table[16];
+        helios_load_g_table(table);
+
+        helios_jacobian G;
+        fp_copy(G.X, HELIOS_GX);
+        fp_copy(G.Y, HELIOS_GY);
+        fp_1(G.Z);
+
+        unsigned char sc[32] = {0xab, 0xcd, 0xef, 0x01, 0x23, 0x45, 0x67, 0x89};
+        helios_jacobian fixed_result, expected;
+        helios_scalarmult_fixed(&fixed_result, sc, table);
+        helios_scalarmult(&expected, sc, &G);
+
+        unsigned char fr[32], ex[32];
+        helios_tobytes(fr, &fixed_result);
+        helios_tobytes(ex, &expected);
+        check_bytes("helios precomp scalarmult", ex, fr, 32);
+    }
+
+    /* Selene: fixed scalarmult with precomp table matches regular scalarmult */
+    {
+        selene_affine table[16];
+        selene_load_g_table(table);
+
+        selene_jacobian G;
+        fq_copy(G.X, SELENE_GX);
+        fq_copy(G.Y, SELENE_GY);
+        fq_1(G.Z);
+
+        unsigned char sc[32] = {0xab, 0xcd, 0xef, 0x01, 0x23, 0x45, 0x67, 0x89};
+        selene_jacobian fixed_result, expected;
+        selene_scalarmult_fixed(&fixed_result, sc, table);
+        selene_scalarmult(&expected, sc, &G);
+
+        unsigned char fr[32], ex[32];
+        selene_tobytes(fr, &fixed_result);
+        selene_tobytes(ex, &expected);
+        check_bytes("selene precomp scalarmult", ex, fr, 32);
+    }
+}
+
+static void test_msm_fixed()
+{
+    std::cout << std::endl << "=== Fixed-base MSM ===" << std::endl;
+
+    /* Helios: msm_fixed(s1*G + s2*2G) == scalarmult(s1, G) + scalarmult(s2, 2G) */
+    {
+        helios_jacobian G;
+        fp_copy(G.X, HELIOS_GX);
+        fp_copy(G.Y, HELIOS_GY);
+        fp_1(G.Z);
+
+        helios_jacobian G2;
+        helios_dbl(&G2, &G);
+
+        helios_affine table_g[16], table_g2[16];
+        helios_scalarmult_fixed_precompute(table_g, &G);
+        helios_scalarmult_fixed_precompute(table_g2, &G2);
+
+        const helios_affine *tables[2] = {table_g, table_g2};
+        unsigned char scalars[64] = {};
+        scalars[0] = 0x07; /* s1 = 7 */
+        scalars[32] = 0x05; /* s2 = 5 */
+
+        helios_jacobian msm_result;
+        helios_msm_fixed(&msm_result, scalars, tables, 2);
+
+        /* Expected: 7*G + 5*(2G) = 7*G + 10*G = 17*G */
+        unsigned char s17[32] = {0x11};
+        helios_jacobian expected;
+        helios_scalarmult(&expected, s17, &G);
+
+        unsigned char mr[32], ex[32];
+        helios_tobytes(mr, &msm_result);
+        helios_tobytes(ex, &expected);
+        check_bytes("helios msm_fixed: 7*G + 5*(2G) == 17*G", ex, mr, 32);
+    }
+
+    /* Selene: msm_fixed(s1*G + s2*2G) */
+    {
+        selene_jacobian G;
+        fq_copy(G.X, SELENE_GX);
+        fq_copy(G.Y, SELENE_GY);
+        fq_1(G.Z);
+
+        selene_jacobian G2;
+        selene_dbl(&G2, &G);
+
+        selene_affine table_g[16], table_g2[16];
+        selene_scalarmult_fixed_precompute(table_g, &G);
+        selene_scalarmult_fixed_precompute(table_g2, &G2);
+
+        const selene_affine *tables[2] = {table_g, table_g2};
+        unsigned char scalars[64] = {};
+        scalars[0] = 0x07;
+        scalars[32] = 0x05;
+
+        selene_jacobian msm_result;
+        selene_msm_fixed(&msm_result, scalars, tables, 2);
+
+        unsigned char s17[32] = {0x11};
+        selene_jacobian expected;
+        selene_scalarmult(&expected, s17, &G);
+
+        unsigned char mr[32], ex[32];
+        selene_tobytes(mr, &msm_result);
+        selene_tobytes(ex, &expected);
+        check_bytes("selene msm_fixed: 7*G + 5*(2G) == 17*G", ex, mr, 32);
+    }
+
+    /* Helios: msm_fixed with 3 points and larger scalars */
+    {
+        helios_jacobian G;
+        fp_copy(G.X, HELIOS_GX);
+        fp_copy(G.Y, HELIOS_GY);
+        fp_1(G.Z);
+
+        helios_jacobian G2, G3;
+        helios_dbl(&G2, &G);
+        helios_add(&G3, &G2, &G);
+
+        helios_affine t1[16], t2[16], t3[16];
+        helios_scalarmult_fixed_precompute(t1, &G);
+        helios_scalarmult_fixed_precompute(t2, &G2);
+        helios_scalarmult_fixed_precompute(t3, &G3);
+
+        const helios_affine *tables[3] = {t1, t2, t3};
+        unsigned char scalars[96] = {};
+        scalars[0] = 0x03; /* s1 = 3 */
+        scalars[32] = 0x05; /* s2 = 5 */
+        scalars[64] = 0x07; /* s3 = 7 */
+
+        helios_jacobian msm_result;
+        helios_msm_fixed(&msm_result, scalars, tables, 3);
+
+        /* Expected: 3*G + 5*(2G) + 7*(3G) = 3+10+21 = 34*G */
+        unsigned char s34[32] = {0x22};
+        helios_jacobian expected;
+        helios_scalarmult(&expected, s34, &G);
+
+        unsigned char mr[32], ex[32];
+        helios_tobytes(mr, &msm_result);
+        helios_tobytes(ex, &expected);
+        check_bytes("helios msm_fixed: 3*G + 5*(2G) + 7*(3G) == 34*G", ex, mr, 32);
+    }
+
+    /* Selene: msm_fixed n=1 fallback */
+    {
+        selene_jacobian G;
+        fq_copy(G.X, SELENE_GX);
+        fq_copy(G.Y, SELENE_GY);
+        fq_1(G.Z);
+
+        selene_affine table[16];
+        selene_scalarmult_fixed_precompute(table, &G);
+
+        const selene_affine *tables[1] = {table};
+        unsigned char scalars[32] = {0x0b}; /* 11 */
+
+        selene_jacobian msm_result, expected;
+        selene_msm_fixed(&msm_result, scalars, tables, 1);
+
+        unsigned char s11[32] = {0x0b};
+        selene_scalarmult(&expected, s11, &G);
+
+        unsigned char mr[32], ex[32];
+        selene_tobytes(mr, &msm_result);
+        selene_tobytes(ex, &expected);
+        check_bytes("selene msm_fixed: n=1 (11*G)", ex, mr, 32);
+    }
+}
+
 static void test_pedersen_extended()
 {
     std::cout << std::endl << "=== Pedersen extended ===" << std::endl;
@@ -2619,11 +3208,15 @@ static void test_pedersen_extended()
         helios_add(&G2, &H, &G); /* G2 = 3G */
         helios_dbl(&G3, &H); /* G3 = 4G */
 
-        unsigned char r_scalar[32] = {0x02};
+        unsigned char r_scalar[32] = {};
+        r_scalar[0] = 0x02;
         unsigned char vals[96];
-        unsigned char v1[32] = {0x03};
-        unsigned char v2[32] = {0x05};
-        unsigned char v3[32] = {0x07};
+        unsigned char v1[32] = {};
+        v1[0] = 0x03;
+        unsigned char v2[32] = {};
+        v2[0] = 0x05;
+        unsigned char v3[32] = {};
+        v3[0] = 0x07;
         std::memcpy(vals, v1, 32);
         std::memcpy(vals + 32, v2, 32);
         std::memcpy(vals + 64, v3, 32);
@@ -2703,11 +3296,15 @@ static void test_pedersen_extended()
         selene_add(&G2, &H, &G);
         selene_dbl(&G3, &H);
 
-        unsigned char r_scalar[32] = {0x02};
+        unsigned char r_scalar[32] = {};
+        r_scalar[0] = 0x02;
         unsigned char vals[96];
-        unsigned char v1[32] = {0x03};
-        unsigned char v2[32] = {0x05};
-        unsigned char v3[32] = {0x07};
+        unsigned char v1[32] = {};
+        v1[0] = 0x03;
+        unsigned char v2[32] = {};
+        v2[0] = 0x05;
+        unsigned char v3[32] = {};
+        v3[0] = 0x07;
         std::memcpy(vals, v1, 32);
         std::memcpy(vals + 32, v2, 32);
         std::memcpy(vals + 64, v3, 32);
@@ -3216,6 +3813,30 @@ static void test_helios_scalar()
         helios_scalar_to_bytes(out, result);
         check_bytes("helios scalar reduce_wide(lo=1,hi=0) == 1", one_bytes, out, 32);
     }
+
+    /* muladd: a*b + 1 == a*b + 1 (computed two ways) */
+    {
+        fq_fe one, ab, ab_plus_one, muladd_result;
+        helios_scalar_one(one);
+        helios_scalar_mul(ab, a, b);
+        helios_scalar_add(ab_plus_one, ab, one);
+        helios_scalar_muladd(muladd_result, a, b, one);
+        unsigned char out1[32], out2[32];
+        helios_scalar_to_bytes(out1, ab_plus_one);
+        helios_scalar_to_bytes(out2, muladd_result);
+        check_bytes("helios scalar muladd(a,b,1) == a*b+1", out1, out2, 32);
+    }
+
+    /* sq: a^2 == a*a */
+    {
+        fq_fe sq_result, mul_result;
+        helios_scalar_sq(sq_result, a);
+        helios_scalar_mul(mul_result, a, a);
+        unsigned char out1[32], out2[32];
+        helios_scalar_to_bytes(out1, sq_result);
+        helios_scalar_to_bytes(out2, mul_result);
+        check_bytes("helios scalar sq(a) == a*a", out1, out2, 32);
+    }
 }
 
 static void test_selene_scalar()
@@ -3304,6 +3925,30 @@ static void test_selene_scalar()
         selene_scalar_reduce_wide(result, wide_one);
         selene_scalar_to_bytes(out, result);
         check_bytes("selene scalar reduce_wide(lo=1,hi=0) == 1", one_bytes, out, 32);
+    }
+
+    /* muladd: a*b + 1 == a*b + 1 (computed two ways) */
+    {
+        fp_fe one, ab, ab_plus_one, muladd_result;
+        selene_scalar_one(one);
+        selene_scalar_mul(ab, a, b);
+        selene_scalar_add(ab_plus_one, ab, one);
+        selene_scalar_muladd(muladd_result, a, b, one);
+        unsigned char out1[32], out2[32];
+        selene_scalar_to_bytes(out1, ab_plus_one);
+        selene_scalar_to_bytes(out2, muladd_result);
+        check_bytes("selene scalar muladd(a,b,1) == a*b+1", out1, out2, 32);
+    }
+
+    /* sq: a^2 == a*a */
+    {
+        fp_fe sq_result, mul_result;
+        selene_scalar_sq(sq_result, a);
+        selene_scalar_mul(mul_result, a, a);
+        unsigned char out1[32], out2[32];
+        selene_scalar_to_bytes(out1, sq_result);
+        selene_scalar_to_bytes(out2, mul_result);
+        check_bytes("selene scalar sq(a) == a*a", out1, out2, 32);
     }
 }
 
@@ -3522,6 +4167,817 @@ static void test_karatsuba()
     }
 }
 
+#ifdef HELIOSELENE_ECFFT
+#include "ecfft_fp.h"
+#include "ecfft_fq.h"
+
+static void test_ecfft()
+{
+    std::cout << std::endl << "=== ECFFT ===" << std::endl;
+
+    /* ---- Fp ECFFT ---- */
+    {
+        /* Test init/free */
+        ecfft_fp_ctx ctx = {};
+        ecfft_fp_init(&ctx);
+        check_int("fp ecfft init", 1, ctx.initialized);
+        check_int("fp ecfft domain_size", (int)ECFFT_FP_DOMAIN_SIZE, (int)ctx.domain_size);
+        check_int("fp ecfft log_n", (int)ECFFT_FP_LOG_DOMAIN, (int)ctx.log_n);
+
+        /* Test ENTER/EXIT round-trip with small polynomial */
+        /* Polynomial: f(x) = 3 + 2x (degree 1, needs domain >= 2) */
+        {
+            fp_fe data[16];
+            unsigned char buf3[32] = {0x03};
+            unsigned char buf2[32] = {0x02};
+            fp_frombytes(data[0], buf3);
+            fp_frombytes(data[1], buf2);
+            for (size_t i = 2; i < 16; i++)
+                fp_0(data[i]);
+
+            /* Save original coefficients */
+            fp_fe orig0, orig1;
+            fp_copy(orig0, data[0]);
+            fp_copy(orig1, data[1]);
+
+            /* Find the level where n == 16 */
+            size_t enter_level = 0;
+            for (size_t lv = 0; lv < ctx.log_n; lv++)
+                if (ctx.levels[lv].n == 16)
+                {
+                    enter_level = lv;
+                    break;
+                }
+
+            /* ENTER: coeff -> eval */
+            ecfft_fp_enter(data, 16, &ctx);
+
+            /* Verify: data[0] should be f(s[0]) = 3 + 2*s[0] */
+            fp_fe expected, t;
+            fp_frombytes(expected, buf3); /* 3 */
+            fp_mul(t, orig1, ctx.levels[enter_level].s[0].v);
+            fp_add(expected, expected, t);
+            fp_fe zero;
+            fp_0(zero);
+            fp_sub(expected, expected, zero); /* normalize */
+
+            unsigned char exp_b[32], act_b[32];
+            fp_tobytes(exp_b, expected);
+            fp_tobytes(act_b, data[0]);
+            check_bytes("fp ecfft enter: f(s[0]) correct", exp_b, act_b, 32);
+
+            /* EXIT: eval -> coeff */
+            ecfft_fp_exit(data, 16, &ctx);
+
+            /* Should recover original coefficients */
+            fp_tobytes(exp_b, orig0);
+            fp_tobytes(act_b, data[0]);
+            check_bytes("fp ecfft enter/exit round-trip: coeff[0]", exp_b, act_b, 32);
+
+            fp_tobytes(exp_b, orig1);
+            fp_tobytes(act_b, data[1]);
+            check_bytes("fp ecfft enter/exit round-trip: coeff[1]", exp_b, act_b, 32);
+
+            /* Coefficients 2..15 should be zero */
+            unsigned char zero_b[32] = {0};
+            fp_tobytes(act_b, data[2]);
+            check_bytes("fp ecfft enter/exit round-trip: coeff[2]==0", zero_b, act_b, 32);
+        }
+
+        /* Test ECFFT polynomial multiplication: (1 + x)(1 + x) = 1 + 2x + x^2 */
+        {
+            fp_fe a[2], b[2], result[16];
+            unsigned char buf1[32] = {0x01};
+            fp_frombytes(a[0], buf1);
+            fp_frombytes(a[1], buf1);
+            fp_frombytes(b[0], buf1);
+            fp_frombytes(b[1], buf1);
+
+            size_t result_len = 0;
+            ecfft_fp_poly_mul(result, &result_len, a, 2, b, 2, &ctx);
+            check_int("fp ecfft mul: result_len", 3, (int)result_len);
+
+            /* Expected: [1, 2, 1] */
+            unsigned char act[32];
+
+            unsigned char one[32] = {0x01};
+            unsigned char two[32] = {0x02};
+
+            fp_tobytes(act, result[0]);
+            check_bytes("fp ecfft mul: (1+x)^2 coeff[0]=1", one, act, 32);
+
+            fp_tobytes(act, result[1]);
+            check_bytes("fp ecfft mul: (1+x)^2 coeff[1]=2", two, act, 32);
+
+            fp_tobytes(act, result[2]);
+            check_bytes("fp ecfft mul: (1+x)^2 coeff[2]=1", one, act, 32);
+        }
+
+        /* Test ECFFT multiply matches schoolbook for degree-4 * degree-4 */
+        {
+            fp_fe a[5], b[5];
+            for (int i = 0; i < 5; i++)
+            {
+                unsigned char buf[32] = {};
+                buf[0] = (unsigned char)(i + 1);
+                fp_frombytes(a[i], buf);
+                buf[0] = (unsigned char)(i + 6);
+                fp_frombytes(b[i], buf);
+            }
+
+            /* ECFFT multiply */
+            fp_fe ecfft_result[16];
+            size_t ecfft_len = 0;
+            ecfft_fp_poly_mul(ecfft_result, &ecfft_len, a, 5, b, 5, &ctx);
+
+            /* Verify via evaluation: A(x)*B(x) should equal result(x) at test point */
+            check_int("fp ecfft mul deg4: result_len", 9, (int)ecfft_len);
+
+            fp_poly pa, pb, pc;
+            pa.coeffs.resize(5);
+            pb.coeffs.resize(5);
+            pc.coeffs.resize(ecfft_len);
+            for (int i = 0; i < 5; i++)
+            {
+                fp_copy(pa.coeffs[i].v, a[i]);
+                fp_copy(pb.coeffs[i].v, b[i]);
+            }
+            for (size_t i = 0; i < ecfft_len; i++)
+                fp_copy(pc.coeffs[i].v, ecfft_result[i]);
+
+            fp_fe test_x;
+            unsigned char xbuf[32] = {0x37};
+            fp_frombytes(test_x, xbuf);
+
+            fp_fe va, vb, vc, vab;
+            fp_poly_eval(va, &pa, test_x);
+            fp_poly_eval(vb, &pb, test_x);
+            fp_mul(vab, va, vb);
+            fp_poly_eval(vc, &pc, test_x);
+
+            unsigned char eb[32], ab[32];
+            fp_tobytes(eb, vab);
+            fp_tobytes(ab, vc);
+            check_bytes("fp ecfft mul deg4: C(x)==A(x)*B(x)", eb, ab, 32);
+        }
+
+        /* Test dispatch integration: init global context, verify poly_mul uses it */
+        {
+            ecfft_fp_global_init();
+
+            fp_poly pa, pb, pc_ecfft;
+            pa.coeffs.resize(9);
+            pb.coeffs.resize(9);
+            for (int i = 0; i < 9; i++)
+            {
+                unsigned char buf[32] = {};
+                buf[0] = (unsigned char)(i + 1);
+                fp_frombytes(pa.coeffs[i].v, buf);
+                buf[0] = (unsigned char)(i + 10);
+                fp_frombytes(pb.coeffs[i].v, buf);
+            }
+
+            /* This should use ECFFT since both are >= ECFFT_THRESHOLD */
+            fp_poly_mul(&pc_ecfft, &pa, &pb);
+
+            /* Verify by evaluating at a test point */
+            fp_fe test_x;
+            unsigned char test_buf[32] = {0x42};
+            fp_frombytes(test_x, test_buf);
+
+            fp_fe val_a, val_b, val_c, val_ab;
+            fp_poly_eval(val_a, &pa, test_x);
+            fp_poly_eval(val_b, &pb, test_x);
+            fp_mul(val_ab, val_a, val_b);
+            fp_poly_eval(val_c, &pc_ecfft, test_x);
+
+            unsigned char eb[32], ab[32];
+            fp_tobytes(eb, val_ab);
+            fp_tobytes(ab, val_c);
+            check_bytes("fp ecfft dispatch: C(x) == A(x)*B(x)", eb, ab, 32);
+
+            ecfft_fp_global_free();
+        }
+
+        ecfft_fp_free(&ctx);
+    }
+
+    /* ---- Fq ECFFT ---- */
+    {
+        ecfft_fq_ctx ctx = {};
+        ecfft_fq_init(&ctx);
+        check_int("fq ecfft init", 1, ctx.initialized);
+
+        /* Test ECFFT polynomial multiplication: (1 + x)(1 + x) = 1 + 2x + x^2 */
+        {
+            fq_fe a[2], b[2], result[16];
+            unsigned char buf1[32] = {0x01};
+            fq_frombytes(a[0], buf1);
+            fq_frombytes(a[1], buf1);
+            fq_frombytes(b[0], buf1);
+            fq_frombytes(b[1], buf1);
+
+            size_t result_len = 0;
+            ecfft_fq_poly_mul(result, &result_len, a, 2, b, 2, &ctx);
+            check_int("fq ecfft mul: result_len", 3, (int)result_len);
+
+            unsigned char act[32];
+            unsigned char one[32] = {0x01};
+            unsigned char two[32] = {0x02};
+
+            fq_tobytes(act, result[0]);
+            check_bytes("fq ecfft mul: (1+x)^2 coeff[0]=1", one, act, 32);
+
+            fq_tobytes(act, result[1]);
+            check_bytes("fq ecfft mul: (1+x)^2 coeff[1]=2", two, act, 32);
+
+            fq_tobytes(act, result[2]);
+            check_bytes("fq ecfft mul: (1+x)^2 coeff[2]=1", one, act, 32);
+        }
+
+        /* Test ECFFT multiply matches schoolbook for degree-4 * degree-4 */
+        {
+            fq_fe a[5], b[5];
+            for (int i = 0; i < 5; i++)
+            {
+                unsigned char buf[32] = {};
+                buf[0] = (unsigned char)(i + 1);
+                fq_frombytes(a[i], buf);
+                buf[0] = (unsigned char)(i + 6);
+                fq_frombytes(b[i], buf);
+            }
+
+            fq_fe ecfft_result[16];
+            size_t ecfft_len = 0;
+            ecfft_fq_poly_mul(ecfft_result, &ecfft_len, a, 5, b, 5, &ctx);
+
+            check_int("fq ecfft mul deg4: result_len", 9, (int)ecfft_len);
+
+            fq_poly pa, pb, pc;
+            pa.coeffs.resize(5);
+            pb.coeffs.resize(5);
+            pc.coeffs.resize(ecfft_len);
+            for (int i = 0; i < 5; i++)
+            {
+                fq_copy(pa.coeffs[i].v, a[i]);
+                fq_copy(pb.coeffs[i].v, b[i]);
+            }
+            for (size_t i = 0; i < ecfft_len; i++)
+                fq_copy(pc.coeffs[i].v, ecfft_result[i]);
+
+            fq_fe test_x;
+            unsigned char xbuf[32] = {0x37};
+            fq_frombytes(test_x, xbuf);
+
+            fq_fe va, vb, vc, vab;
+            fq_poly_eval(va, &pa, test_x);
+            fq_poly_eval(vb, &pb, test_x);
+            fq_mul(vab, va, vb);
+            fq_poly_eval(vc, &pc, test_x);
+
+            unsigned char eb[32], ab[32];
+            fq_tobytes(eb, vab);
+            fq_tobytes(ab, vc);
+            check_bytes("fq ecfft mul deg4: C(x)==A(x)*B(x)", eb, ab, 32);
+        }
+
+        /* Test dispatch integration */
+        {
+            ecfft_fq_global_init();
+
+            fq_poly pa, pb, pc_ecfft;
+            pa.coeffs.resize(9);
+            pb.coeffs.resize(9);
+            for (int i = 0; i < 9; i++)
+            {
+                unsigned char buf[32] = {};
+                buf[0] = (unsigned char)(i + 1);
+                fq_frombytes(pa.coeffs[i].v, buf);
+                buf[0] = (unsigned char)(i + 10);
+                fq_frombytes(pb.coeffs[i].v, buf);
+            }
+
+            fq_poly_mul(&pc_ecfft, &pa, &pb);
+
+            fq_fe test_x;
+            unsigned char test_buf[32] = {0x42};
+            fq_frombytes(test_x, test_buf);
+
+            fq_fe val_a, val_b, val_c, val_ab;
+            fq_poly_eval(val_a, &pa, test_x);
+            fq_poly_eval(val_b, &pb, test_x);
+            fq_mul(val_ab, val_a, val_b);
+            fq_poly_eval(val_c, &pc_ecfft, test_x);
+
+            unsigned char eb[32], ab[32];
+            fq_tobytes(eb, val_ab);
+            fq_tobytes(ab, val_c);
+            check_bytes("fq ecfft dispatch: C(x) == A(x)*B(x)", eb, ab, 32);
+
+            ecfft_fq_global_free();
+        }
+
+        ecfft_fq_free(&ctx);
+    }
+}
+#endif /* HELIOSELENE_ECFFT */
+
+static void test_eval_divisor()
+{
+    std::cout << std::endl << "=== Eval-domain divisor ===" << std::endl;
+    unsigned char buf[32];
+
+    helios_eval_divisor_init();
+    selene_eval_divisor_init();
+
+    /* Test 1: fp_evals roundtrip — evaluate known poly at domain, interpolate back */
+    {
+        /* p(x) = 3x^2 + 5x + 7 */
+        fp_poly p;
+        p.coeffs.resize(3);
+        fp_fe c7, c5, c3;
+        unsigned char b7[32] = {7}, b5[32] = {5}, b3[32] = {3};
+        fp_frombytes(c7, b7);
+        fp_frombytes(c5, b5);
+        fp_frombytes(c3, b3);
+        fp_copy(p.coeffs[0].v, c7);
+        fp_copy(p.coeffs[1].v, c5);
+        fp_copy(p.coeffs[2].v, c3);
+
+        /* Evaluate at domain points */
+        fp_evals ev;
+        ev.degree = 2;
+        for (size_t i = 0; i < EVAL_DOMAIN_SIZE; i++)
+        {
+            fp_fe xi;
+            unsigned char xb[32] = {};
+            xb[0] = (unsigned char)(i & 0xff);
+            if (i > 255)
+                xb[1] = (unsigned char)((i >> 8) & 0xff);
+            fp_frombytes(xi, xb);
+            fp_fe tmp_ev;
+            fp_poly_eval(tmp_ev, &p, xi);
+            fp_evals_set(&ev, i, tmp_ev);
+        }
+
+        /* Interpolate back */
+        fp_poly recovered;
+        fp_evals_to_poly(&recovered, &ev);
+
+        /* Check coefficients match */
+        bool match = (recovered.coeffs.size() == 3);
+        if (match)
+        {
+            for (size_t i = 0; i < 3; i++)
+            {
+                unsigned char eb[32], rb[32];
+                fp_tobytes(eb, p.coeffs[i].v);
+                fp_tobytes(rb, recovered.coeffs[i].v);
+                if (std::memcmp(eb, rb, 32) != 0)
+                    match = false;
+            }
+        }
+        ++tests_run;
+        if (match)
+        {
+            ++tests_passed;
+            std::cout << "  PASS: fp_evals roundtrip" << std::endl;
+        }
+        else
+        {
+            ++tests_failed;
+            std::cout << "  FAIL: fp_evals roundtrip" << std::endl;
+        }
+    }
+
+    /* Test 2: fp_evals_mul matches fp_poly_mul */
+    {
+        /* a(x) = 2x + 1, b(x) = x + 3 */
+        fp_poly pa, pb, pc;
+        pa.coeffs.resize(2);
+        pb.coeffs.resize(2);
+        fp_fe c1, c2, c3_val;
+        unsigned char b1[32] = {1}, b2[32] = {2}, b3v[32] = {3};
+        fp_frombytes(c1, b1);
+        fp_frombytes(c2, b2);
+        fp_frombytes(c3_val, b3v);
+        fp_copy(pa.coeffs[0].v, c1);
+        fp_copy(pa.coeffs[1].v, c2);
+        fp_copy(pb.coeffs[0].v, c3_val);
+        fp_copy(pb.coeffs[1].v, c1);
+
+        /* Poly mul for reference */
+        fp_poly_mul(&pc, &pa, &pb);
+
+        /* Eval-domain multiplication */
+        fp_evals ea, eb, ec;
+        ea.degree = 1;
+        eb.degree = 1;
+        for (size_t i = 0; i < EVAL_DOMAIN_SIZE; i++)
+        {
+            fp_fe xi;
+            unsigned char xb[32] = {};
+            xb[0] = (unsigned char)(i & 0xff);
+            fp_frombytes(xi, xb);
+            fp_fe tmp_a, tmp_b;
+            fp_poly_eval(tmp_a, &pa, xi);
+            fp_poly_eval(tmp_b, &pb, xi);
+            fp_evals_set(&ea, i, tmp_a);
+            fp_evals_set(&eb, i, tmp_b);
+        }
+        fp_evals_mul(&ec, &ea, &eb);
+
+        /* Convert back */
+        fp_poly pc_eval;
+        fp_evals_to_poly(&pc_eval, &ec);
+
+        /* Compare */
+        bool match = (pc_eval.coeffs.size() == pc.coeffs.size());
+        if (match)
+        {
+            for (size_t i = 0; i < pc.coeffs.size(); i++)
+            {
+                unsigned char eb2[32], rb[32];
+                fp_tobytes(eb2, pc.coeffs[i].v);
+                fp_tobytes(rb, pc_eval.coeffs[i].v);
+                if (std::memcmp(eb2, rb, 32) != 0)
+                    match = false;
+            }
+        }
+        ++tests_run;
+        if (match)
+        {
+            ++tests_passed;
+            std::cout << "  PASS: fp_evals_mul matches poly_mul" << std::endl;
+        }
+        else
+        {
+            ++tests_failed;
+            std::cout << "  FAIL: fp_evals_mul matches poly_mul" << std::endl;
+        }
+    }
+
+    /* Test 3: fp_evals_div_linear */
+    {
+        /* f(x) = (x-300)(x-400)(x-500) evaluated at domain, then divide by (x-300) */
+        fp_fe r300, r400, r500;
+        unsigned char b300[32] = {}, b400[32] = {}, b500[32] = {};
+        b300[0] = 0x2c;
+        b300[1] = 0x01; /* 300 */
+        b400[0] = 0x90;
+        b400[1] = 0x01; /* 400 */
+        b500[0] = 0xf4;
+        b500[1] = 0x01; /* 500 */
+        fp_frombytes(r300, b300);
+        fp_frombytes(r400, b400);
+        fp_frombytes(r500, b500);
+
+        /* Build (x-300)(x-400)(x-500) via roots */
+        fp_fe roots[3];
+        fp_copy(roots[0], r300);
+        fp_copy(roots[1], r400);
+        fp_copy(roots[2], r500);
+        fp_poly f;
+        fp_poly_from_roots(&f, roots, 3);
+
+        /* Evaluate at domain */
+        fp_evals ef;
+        ef.degree = 3;
+        for (size_t i = 0; i < EVAL_DOMAIN_SIZE; i++)
+        {
+            fp_fe xi;
+            unsigned char xb[32] = {};
+            xb[0] = (unsigned char)(i & 0xff);
+            fp_frombytes(xi, xb);
+            fp_fe tmp_f;
+            fp_poly_eval(tmp_f, &f, xi);
+            fp_evals_set(&ef, i, tmp_f);
+        }
+
+        /* Divide by (x - 300) */
+        fp_evals eq;
+        fp_evals_div_linear(&eq, &ef, r300);
+
+        /* Expected: (x-400)(x-500) */
+        fp_fe roots2[2];
+        fp_copy(roots2[0], r400);
+        fp_copy(roots2[1], r500);
+        fp_poly expected;
+        fp_poly_from_roots(&expected, roots2, 2);
+
+        /* Convert eq back to poly and compare */
+        fp_poly got;
+        fp_evals_to_poly(&got, &eq);
+
+        bool match = (got.coeffs.size() == expected.coeffs.size());
+        if (match)
+        {
+            for (size_t i = 0; i < expected.coeffs.size(); i++)
+            {
+                unsigned char eb2[32], gb[32];
+                fp_tobytes(eb2, expected.coeffs[i].v);
+                fp_tobytes(gb, got.coeffs[i].v);
+                if (std::memcmp(eb2, gb, 32) != 0)
+                    match = false;
+            }
+        }
+        ++tests_run;
+        if (match)
+        {
+            ++tests_passed;
+            std::cout << "  PASS: fp_evals_div_linear" << std::endl;
+        }
+        else
+        {
+            ++tests_failed;
+            std::cout << "  FAIL: fp_evals_div_linear" << std::endl;
+        }
+    }
+
+    /* Test 4: eval_divisor_from_point — verify vanishes at point */
+    {
+        helios_jacobian G;
+        fp_copy(G.X, HELIOS_GX);
+        fp_copy(G.Y, HELIOS_GY);
+        fp_1(G.Z);
+
+        helios_affine pt;
+        helios_to_affine(&pt, &G);
+
+        helios_eval_divisor ed;
+        helios_eval_divisor_from_point(&ed, &pt);
+
+        helios_divisor d;
+        helios_eval_divisor_to_divisor(&d, &ed);
+
+        fp_fe val;
+        helios_evaluate_divisor(val, &d, pt.x, pt.y);
+        fp_tobytes(buf, val);
+        check_bytes("eval_divisor_from_point vanishes at P", zero_bytes, buf, 32);
+
+        /* Also matches helios_compute_divisor for 1 point */
+        helios_divisor d_ref;
+        helios_compute_divisor(&d_ref, &pt, 1);
+        unsigned char ab[32], rb[32];
+        fp_tobytes(ab, d.a.coeffs[0].v);
+        fp_tobytes(rb, d_ref.a.coeffs[0].v);
+        check_bytes("eval_divisor_from_point matches compute_divisor a[0]", rb, ab, 32);
+        fp_tobytes(ab, d.b.coeffs[0].v);
+        fp_tobytes(rb, d_ref.b.coeffs[0].v);
+        check_bytes("eval_divisor_from_point matches compute_divisor b[0]", rb, ab, 32);
+    }
+
+    /* Test 5: eval_divisor_mul — multiply two single-point divisors */
+    {
+        helios_jacobian G;
+        fp_copy(G.X, HELIOS_GX);
+        fp_copy(G.Y, HELIOS_GY);
+        fp_1(G.Z);
+        helios_jacobian G2;
+        helios_dbl(&G2, &G);
+
+        helios_affine p1, p2;
+        helios_to_affine(&p1, &G);
+        helios_to_affine(&p2, &G2);
+
+        helios_eval_divisor ed1, ed2, ed_prod;
+        helios_eval_divisor_from_point(&ed1, &p1);
+        helios_eval_divisor_from_point(&ed2, &p2);
+        helios_eval_divisor_mul(&ed_prod, &ed1, &ed2);
+
+        helios_divisor d;
+        helios_eval_divisor_to_divisor(&d, &ed_prod);
+
+        /* Should vanish at both points */
+        fp_fe val;
+        helios_evaluate_divisor(val, &d, p1.x, p1.y);
+        fp_tobytes(buf, val);
+        check_bytes("eval_divisor_mul vanishes at P1", zero_bytes, buf, 32);
+
+        helios_evaluate_divisor(val, &d, p2.x, p2.y);
+        fp_tobytes(buf, val);
+        check_bytes("eval_divisor_mul vanishes at P2", zero_bytes, buf, 32);
+
+        /* Should NOT vanish at a third point */
+        helios_jacobian G3;
+        helios_add(&G3, &G2, &G);
+        helios_affine p3;
+        helios_to_affine(&p3, &G3);
+        helios_evaluate_divisor(val, &d, p3.x, p3.y);
+        fp_tobytes(buf, val);
+        check_nonzero("eval_divisor_mul nonzero at P3", std::memcmp(buf, zero_bytes, 32) != 0 ? 1 : 0);
+    }
+
+    /* Test 6: fq_evals roundtrip */
+    {
+        fq_poly p;
+        p.coeffs.resize(2);
+        fq_fe c1, c2;
+        unsigned char b1[32] = {1}, b2[32] = {2};
+        fq_frombytes(c1, b1);
+        fq_frombytes(c2, b2);
+        fq_copy(p.coeffs[0].v, c1);
+        fq_copy(p.coeffs[1].v, c2);
+
+        fq_evals ev;
+        ev.degree = 1;
+        for (size_t i = 0; i < EVAL_DOMAIN_SIZE; i++)
+        {
+            fq_fe xi;
+            unsigned char xb[32] = {};
+            xb[0] = (unsigned char)(i & 0xff);
+            fq_frombytes(xi, xb);
+            fq_fe tmp_ev;
+            fq_poly_eval(tmp_ev, &p, xi);
+            fq_evals_set(&ev, i, tmp_ev);
+        }
+
+        fq_poly recovered;
+        fq_evals_to_poly(&recovered, &ev);
+
+        bool match = (recovered.coeffs.size() == 2);
+        if (match)
+        {
+            for (size_t i = 0; i < 2; i++)
+            {
+                unsigned char eb2[32], rb[32];
+                fq_tobytes(eb2, p.coeffs[i].v);
+                fq_tobytes(rb, recovered.coeffs[i].v);
+                if (std::memcmp(eb2, rb, 32) != 0)
+                    match = false;
+            }
+        }
+        ++tests_run;
+        if (match)
+        {
+            ++tests_passed;
+            std::cout << "  PASS: fq_evals roundtrip" << std::endl;
+        }
+        else
+        {
+            ++tests_failed;
+            std::cout << "  FAIL: fq_evals roundtrip" << std::endl;
+        }
+    }
+
+    /* Test 7: selene eval_divisor_from_point */
+    {
+        selene_jacobian G;
+        fq_copy(G.X, SELENE_GX);
+        fq_copy(G.Y, SELENE_GY);
+        fq_1(G.Z);
+
+        selene_affine pt;
+        selene_to_affine(&pt, &G);
+
+        selene_eval_divisor ed;
+        selene_eval_divisor_from_point(&ed, &pt);
+
+        selene_divisor d;
+        selene_eval_divisor_to_divisor(&d, &ed);
+
+        fq_fe val;
+        selene_evaluate_divisor(val, &d, pt.x, pt.y);
+        fq_tobytes(buf, val);
+        check_bytes("selene eval_divisor_from_point vanishes at P", zero_bytes, buf, 32);
+    }
+
+    /* Test 8: selene eval_divisor_mul */
+    {
+        selene_jacobian G;
+        fq_copy(G.X, SELENE_GX);
+        fq_copy(G.Y, SELENE_GY);
+        fq_1(G.Z);
+        selene_jacobian G2;
+        selene_dbl(&G2, &G);
+
+        selene_affine p1, p2;
+        selene_to_affine(&p1, &G);
+        selene_to_affine(&p2, &G2);
+
+        selene_eval_divisor ed1, ed2, ed_prod;
+        selene_eval_divisor_from_point(&ed1, &p1);
+        selene_eval_divisor_from_point(&ed2, &p2);
+        selene_eval_divisor_mul(&ed_prod, &ed1, &ed2);
+
+        selene_divisor d;
+        selene_eval_divisor_to_divisor(&d, &ed_prod);
+
+        fq_fe val;
+        selene_evaluate_divisor(val, &d, p1.x, p1.y);
+        fq_tobytes(buf, val);
+        check_bytes("selene eval_divisor_mul vanishes at P1", zero_bytes, buf, 32);
+
+        selene_evaluate_divisor(val, &d, p2.x, p2.y);
+        fq_tobytes(buf, val);
+        check_bytes("selene eval_divisor_mul vanishes at P2", zero_bytes, buf, 32);
+    }
+
+    /* Test 9: helios eval divisor merge (2 single-point divisors) */
+    {
+        helios_jacobian G;
+        fp_copy(G.X, HELIOS_GX);
+        fp_copy(G.Y, HELIOS_GY);
+        fp_1(G.Z);
+        helios_jacobian G2;
+        helios_dbl(&G2, &G);
+
+        helios_affine p1, p2;
+        helios_to_affine(&p1, &G);
+        helios_to_affine(&p2, &G2);
+
+        helios_jacobian G3;
+        helios_add(&G3, &G, &G2);
+        helios_affine sum;
+        helios_to_affine(&sum, &G3);
+
+        helios_eval_divisor ed1, ed2, merged;
+        helios_eval_divisor_from_point(&ed1, &p1);
+        helios_eval_divisor_from_point(&ed2, &p2);
+        helios_eval_divisor_merge(&merged, &ed1, &ed2, &p1, &p2, &sum);
+
+        helios_divisor d;
+        helios_eval_divisor_to_divisor(&d, &merged);
+
+        /* Should vanish at both points */
+        fp_fe val;
+        helios_evaluate_divisor(val, &d, p1.x, p1.y);
+        fp_tobytes(buf, val);
+        check_bytes("helios merge vanishes at P1", zero_bytes, buf, 32);
+
+        helios_evaluate_divisor(val, &d, p2.x, p2.y);
+        fp_tobytes(buf, val);
+        check_bytes("helios merge vanishes at P2", zero_bytes, buf, 32);
+    }
+
+    /* Test 10: fq_evals_div_linear */
+    {
+        fq_fe r300, r400;
+        unsigned char b300[32] = {}, b400[32] = {};
+        b300[0] = 0x2c;
+        b300[1] = 0x01;
+        b400[0] = 0x90;
+        b400[1] = 0x01;
+        fq_frombytes(r300, b300);
+        fq_frombytes(r400, b400);
+
+        fq_fe roots[2];
+        fq_copy(roots[0], r300);
+        fq_copy(roots[1], r400);
+        fq_poly f;
+        fq_poly_from_roots(&f, roots, 2);
+
+        fq_evals ef;
+        ef.degree = 2;
+        for (size_t i = 0; i < EVAL_DOMAIN_SIZE; i++)
+        {
+            fq_fe xi;
+            unsigned char xb[32] = {};
+            xb[0] = (unsigned char)(i & 0xff);
+            fq_frombytes(xi, xb);
+            fq_fe tmp_f;
+            fq_poly_eval(tmp_f, &f, xi);
+            fq_evals_set(&ef, i, tmp_f);
+        }
+
+        fq_evals eq;
+        fq_evals_div_linear(&eq, &ef, r300);
+
+        /* Expected: (x-400) = x - 400 */
+        fq_fe roots2[1];
+        fq_copy(roots2[0], r400);
+        fq_poly expected;
+        fq_poly_from_roots(&expected, roots2, 1);
+
+        fq_poly got;
+        fq_evals_to_poly(&got, &eq);
+
+        bool match = (got.coeffs.size() == expected.coeffs.size());
+        if (match)
+        {
+            for (size_t i = 0; i < expected.coeffs.size(); i++)
+            {
+                unsigned char eb2[32], gb[32];
+                fq_tobytes(eb2, expected.coeffs[i].v);
+                fq_tobytes(gb, got.coeffs[i].v);
+                if (std::memcmp(eb2, gb, 32) != 0)
+                    match = false;
+            }
+        }
+        ++tests_run;
+        if (match)
+        {
+            ++tests_passed;
+            std::cout << "  PASS: fq_evals_div_linear" << std::endl;
+        }
+        else
+        {
+            ++tests_failed;
+            std::cout << "  FAIL: fq_evals_div_linear" << std::endl;
+        }
+    }
+}
+
 static void test_dispatch()
 {
     std::cout << "  dispatch" << std::endl;
@@ -3628,6 +5084,10 @@ int main()
     test_scalarmult_extended();
     test_msm_extended();
     test_batch_affine_extended();
+    test_batch_invert();
+    test_fixed_base_scalarmult();
+    test_precomputed_tables();
+    test_msm_fixed();
     test_pedersen_extended();
     test_poly_extended();
     test_divisor_extended();
@@ -3636,6 +5096,10 @@ int main()
     test_selene_scalar();
     test_poly_interpolate();
     test_karatsuba();
+#ifdef HELIOSELENE_ECFFT
+    test_ecfft();
+#endif
+    test_eval_divisor();
     test_dispatch();
 
     std::cout << std::endl << "======================" << std::endl;

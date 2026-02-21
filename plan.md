@@ -663,6 +663,23 @@ Performance-critical algorithmic work not covered by SIMD vectorization. These o
 - **Endomorphism investigation**: While the CM discriminant D = −7857907 doesn't yield a cheap GLV endomorphism, investigate whether any structural property of these specific curves enables scalar decomposition or other non-obvious speedups.
 - Benchmark all optimizations against the Rust `helioselene` crate: target ≥ parity on scalar paths, 2–3x advantage with SIMD+algorithmic combined.
 
+**Phase 5 implementation notes (completed):**
+
+Items implemented:
+- **Fq inversion addition chain**: Optimized for both x64 and portable backends. Uses 4-bit fixed window for the lower 128 irregular bits and a doubling chain for the upper 127 all-ones bits. Total: 254 sq + 50 mul (down from ~254 sq + 202 mul in the naive bit-scan approach).
+- **Scalar muladd/sq**: Added `helios_scalar_muladd`, `helios_scalar_sq` and Selene equivalents. These compose existing field ops (fq_mul+fq_add, fp_mul+fp_add) since Helios scalars live in Fq and Selene scalars live in Fp (curve cycle property). Barrett reduction is unnecessary — the existing `_reduce_wide` handles 64-byte inputs, and scalar arithmetic is just field arithmetic.
+- **Batch field inversion**: Extracted Montgomery's trick from batch_affine into standalone `fp_batch_invert.h` and `fq_batch_invert.h`. Refactored batch_affine headers to use these utilities.
+- **Fixed-base CT scalarmult (w=5)**: Header-only implementations using 52 signed 5-bit windows with 16-entry precomputed affine tables. Saves ~12 mixed additions per scalarmult vs w=4, and amortizes table computation across multiple calls.
+- **Precomputed generator tables**: Static byte data in `.inl` files for both base generators, with `helios_precomp.h`/`selene_precomp.h` loaders. Zero runtime precomputation for the base generator.
+- **Fixed-base MSM**: Interleaved w=5 MSM that shares 255 doublings across all n points, saving (n-1)*255 doublings vs individual fixed-base scalarmults.
+- **Karatsuba polynomial multiplication**: Already implemented (threshold=32) in `src/poly.cpp` from Phase 4.
+- **Polynomial auto-selection**: Already implemented — `fp_poly_mul`/`fq_poly_mul` dispatch schoolbook (<32 coeffs) vs Karatsuba (>=32).
+
+Items skipped with justification:
+- **Crandall theta optimization** (Item 2): The plan assumed γ−1 is divisible by 2^10, enabling decomposition 2γ = 2 + 2^11 × θ where θ = (γ−1)/2^10. Verification showed γ−1 mod 1024 = 96, giving a 2-adic valuation of only 5 (not 10). The decomposition 2γ = 2 + 2^5 × θ' where θ' = (γ−1)/2^4 doesn't provide meaningful savings since θ' is still ~123 bits (only 4 bits smaller than γ). The current direct `hi × TWO_GAMMA_51` multiply is already efficient.
+- **NTT/FFT for polynomial multiplication** (Item 5): Computed that q−1 has 2-adicity s=1 (only one factor of 2) and p−1 has s=2. Standard radix-2 NTT requires s >= log2(N) where N is the transform size. Bluestein's algorithm also requires roots of unity of sufficient order, which neither field provides. NTT-friendly helper primes with CRT would add enormous complexity for marginal gain over Karatsuba at the polynomial degrees used in FCMP++ (typically hundreds to low thousands). Karatsuba at O(n^1.585) remains the best practical algorithm for these fields.
+- **Endomorphism investigation** (Item 10): Computed the CM discriminant: t (Helios trace) = p+1-q is 127 bits, and the squarefree part of t²−4p has |D| = 245 bits with f = 83. GLV-style endomorphisms require D = −3 (cube root of unity) or D = −4 (sqrt(−1)), or at minimum a very small |D|. With |D| at 245 bits, no efficient endomorphism exists for these curves. The plan's cited D = −7857907 appears to be the CM discriminant of the isogeny class, not the squarefree discriminant — in either case, it's far too large for GLV.
+
 ### Phase 6: Public API, Hardening & Audit Prep (Weeks 19–22)
 
 - Implement the public C++ API (§11): HeliosPoint, SelenePoint, HeliosScalar, SeleneScalar classes with `std::optional` returns from deserialization, RAII, and type safety. This wraps the internal C-style dispatch layer.
@@ -684,7 +701,7 @@ Performance-critical algorithmic work not covered by SIMD vectorization. These o
 
 3. **Allocator model**: **RESOLVED** — Same approach as ed25519: no custom allocator. Stack allocation for the hot path (field elements, point types, scalar mul intermediates), `std::vector` for MSM heap allocations (bucket arrays, digit encodings). `helioselene_secure_erase()` exposed as a utility for callers to manage their own secret lifecycle. No RAII wrappers, no mlock, no arena. Constant-time scalar multiplication paths will `secure_erase` stack locals before return as a defense-in-depth measure.
 
-4. **FFT for ec-divisors**: **RESOLVED** — EC-divisor polynomial arithmetic is a first-class module within helioselene with no external dependency. The Fq field's 2-adicity (q−1 divisibility by powers of 2) still needs verification to determine whether NTT is viable or whether Bluestein's/Schönhage–Strassen is needed for large-degree polynomials.
+4. **FFT for ec-divisors**: **RESOLVED** — EC-divisor polynomial arithmetic is a first-class module within helioselene with no external dependency. The Fq field's 2-adicity has been verified: q−1 has s=1 (one factor of 2), p−1 has s=2. NTT is infeasible for both fields — neither supports roots of unity of sufficient order. Karatsuba (O(n^1.585), threshold=32) is the best practical algorithm. NTT-friendly helper primes with CRT would add enormous complexity for marginal benefit at FCMP++ polynomial degrees.
 
 5. **WASM target**: **RESOLVED** — 32-bit WASM follows the generic ref10 32-bit path via Emscripten. No special WASM-specific optimizations. The ref10 `int32_t[10]` representation works natively in WASM's 32-bit integer arithmetic.
 
@@ -709,3 +726,10 @@ Performance-critical algorithmic work not covered by SIMD vectorization. These o
 - Bernstein-Yang constant-time GCD (https://eprint.iacr.org/2019/266) — field inversion
 - Pippenger's algorithm as described in Daniel J. Bernstein's "Pippenger's exponentiation algorithm"
 - RFC 9380: Hashing to Elliptic Curves — hash-to-point specification
+
+---
+
+## Future Improvements
+
+### Multi-Threaded Pippenger
+For large MSMs (n > 4096, typical in curve tree construction), partition scalar-point pairs across threads for parallel bucket accumulation. The bucket phase is embarrassingly parallel; only the final running-sum combination requires synchronization. Use `std::thread` + `std::atomic` countdown (C++17 has no `std::barrier`). Only for variable-time paths. Threading adds platform complexity — deferred from Phase 5.

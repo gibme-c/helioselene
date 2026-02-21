@@ -54,7 +54,7 @@ else()
         set(ARCH_FLAG "-march=${ARCH}")
     endif()
 
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17 -Wall -Wextra -Wuninitialized -fstack-protector-strong")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17 -Wall -Wextra -Wuninitialized -fstack-protector-strong ${ARCH_FLAG}")
 
     # Disable auto-vectorization to prevent the compiler from introducing
     # SIMD instructions that could create data-dependent timing behavior,
@@ -78,111 +78,9 @@ else()
     endif()
 endif()
 
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
-
-set(HELIOSELENE_SRC
-    src/helioselene_secure_erase.cpp
-    src/poly.cpp
-    src/divisor.cpp
-)
-
+# ── Options ──
 option(FORCE_PORTABLE "Force portable (32-bit) implementation even on 64-bit platforms" OFF)
 
-if(NOT FORCE_PORTABLE AND CMAKE_SYSTEM_PROCESSOR MATCHES "^([xX]86_64|[aA][mM][dD]64|[aA][rR][mM]64|[aA][aA][rR][cC][hH]64)$")
-    set(HELIOSELENE_X64_SRC
-        # Field arithmetic (F_p)
-        src/x64/fp_frombytes.cpp
-        src/x64/fp_invert.cpp
-        src/x64/fp_mul.cpp
-        src/x64/fp_pow22523.cpp
-        src/x64/fp_sq.cpp
-        src/x64/fp_sq2.cpp
-        src/x64/fp_sqn.cpp
-        src/x64/fp_sqrt.cpp
-        src/x64/fp_tobytes.cpp
-        # Field arithmetic (F_q)
-        src/x64/fq_frombytes.cpp
-        src/x64/fq_invert.cpp
-        src/x64/fq_mul.cpp
-        src/x64/fq_sq.cpp
-        src/x64/fq_sq2.cpp
-        src/x64/fq_sqn.cpp
-        src/x64/fq_sqrt.cpp
-        src/x64/fq_tobytes.cpp
-        # Curve operations (Helios)
-        src/x64/helios_dbl.cpp
-        src/x64/helios_madd.cpp
-        src/x64/helios_add.cpp
-        src/x64/helios_tobytes.cpp
-        src/x64/helios_frombytes.cpp
-        src/x64/helios_scalarmult.cpp
-        src/x64/helios_scalarmult_vartime.cpp
-        src/x64/helios_msm_vartime.cpp
-        src/x64/helios_map_to_curve.cpp
-        # Curve operations (Selene)
-        src/x64/selene_dbl.cpp
-        src/x64/selene_madd.cpp
-        src/x64/selene_add.cpp
-        src/x64/selene_tobytes.cpp
-        src/x64/selene_frombytes.cpp
-        src/x64/selene_scalarmult.cpp
-        src/x64/selene_scalarmult_vartime.cpp
-        src/x64/selene_msm_vartime.cpp
-        src/x64/selene_map_to_curve.cpp
-    )
-    list(APPEND HELIOSELENE_SRC ${HELIOSELENE_X64_SRC})
-    message(STATUS "HELIOSELENE: 64-bit optimized field arithmetic enabled (radix-2^51)")
-else()
-    set(HELIOSELENE_REF10_SRC
-        # Field arithmetic (F_p)
-        src/portable/fp_frombytes.cpp
-        src/portable/fp_invert.cpp
-        src/portable/fp_mul.cpp
-        src/portable/fp_pow22523.cpp
-        src/portable/fp_sq.cpp
-        src/portable/fp_sq2.cpp
-        src/portable/fp_sqn.cpp
-        src/portable/fp_sqrt.cpp
-        src/portable/fp_tobytes.cpp
-        # Field arithmetic (F_q)
-        src/portable/fq_frombytes.cpp
-        src/portable/fq_invert.cpp
-        src/portable/fq_mul.cpp
-        src/portable/fq_sq.cpp
-        src/portable/fq_sq2.cpp
-        src/portable/fq_sqn.cpp
-        src/portable/fq_sqrt.cpp
-        src/portable/fq_tobytes.cpp
-        # Curve operations (Helios)
-        src/portable/helios_dbl.cpp
-        src/portable/helios_madd.cpp
-        src/portable/helios_add.cpp
-        src/portable/helios_tobytes.cpp
-        src/portable/helios_frombytes.cpp
-        src/portable/helios_scalarmult.cpp
-        src/portable/helios_scalarmult_vartime.cpp
-        src/portable/helios_msm_vartime.cpp
-        src/portable/helios_map_to_curve.cpp
-        # Curve operations (Selene)
-        src/portable/selene_dbl.cpp
-        src/portable/selene_madd.cpp
-        src/portable/selene_add.cpp
-        src/portable/selene_tobytes.cpp
-        src/portable/selene_frombytes.cpp
-        src/portable/selene_scalarmult.cpp
-        src/portable/selene_scalarmult_vartime.cpp
-        src/portable/selene_msm_vartime.cpp
-        src/portable/selene_map_to_curve.cpp
-    )
-    list(APPEND HELIOSELENE_SRC ${HELIOSELENE_REF10_SRC})
-    message(STATUS "HELIOSELENE: 32-bit ref10 implementation")
-endif()
-
-if(FORCE_PORTABLE)
-    message(STATUS "HELIOSELENE: Forced portable (32-bit) implementation via FORCE_PORTABLE")
-endif()
-
-# ── SIMD backend options ──
 # Detect x86_64 specifically (SIMD backends are x86_64-only)
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^([xX]86_64|[aA][mM][dD]64)$")
     set(HELIOSELENE_IS_X86_64 TRUE)
@@ -203,48 +101,10 @@ endif()
 if(FORCE_PORTABLE)
     set(ENABLE_AVX512 OFF CACHE BOOL "" FORCE)
     set(ENABLE_AVX2 OFF CACHE BOOL "" FORCE)
+    message(STATUS "HELIOSELENE: Forced portable (32-bit) implementation via FORCE_PORTABLE")
 endif()
 
-# SIMD dispatch infrastructure
-if(ENABLE_AVX2 OR ENABLE_AVX512)
-    set(HELIOSELENE_SIMD_SRC
-        src/cpuid.cpp
-        src/dispatch.cpp
-    )
-    list(APPEND HELIOSELENE_SRC ${HELIOSELENE_SIMD_SRC})
-
-    # AVX2 backend sources
-    set(HELIOSELENE_AVX2_SRC
-        src/x64/avx2/helios_scalarmult.cpp
-        src/x64/avx2/helios_scalarmult_vartime.cpp
-        src/x64/avx2/helios_msm_vartime.cpp
-        src/x64/avx2/selene_scalarmult.cpp
-        src/x64/avx2/selene_scalarmult_vartime.cpp
-        src/x64/avx2/selene_msm_vartime.cpp
-    )
-
-    # IFMA backend sources
-    set(HELIOSELENE_IFMA_SRC
-        src/x64/ifma/helios_scalarmult.cpp
-        src/x64/ifma/helios_scalarmult_vartime.cpp
-        src/x64/ifma/helios_msm_vartime.cpp
-        src/x64/ifma/selene_scalarmult.cpp
-        src/x64/ifma/selene_scalarmult_vartime.cpp
-        src/x64/ifma/selene_msm_vartime.cpp
-    )
-
-    if(ENABLE_AVX2)
-        list(APPEND HELIOSELENE_SRC ${HELIOSELENE_AVX2_SRC})
-        message(STATUS "HELIOSELENE: AVX2 backend enabled")
-    endif()
-
-    if(ENABLE_AVX512)
-        list(APPEND HELIOSELENE_SRC ${HELIOSELENE_IFMA_SRC})
-        message(STATUS "HELIOSELENE: AVX-512 IFMA backend enabled")
-    endif()
-
-    message(STATUS "HELIOSELENE: SIMD dispatch enabled")
-endif()
+option(ENABLE_ECFFT "Enable ECFFT polynomial multiplication" OFF)
 
 option(ENABLE_LTO "Enable link-time optimization" OFF)
 if(ENABLE_LTO)
@@ -259,14 +119,31 @@ if(ENABLE_LTO)
     message(STATUS "HELIOSELENE: Link-time optimization enabled")
 endif()
 
-add_library(helioselene STATIC ${HELIOSELENE_SRC})
-target_include_directories(helioselene PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
-if(FORCE_PORTABLE)
-    target_compile_definitions(helioselene PUBLIC FORCE_PORTABLE=1)
-endif()
+# ── Sub-libraries ──
+add_subdirectory(common)
+add_subdirectory(fp)
+add_subdirectory(fq)
+add_subdirectory(helios)
+add_subdirectory(selene)
+add_subdirectory(ecfft)
+add_subdirectory(ec-divisors)
 
-# SIMD compile definitions
+# ── Main library: dispatch + master include ──
 if(ENABLE_AVX2 OR ENABLE_AVX512)
+    # SIMD dispatch requires compiled sources
+    add_library(helioselene STATIC
+        src/cpuid.cpp
+        src/dispatch.cpp
+    )
+    message(STATUS "HELIOSELENE: SIMD dispatch enabled")
+
+    if(ENABLE_AVX2)
+        message(STATUS "HELIOSELENE: AVX2 backend enabled")
+    endif()
+    if(ENABLE_AVX512)
+        message(STATUS "HELIOSELENE: AVX-512 IFMA backend enabled")
+    endif()
+
     target_compile_definitions(helioselene PUBLIC HELIOSELENE_SIMD=1)
 
     if(NOT ENABLE_AVX512)
@@ -275,26 +152,41 @@ if(ENABLE_AVX2 OR ENABLE_AVX512)
     if(NOT ENABLE_AVX2)
         target_compile_definitions(helioselene PUBLIC HELIOSELENE_NO_AVX2=1)
     endif()
-
-    # Per-TU SIMD flags for AVX2 sources
-    if(ENABLE_AVX2 AND HELIOSELENE_AVX2_SRC)
-        if(MSVC)
-            set_source_files_properties(${HELIOSELENE_AVX2_SRC} PROPERTIES COMPILE_FLAGS "/arch:AVX2")
-        else()
-            set_source_files_properties(${HELIOSELENE_AVX2_SRC} PROPERTIES COMPILE_FLAGS "-mavx2")
-        endif()
-    endif()
-
-    # Per-TU SIMD flags for IFMA sources
-    if(ENABLE_AVX512 AND HELIOSELENE_IFMA_SRC)
-        if(MSVC)
-            set_source_files_properties(${HELIOSELENE_IFMA_SRC} PROPERTIES COMPILE_FLAGS "/arch:AVX512")
-        else()
-            set_source_files_properties(${HELIOSELENE_IFMA_SRC} PROPERTIES COMPILE_FLAGS "-mavx512f -mavx512ifma")
-        endif()
-    endif()
+else()
+    # No compiled sources needed — header-only umbrella
+    add_library(helioselene INTERFACE)
 endif()
 
+if(ENABLE_ECFFT)
+    message(STATUS "HELIOSELENE: ECFFT polynomial multiplication enabled")
+endif()
+
+# Use generator expressions for PUBLIC/INTERFACE compatibility
+if(ENABLE_AVX2 OR ENABLE_AVX512)
+    target_include_directories(helioselene PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+    target_link_libraries(helioselene PUBLIC
+        helioselene-ec-divisors
+        helioselene-helios
+        helioselene-selene
+        helioselene-fp
+        helioselene-fq
+        helioselene-ecfft
+        helioselene-common
+    )
+else()
+    target_include_directories(helioselene INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+    target_link_libraries(helioselene INTERFACE
+        helioselene-ec-divisors
+        helioselene-helios
+        helioselene-selene
+        helioselene-fp
+        helioselene-fq
+        helioselene-ecfft
+        helioselene-common
+    )
+endif()
+
+# ── Tests and benchmarks ──
 option(BUILD_TESTS "Build unit tests and benchmarks" OFF)
 if(DEFINED ENV{BUILD_TESTS})
     set(BUILD_TESTS $ENV{BUILD_TESTS})
@@ -305,11 +197,33 @@ if(BUILD_TESTS)
     enable_testing()
 
     add_executable(test-helioselene src/tests.cpp)
-    target_link_libraries(test-helioselene helioselene)
+    target_link_libraries(test-helioselene PRIVATE helioselene)
     set_property(TARGET test-helioselene PROPERTY OUTPUT_NAME "helioselene-tests")
     add_test(NAME helioselene-tests COMMAND test-helioselene)
 
     add_executable(benchmark-helioselene src/benchmark.cpp)
-    target_link_libraries(benchmark-helioselene helioselene)
+    target_link_libraries(benchmark-helioselene PRIVATE helioselene)
     set_property(TARGET benchmark-helioselene PROPERTY OUTPUT_NAME "helioselene-benchmark")
+
+    add_executable(benchmark-contest src/benchmark_contest.cpp)
+    target_link_libraries(benchmark-contest PRIVATE helioselene)
+    set_property(TARGET benchmark-contest PROPERTY OUTPUT_NAME "helioselene-benchmark-contest")
+
+    add_executable(benchmark-fcmpp src/benchmark_fcmpp.cpp)
+    target_link_libraries(benchmark-fcmpp PRIVATE helioselene)
+    set_property(TARGET benchmark-fcmpp PROPERTY OUTPUT_NAME "helioselene-benchmark-fcmpp")
+endif()
+
+# ── Auxiliary tools ──
+option(BUILD_TOOLS "Build auxiliary tools (ECFFT curve search)" OFF)
+if(BUILD_TOOLS)
+    add_executable(find-ecfft-curve tools/find_ecfft_curve.cpp)
+    target_link_libraries(find-ecfft-curve helioselene)
+    set_property(TARGET find-ecfft-curve PROPERTY OUTPUT_NAME "helioselene-find-ecfft")
+
+    add_executable(gen-ecfft-data tools/gen_ecfft_data.cpp)
+    target_link_libraries(gen-ecfft-data helioselene)
+    set_property(TARGET gen-ecfft-data PROPERTY OUTPUT_NAME "helioselene-gen-ecfft")
+
+    message(STATUS "HELIOSELENE: Auxiliary tools enabled")
 endif()

@@ -163,6 +163,7 @@ void benchmark(
     T &&function,
     const std::string &functionName = "",
     const size_t iterations = BENCHMARK_PERFORMANCE_ITERATIONS,
+    const size_t warmup = BENCHMARK_WARMUP_ITERATIONS,
     int8_t prefix_width = BENCHMARK_PREFIX_WIDTH,
     int8_t column_width = BENCHMARK_COLUMN_WIDTH,
     int8_t precision = BENCHMARK_PRECISION)
@@ -179,7 +180,7 @@ void benchmark(
 
     const auto warmup_timer = NOW();
 
-    for (size_t i = 0; i < BENCHMARK_WARMUP_ITERATIONS; ++i)
+    for (size_t i = 0; i < warmup; ++i)
     {
         function();
     }
@@ -191,7 +192,7 @@ void benchmark(
 
     if (warmup_us > 0.0)
     {
-        const double est_per_op_us = warmup_us / static_cast<double>(BENCHMARK_WARMUP_ITERATIONS);
+        const double est_per_op_us = warmup_us / static_cast<double>(warmup);
         const double ideal = BENCHMARK_TARGET_BATCH_US / est_per_op_us;
 
         if (ideal < 1.0)
@@ -277,11 +278,12 @@ void benchmark_long(
     T &&function,
     const std::string &functionName = "",
     const size_t iterations = BENCHMARK_PERFORMANCE_ITERATIONS_LONG,
+    const size_t warmup = BENCHMARK_WARMUP_ITERATIONS,
     int8_t prefix_width = BENCHMARK_PREFIX_WIDTH,
     int8_t column_width = BENCHMARK_COLUMN_WIDTH,
     int8_t precision = BENCHMARK_PRECISION)
 {
-    benchmark(function, functionName, iterations, prefix_width, column_width, precision);
+    benchmark(function, functionName, iterations, warmup, prefix_width, column_width, precision);
 }
 
 #endif // HELIOSELENE_BENCHMARK_H

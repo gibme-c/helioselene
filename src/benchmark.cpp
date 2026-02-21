@@ -57,12 +57,23 @@ int main(int argc, char *argv[])
             helioselene_init();
             dispatch_label = "init (CPUID heuristic)";
         }
+        else if (std::strcmp(argv[i], "--all") == 0)
+        {
+            /* handled below */
+        }
         else
         {
             std::cerr << "Unknown option: " << argv[i] << std::endl;
-            std::cerr << "Usage: helioselene-benchmark [--init|--autotune]" << std::endl;
+            std::cerr << "Usage: helioselene-benchmark [--init|--autotune] [--all]" << std::endl;
             return 1;
         }
+    }
+
+    bool bench_all = false;
+    for (int i = 1; i < argc; i++)
+    {
+        if (std::strcmp(argv[i], "--all") == 0)
+            bench_all = true;
     }
 
     auto state = benchmark_setup();
@@ -339,310 +350,559 @@ int main(int argc, char *argv[])
         },
         "selene_scalarmult_vt");
 
-    std::cout << std::endl;
-    std::cout << "--- Helios MSM ---" << std::endl;
-
-    /* Prepare MSM data */
-    auto make_helios_msm_data = [&](size_t n, std::vector<unsigned char> &scalars, std::vector<helios_jacobian> &points)
+    if (bench_all)
     {
-        scalars.resize(n * 32, 0);
-        points.resize(n);
-        for (size_t i = 0; i < n; i++)
+        std::cout << std::endl;
+        std::cout << "--- Helios MSM ---" << std::endl;
+
+        /* Prepare MSM data */
+        auto make_helios_msm_data =
+            [&](size_t n, std::vector<unsigned char> &scalars, std::vector<helios_jacobian> &points)
         {
-            scalars[i * 32] = static_cast<unsigned char>((i + 1) & 0xff);
-            scalars[i * 32 + 1] = static_cast<unsigned char>(((i + 1) >> 8) & 0xff);
-            helios_copy(&points[i], &h_G);
-        }
-    };
-
-    {
-        std::vector<unsigned char> sc;
-        std::vector<helios_jacobian> pts;
-
-        make_helios_msm_data(1, sc, pts);
-        benchmark(
-            [&]()
-            {
-                helios_msm_vartime(&h_result, sc.data(), pts.data(), 1);
-                benchmark_do_not_optimize(h_result);
-            },
-            "helios_msm n=1");
-
-        make_helios_msm_data(8, sc, pts);
-        benchmark(
-            [&]()
-            {
-                helios_msm_vartime(&h_result, sc.data(), pts.data(), 8);
-                benchmark_do_not_optimize(h_result);
-            },
-            "helios_msm n=8");
-
-        make_helios_msm_data(32, sc, pts);
-        benchmark(
-            [&]()
-            {
-                helios_msm_vartime(&h_result, sc.data(), pts.data(), 32);
-                benchmark_do_not_optimize(h_result);
-            },
-            "helios_msm n=32");
-
-        make_helios_msm_data(64, sc, pts);
-        benchmark(
-            [&]()
-            {
-                helios_msm_vartime(&h_result, sc.data(), pts.data(), 64);
-                benchmark_do_not_optimize(h_result);
-            },
-            "helios_msm n=64");
-
-        make_helios_msm_data(256, sc, pts);
-        benchmark(
-            [&]()
-            {
-                helios_msm_vartime(&h_result, sc.data(), pts.data(), 256);
-                benchmark_do_not_optimize(h_result);
-            },
-            "helios_msm n=256");
-    }
-
-    std::cout << std::endl;
-    std::cout << "--- Selene MSM ---" << std::endl;
-
-    auto make_selene_msm_data = [&](size_t n, std::vector<unsigned char> &scalars, std::vector<selene_jacobian> &points)
-    {
-        scalars.resize(n * 32, 0);
-        points.resize(n);
-        for (size_t i = 0; i < n; i++)
-        {
-            scalars[i * 32] = static_cast<unsigned char>((i + 1) & 0xff);
-            scalars[i * 32 + 1] = static_cast<unsigned char>(((i + 1) >> 8) & 0xff);
-            selene_copy(&points[i], &s_G);
-        }
-    };
-
-    {
-        std::vector<unsigned char> sc;
-        std::vector<selene_jacobian> pts;
-
-        make_selene_msm_data(1, sc, pts);
-        benchmark(
-            [&]()
-            {
-                selene_msm_vartime(&s_result, sc.data(), pts.data(), 1);
-                benchmark_do_not_optimize(s_result);
-            },
-            "selene_msm n=1");
-
-        make_selene_msm_data(8, sc, pts);
-        benchmark(
-            [&]()
-            {
-                selene_msm_vartime(&s_result, sc.data(), pts.data(), 8);
-                benchmark_do_not_optimize(s_result);
-            },
-            "selene_msm n=8");
-
-        make_selene_msm_data(32, sc, pts);
-        benchmark(
-            [&]()
-            {
-                selene_msm_vartime(&s_result, sc.data(), pts.data(), 32);
-                benchmark_do_not_optimize(s_result);
-            },
-            "selene_msm n=32");
-
-        make_selene_msm_data(64, sc, pts);
-        benchmark(
-            [&]()
-            {
-                selene_msm_vartime(&s_result, sc.data(), pts.data(), 64);
-                benchmark_do_not_optimize(s_result);
-            },
-            "selene_msm n=64");
-
-        make_selene_msm_data(256, sc, pts);
-        benchmark(
-            [&]()
-            {
-                selene_msm_vartime(&s_result, sc.data(), pts.data(), 256);
-                benchmark_do_not_optimize(s_result);
-            },
-            "selene_msm n=256");
-    }
-
-    std::cout << std::endl;
-    std::cout << "--- SSWU map-to-curve ---" << std::endl;
-
-    unsigned char sswu_input[32] = {0x2a};
-
-    benchmark(
-        [&]()
-        {
-            helios_map_to_curve(&h_result, sswu_input);
-            benchmark_do_not_optimize(h_result);
-        },
-        "helios_map_to_curve");
-
-    benchmark(
-        [&]()
-        {
-            selene_map_to_curve(&s_result, sswu_input);
-            benchmark_do_not_optimize(s_result);
-        },
-        "selene_map_to_curve");
-
-    unsigned char sswu_u0[32] = {0x01};
-    unsigned char sswu_u1[32] = {0x02};
-
-    benchmark(
-        [&]()
-        {
-            helios_map_to_curve2(&h_result, sswu_u0, sswu_u1);
-            benchmark_do_not_optimize(h_result);
-        },
-        "helios_map_to_curve2");
-
-    benchmark(
-        [&]()
-        {
-            selene_map_to_curve2(&s_result, sswu_u0, sswu_u1);
-            benchmark_do_not_optimize(s_result);
-        },
-        "selene_map_to_curve2");
-
-    std::cout << "--- Batch affine ---" << std::endl;
-
-    /* Prepare batch data */
-    auto make_helios_batch_data = [&](size_t n, std::vector<helios_jacobian> &pts)
-    {
-        pts.resize(n);
-        helios_copy(&pts[0], &h_G);
-        for (size_t i = 1; i < n; i++)
-            helios_dbl(&pts[i], &pts[i - 1]);
-    };
-
-    {
-        std::vector<helios_jacobian> pts;
-        std::vector<helios_affine> out;
-
-        make_helios_batch_data(16, pts);
-        out.resize(16);
-        benchmark(
-            [&]()
-            {
-                helios_batch_to_affine(out.data(), pts.data(), 16);
-                benchmark_do_not_optimize(out[0]);
-            },
-            "helios_batch_affine n=16");
-
-        make_helios_batch_data(64, pts);
-        out.resize(64);
-        benchmark(
-            [&]()
-            {
-                helios_batch_to_affine(out.data(), pts.data(), 64);
-                benchmark_do_not_optimize(out[0]);
-            },
-            "helios_batch_affine n=64");
-
-        make_helios_batch_data(256, pts);
-        out.resize(256);
-        benchmark(
-            [&]()
-            {
-                helios_batch_to_affine(out.data(), pts.data(), 256);
-                benchmark_do_not_optimize(out[0]);
-            },
-            "helios_batch_affine n=256");
-    }
-
-    std::cout << std::endl;
-    std::cout << "--- Pedersen commit ---" << std::endl;
-
-    {
-        /* Pedersen with n generators */
-        auto bench_helios_pedersen = [&](size_t n, const char *name)
-        {
-            unsigned char r[32] = {0x03};
-            std::vector<unsigned char> vals(n * 32, 0);
-            std::vector<helios_jacobian> gens(n);
+            scalars.resize(n * 32, 0);
+            points.resize(n);
             for (size_t i = 0; i < n; i++)
             {
-                vals[i * 32] = static_cast<unsigned char>((i + 1) & 0xff);
-                helios_copy(&gens[i], &h_G);
+                scalars[i * 32] = static_cast<unsigned char>((i + 1) & 0xff);
+                scalars[i * 32 + 1] = static_cast<unsigned char>(((i + 1) >> 8) & 0xff);
+                helios_copy(&points[i], &h_G);
             }
-            benchmark(
-                [&]()
-                {
-                    helios_pedersen_commit(&h_result, r, &h_2G, vals.data(), gens.data(), n);
-                    benchmark_do_not_optimize(h_result);
-                },
-                name);
         };
 
-        bench_helios_pedersen(16, "helios_pedersen n=16");
-        bench_helios_pedersen(64, "helios_pedersen n=64");
-    }
-
-    std::cout << std::endl;
-    std::cout << "--- Polynomial ops ---" << std::endl;
-
-    {
-        /* Build two polynomials of degree d for benchmarking multiply */
-        auto bench_fp_poly_mul = [&](size_t d, const char *name)
         {
-            fp_poly a, b, r;
-            a.coeffs.resize(d + 1);
-            b.coeffs.resize(d + 1);
-            for (size_t i = 0; i <= d; i++)
+            std::vector<unsigned char> sc;
+            std::vector<helios_jacobian> pts;
+
+            const size_t helios_msm_sizes[] = {1, 2, 4, 8, 16, 32, 64, 128, 256};
+            for (size_t sz : helios_msm_sizes)
             {
-                fp_frombytes(a.coeffs[i].v, test_a_bytes);
-                fp_frombytes(b.coeffs[i].v, test_b_bytes);
+                make_helios_msm_data(sz, sc, pts);
+                std::string label = "helios_msm n=" + std::to_string(sz);
+                benchmark(
+                    [&]()
+                    {
+                        helios_msm_vartime(&h_result, sc.data(), pts.data(), sz);
+                        benchmark_do_not_optimize(h_result);
+                    },
+                    label.c_str());
             }
-            benchmark(
-                [&]()
-                {
-                    fp_poly_mul(&r, &a, &b);
-                    benchmark_do_not_optimize(r.coeffs[0]);
-                },
-                name);
+        }
+
+        std::cout << std::endl;
+        std::cout << "--- Selene MSM ---" << std::endl;
+
+        auto make_selene_msm_data =
+            [&](size_t n, std::vector<unsigned char> &scalars, std::vector<selene_jacobian> &points)
+        {
+            scalars.resize(n * 32, 0);
+            points.resize(n);
+            for (size_t i = 0; i < n; i++)
+            {
+                scalars[i * 32] = static_cast<unsigned char>((i + 1) & 0xff);
+                scalars[i * 32 + 1] = static_cast<unsigned char>(((i + 1) >> 8) & 0xff);
+                selene_copy(&points[i], &s_G);
+            }
         };
 
-        bench_fp_poly_mul(32, "fp_poly_mul deg=32");
-        bench_fp_poly_mul(128, "fp_poly_mul deg=128");
-    }
-
-    std::cout << std::endl;
-    std::cout << "--- Divisor ---" << std::endl;
-
-    {
-        /* Build n affine points for divisor benchmark */
-        auto bench_helios_divisor = [&](size_t n, const char *name)
         {
-            std::vector<helios_jacobian> jac_pts(n);
-            helios_copy(&jac_pts[0], &h_G);
+            std::vector<unsigned char> sc;
+            std::vector<selene_jacobian> pts;
+
+            const size_t selene_msm_sizes[] = {1, 2, 4, 8, 16, 32, 64, 128, 256};
+            for (size_t sz : selene_msm_sizes)
+            {
+                make_selene_msm_data(sz, sc, pts);
+                std::string label = "selene_msm n=" + std::to_string(sz);
+                benchmark(
+                    [&]()
+                    {
+                        selene_msm_vartime(&s_result, sc.data(), pts.data(), sz);
+                        benchmark_do_not_optimize(s_result);
+                    },
+                    label.c_str());
+            }
+        }
+
+        std::cout << std::endl;
+        std::cout << "--- SSWU map-to-curve ---" << std::endl;
+
+        unsigned char sswu_input[32] = {0x2a};
+
+        benchmark(
+            [&]()
+            {
+                helios_map_to_curve(&h_result, sswu_input);
+                benchmark_do_not_optimize(h_result);
+            },
+            "helios_map_to_curve");
+
+        benchmark(
+            [&]()
+            {
+                selene_map_to_curve(&s_result, sswu_input);
+                benchmark_do_not_optimize(s_result);
+            },
+            "selene_map_to_curve");
+
+        unsigned char sswu_u0[32] = {0x01};
+        unsigned char sswu_u1[32] = {0x02};
+
+        benchmark(
+            [&]()
+            {
+                helios_map_to_curve2(&h_result, sswu_u0, sswu_u1);
+                benchmark_do_not_optimize(h_result);
+            },
+            "helios_map_to_curve2");
+
+        benchmark(
+            [&]()
+            {
+                selene_map_to_curve2(&s_result, sswu_u0, sswu_u1);
+                benchmark_do_not_optimize(s_result);
+            },
+            "selene_map_to_curve2");
+
+        std::cout << std::endl;
+        std::cout << "--- Batch affine ---" << std::endl;
+
+        /* Prepare batch data */
+        auto make_helios_batch_data = [&](size_t n, std::vector<helios_jacobian> &pts)
+        {
+            pts.resize(n);
+            helios_copy(&pts[0], &h_G);
             for (size_t i = 1; i < n; i++)
-                helios_dbl(&jac_pts[i], &jac_pts[i - 1]);
+                helios_dbl(&pts[i], &pts[i - 1]);
+        };
 
-            std::vector<helios_affine> aff_pts(n);
-            for (size_t i = 0; i < n; i++)
-                helios_to_affine(&aff_pts[i], &jac_pts[i]);
+        {
+            std::vector<helios_jacobian> pts;
+            std::vector<helios_affine> out;
+            const size_t batch_sizes[] = {1, 2, 4, 8, 16, 32, 64, 128, 256};
+            for (size_t sz : batch_sizes)
+            {
+                make_helios_batch_data(sz, pts);
+                out.resize(sz);
+                std::string label = "helios_batch_affine n=" + std::to_string(sz);
+                benchmark(
+                    [&]()
+                    {
+                        helios_batch_to_affine(out.data(), pts.data(), sz);
+                        benchmark_do_not_optimize(out[0]);
+                    },
+                    label.c_str());
+            }
+        }
 
-            helios_divisor d;
+        std::cout << std::endl;
+        std::cout << "--- Pedersen commit ---" << std::endl;
+
+        {
+            /* Pedersen with n generators */
+            auto bench_helios_pedersen = [&](size_t n, const char *name)
+            {
+                unsigned char r[32] = {0x03};
+                std::vector<unsigned char> vals(n * 32, 0);
+                std::vector<helios_jacobian> gens(n);
+                for (size_t i = 0; i < n; i++)
+                {
+                    vals[i * 32] = static_cast<unsigned char>((i + 1) & 0xff);
+                    helios_copy(&gens[i], &h_G);
+                }
+                benchmark(
+                    [&]()
+                    {
+                        helios_pedersen_commit(&h_result, r, &h_2G, vals.data(), gens.data(), n);
+                        benchmark_do_not_optimize(h_result);
+                    },
+                    name);
+            };
+
+            const size_t pedersen_sizes[] = {1, 2, 4, 8, 16, 32, 64, 128, 256};
+            for (size_t sz : pedersen_sizes)
+            {
+                std::string label = "helios_pedersen n=" + std::to_string(sz);
+                bench_helios_pedersen(sz, label.c_str());
+            }
+        }
+
+        std::cout << std::endl;
+        std::cout << "--- Selene Pedersen commit ---" << std::endl;
+
+        {
+            auto bench_selene_pedersen = [&](size_t n, const char *name)
+            {
+                unsigned char r[32] = {0x03};
+                std::vector<unsigned char> vals(n * 32, 0);
+                std::vector<selene_jacobian> gens(n);
+                for (size_t i = 0; i < n; i++)
+                {
+                    vals[i * 32] = static_cast<unsigned char>((i + 1) & 0xff);
+                    selene_copy(&gens[i], &s_G);
+                }
+                benchmark(
+                    [&]()
+                    {
+                        selene_pedersen_commit(&s_result, r, &s_2G, vals.data(), gens.data(), n);
+                        benchmark_do_not_optimize(s_result);
+                    },
+                    name);
+            };
+
+            const size_t pedersen_sizes[] = {1, 2, 4, 8, 16, 32, 64, 128, 256};
+            for (size_t sz : pedersen_sizes)
+            {
+                std::string label = "selene_pedersen n=" + std::to_string(sz);
+                bench_selene_pedersen(sz, label.c_str());
+            }
+        }
+
+        std::cout << std::endl;
+        std::cout << "--- Polynomial ops (Karatsuba only, no ECFFT) ---" << std::endl;
+
+        {
+            /* Fewer iterations for large-degree polys to keep runtime reasonable */
+            auto poly_iters = [](size_t d) -> size_t
+            {
+                if (d >= 256)
+                    return 500;
+                if (d >= 128)
+                    return 2000;
+                return BENCHMARK_PERFORMANCE_ITERATIONS;
+            };
+
+            auto poly_warmup = [](size_t d) -> size_t
+            {
+                if (d >= 256)
+                    return 10;
+                if (d >= 128)
+                    return 50;
+                return BENCHMARK_WARMUP_ITERATIONS;
+            };
+
+            auto bench_fp_poly_mul = [&](size_t d, const char *name)
+            {
+                fp_poly a, b, r;
+                a.coeffs.resize(d + 1);
+                b.coeffs.resize(d + 1);
+                for (size_t i = 0; i <= d; i++)
+                {
+                    fp_frombytes(a.coeffs[i].v, test_a_bytes);
+                    fp_frombytes(b.coeffs[i].v, test_b_bytes);
+                }
+                benchmark(
+                    [&]()
+                    {
+                        fp_poly_mul(&r, &a, &b);
+                        benchmark_do_not_optimize(r.coeffs[0]);
+                    },
+                    name,
+                    poly_iters(d),
+                    poly_warmup(d));
+            };
+
+            auto bench_fq_poly_mul = [&](size_t d, const char *name)
+            {
+                fq_poly a, b, r;
+                a.coeffs.resize(d + 1);
+                b.coeffs.resize(d + 1);
+                for (size_t i = 0; i <= d; i++)
+                {
+                    fq_frombytes(a.coeffs[i].v, test_a_bytes);
+                    fq_frombytes(b.coeffs[i].v, test_b_bytes);
+                }
+                benchmark(
+                    [&]()
+                    {
+                        fq_poly_mul(&r, &a, &b);
+                        benchmark_do_not_optimize(r.coeffs[0]);
+                    },
+                    name,
+                    poly_iters(d),
+                    poly_warmup(d));
+            };
+
+            bench_fp_poly_mul(32, "fp_poly_mul deg=32");
+            bench_fp_poly_mul(64, "fp_poly_mul deg=64");
+            bench_fp_poly_mul(128, "fp_poly_mul deg=128");
+            bench_fp_poly_mul(256, "fp_poly_mul deg=256");
+
+            std::cout << std::endl;
+            bench_fq_poly_mul(32, "fq_poly_mul deg=32");
+            bench_fq_poly_mul(64, "fq_poly_mul deg=64");
+            bench_fq_poly_mul(128, "fq_poly_mul deg=128");
+            bench_fq_poly_mul(256, "fq_poly_mul deg=256");
+        }
+
+#ifdef HELIOSELENE_ECFFT
+        std::cout << std::endl;
+        std::cout << "--- Polynomial ops (with ECFFT) ---" << std::endl;
+
+        {
+            ecfft_fp_global_init();
+            ecfft_fq_global_init();
+
+            auto poly_iters = [](size_t d) -> size_t
+            {
+                if (d >= 256)
+                    return 500;
+                if (d >= 128)
+                    return 2000;
+                return BENCHMARK_PERFORMANCE_ITERATIONS;
+            };
+
+            auto poly_warmup = [](size_t d) -> size_t
+            {
+                if (d >= 256)
+                    return 10;
+                if (d >= 128)
+                    return 50;
+                return BENCHMARK_WARMUP_ITERATIONS;
+            };
+
+            auto bench_fp_poly_mul_ecfft = [&](size_t d, const char *name)
+            {
+                fp_poly a, b, r;
+                a.coeffs.resize(d + 1);
+                b.coeffs.resize(d + 1);
+                for (size_t i = 0; i <= d; i++)
+                {
+                    fp_frombytes(a.coeffs[i].v, test_a_bytes);
+                    fp_frombytes(b.coeffs[i].v, test_b_bytes);
+                }
+                benchmark(
+                    [&]()
+                    {
+                        fp_poly_mul(&r, &a, &b);
+                        benchmark_do_not_optimize(r.coeffs[0]);
+                    },
+                    name,
+                    poly_iters(d),
+                    poly_warmup(d));
+            };
+
+            auto bench_fq_poly_mul_ecfft = [&](size_t d, const char *name)
+            {
+                fq_poly a, b, r;
+                a.coeffs.resize(d + 1);
+                b.coeffs.resize(d + 1);
+                for (size_t i = 0; i <= d; i++)
+                {
+                    fq_frombytes(a.coeffs[i].v, test_a_bytes);
+                    fq_frombytes(b.coeffs[i].v, test_b_bytes);
+                }
+                benchmark(
+                    [&]()
+                    {
+                        fq_poly_mul(&r, &a, &b);
+                        benchmark_do_not_optimize(r.coeffs[0]);
+                    },
+                    name,
+                    poly_iters(d),
+                    poly_warmup(d));
+            };
+
+            bench_fp_poly_mul_ecfft(128, "fp_poly_mul+ecfft deg=128");
+            bench_fp_poly_mul_ecfft(256, "fp_poly_mul+ecfft deg=256");
+            bench_fp_poly_mul_ecfft(1024, "fp_poly_mul+ecfft deg=1024");
+
+            bench_fq_poly_mul_ecfft(128, "fq_poly_mul+ecfft deg=128");
+            bench_fq_poly_mul_ecfft(256, "fq_poly_mul+ecfft deg=256");
+            bench_fq_poly_mul_ecfft(1024, "fq_poly_mul+ecfft deg=1024");
+
+            ecfft_fp_global_free();
+            ecfft_fq_global_free();
+        }
+#endif
+
+        std::cout << std::endl;
+        std::cout << "--- Divisor ---" << std::endl;
+
+        {
+            auto divisor_warmup = [](size_t n) -> size_t
+            {
+                if (n >= 128)
+                    return 10;
+                if (n >= 64)
+                    return 50;
+                return BENCHMARK_WARMUP_ITERATIONS;
+            };
+
+            /* Build n affine points for divisor benchmark */
+            auto bench_helios_divisor = [&](size_t n, const char *name)
+            {
+                std::vector<helios_jacobian> jac_pts(n);
+                helios_copy(&jac_pts[0], &h_G);
+                for (size_t i = 1; i < n; i++)
+                    helios_dbl(&jac_pts[i], &jac_pts[i - 1]);
+
+                std::vector<helios_affine> aff_pts(n);
+                for (size_t i = 0; i < n; i++)
+                    helios_to_affine(&aff_pts[i], &jac_pts[i]);
+
+                helios_divisor d;
+                benchmark(
+                    [&]()
+                    {
+                        helios_compute_divisor(&d, aff_pts.data(), n);
+                        benchmark_do_not_optimize(d.a.coeffs[0]);
+                    },
+                    name,
+                    BENCHMARK_PERFORMANCE_ITERATIONS,
+                    divisor_warmup(n));
+            };
+
+            const size_t divisor_sizes[] = {1, 2, 4, 8, 16, 32};
+            for (size_t sz : divisor_sizes)
+            {
+                std::string label = "helios_divisor n=" + std::to_string(sz);
+                bench_helios_divisor(sz, label.c_str());
+            }
+        }
+
+        std::cout << std::endl;
+        std::cout << "--- Eval-domain divisor ops ---" << std::endl;
+
+        {
+            /* Initialize eval-domain tables */
+            helios_eval_divisor_init();
+            selene_eval_divisor_init();
+
+            /* Prepare eval-domain data: two random-ish fp_evals and fq_evals */
+            fp_evals fp_ev_a, fp_ev_b, fp_ev_r;
+            fq_evals fq_ev_a, fq_ev_b, fq_ev_r;
+            for (size_t i = 0; i < EVAL_DOMAIN_SIZE; i++)
+            {
+                fp_fe fp_tmp_a, fp_tmp_b;
+                fq_fe fq_tmp_a, fq_tmp_b;
+                fp_frombytes(fp_tmp_a, test_a_bytes);
+                fp_frombytes(fp_tmp_b, test_b_bytes);
+                fq_frombytes(fq_tmp_a, test_a_bytes);
+                fq_frombytes(fq_tmp_b, test_b_bytes);
+                fp_evals_set(&fp_ev_a, i, fp_tmp_a);
+                fp_evals_set(&fp_ev_b, i, fp_tmp_b);
+                fq_evals_set(&fq_ev_a, i, fq_tmp_a);
+                fq_evals_set(&fq_ev_b, i, fq_tmp_b);
+            }
+            fp_ev_a.degree = 10;
+            fp_ev_b.degree = 10;
+            fq_ev_a.degree = 10;
+            fq_ev_b.degree = 10;
+
             benchmark(
                 [&]()
                 {
-                    helios_compute_divisor(&d, aff_pts.data(), n);
-                    benchmark_do_not_optimize(d.a.coeffs[0]);
+                    fp_evals_mul(&fp_ev_r, &fp_ev_a, &fp_ev_b);
+                    benchmark_do_not_optimize(fp_ev_r.limbs[0][0]);
                 },
-                name);
-        };
+                "fp_evals_mul");
 
-        bench_helios_divisor(4, "helios_divisor n=4");
-        bench_helios_divisor(16, "helios_divisor n=16");
-    }
+            benchmark(
+                [&]()
+                {
+                    fq_evals_mul(&fq_ev_r, &fq_ev_a, &fq_ev_b);
+                    benchmark_do_not_optimize(fq_ev_r.limbs[0][0]);
+                },
+                "fq_evals_mul");
 
-    std::cout << std::endl;
+            /* Prepare eval-domain divisors for divisor_mul benchmark */
+            helios_eval_divisor h_ed1, h_ed2, h_ed_r;
+            h_ed1.a = fp_ev_a;
+            h_ed1.b = fp_ev_b;
+            h_ed2.a = fp_ev_b;
+            h_ed2.b = fp_ev_a;
+
+            selene_eval_divisor s_ed1, s_ed2, s_ed_r;
+            s_ed1.a = fq_ev_a;
+            s_ed1.b = fq_ev_b;
+            s_ed2.a = fq_ev_b;
+            s_ed2.b = fq_ev_a;
+
+            benchmark(
+                [&]()
+                {
+                    helios_eval_divisor_mul(&h_ed_r, &h_ed1, &h_ed2);
+                    benchmark_do_not_optimize(h_ed_r.a.limbs[0][0]);
+                },
+                "helios_eval_div_mul");
+
+            benchmark(
+                [&]()
+                {
+                    selene_eval_divisor_mul(&s_ed_r, &s_ed1, &s_ed2);
+                    benchmark_do_not_optimize(s_ed_r.a.limbs[0][0]);
+                },
+                "selene_eval_div_mul");
+
+            /* Tree reduce benchmarks */
+            auto bench_helios_tree = [&](size_t n, const char *name)
+            {
+                std::vector<helios_jacobian> jac_pts(n);
+                helios_copy(&jac_pts[0], &h_G);
+                for (size_t i = 1; i < n; i++)
+                    helios_dbl(&jac_pts[i], &jac_pts[i - 1]);
+
+                std::vector<helios_affine> aff_pts(n);
+                for (size_t i = 0; i < n; i++)
+                    helios_to_affine(&aff_pts[i], &jac_pts[i]);
+
+                std::vector<helios_eval_divisor> divs(n);
+                for (size_t i = 0; i < n; i++)
+                    helios_eval_divisor_from_point(&divs[i], &aff_pts[i]);
+
+                helios_eval_divisor result;
+                benchmark(
+                    [&]()
+                    {
+                        /* Must re-create divs each iteration since tree_reduce may modify */
+                        std::vector<helios_eval_divisor> divs_copy(divs);
+                        std::vector<helios_affine> pts_copy(aff_pts);
+                        helios_eval_divisor_tree_reduce(&result, divs_copy.data(), pts_copy.data(), n);
+                        benchmark_do_not_optimize(result.a.limbs[0][0]);
+                    },
+                    name,
+                    BENCHMARK_PERFORMANCE_ITERATIONS,
+                    (n >= 16) ? (size_t)50 : BENCHMARK_WARMUP_ITERATIONS);
+            };
+
+            auto bench_selene_tree = [&](size_t n, const char *name)
+            {
+                std::vector<selene_jacobian> jac_pts(n);
+                selene_copy(&jac_pts[0], &s_G);
+                for (size_t i = 1; i < n; i++)
+                    selene_dbl(&jac_pts[i], &jac_pts[i - 1]);
+
+                std::vector<selene_affine> aff_pts(n);
+                for (size_t i = 0; i < n; i++)
+                    selene_to_affine(&aff_pts[i], &jac_pts[i]);
+
+                std::vector<selene_eval_divisor> divs(n);
+                for (size_t i = 0; i < n; i++)
+                    selene_eval_divisor_from_point(&divs[i], &aff_pts[i]);
+
+                selene_eval_divisor result;
+                benchmark(
+                    [&]()
+                    {
+                        std::vector<selene_eval_divisor> divs_copy(divs);
+                        std::vector<selene_affine> pts_copy(aff_pts);
+                        selene_eval_divisor_tree_reduce(&result, divs_copy.data(), pts_copy.data(), n);
+                        benchmark_do_not_optimize(result.a.limbs[0][0]);
+                    },
+                    name,
+                    BENCHMARK_PERFORMANCE_ITERATIONS,
+                    (n >= 16) ? (size_t)50 : BENCHMARK_WARMUP_ITERATIONS);
+            };
+
+            bench_helios_tree(4, "helios_eval_tree n=4");
+            bench_helios_tree(16, "helios_eval_tree n=16");
+            bench_selene_tree(4, "selene_eval_tree n=4");
+            bench_selene_tree(16, "selene_eval_tree n=16");
+        }
+
+        std::cout << std::endl;
+
+    } /* bench_all */
 
     benchmark_teardown(state);
 
