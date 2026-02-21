@@ -96,11 +96,11 @@ int helios_frombytes_portable(helios_jacobian *r, const unsigned char s[32])
     unsigned char x_check[32];
     fp_tobytes(x_check, x);
 
+    unsigned char diff = 0;
     for (int i = 0; i < 32; i++)
-    {
-        if (x_check[i] != x_bytes[i])
-            return -1;
-    }
+        diff |= x_check[i] ^ x_bytes[i];
+    if (diff != 0)
+        return -1;
 
     /* Load HELIOS_B from limbs */
     fp_fe helios_b;

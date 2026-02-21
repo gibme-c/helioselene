@@ -243,9 +243,9 @@ static void
         }
     }
 
-    // Per-group 8-way accumulators
+    // Per-group 8-way accumulators with per-lane start tracking.
     std::vector<selene_jacobian_8x> accum(num_groups);
-    std::vector<bool> accum_started(num_groups, false);
+    std::vector<__mmask8> lane_started(num_groups, 0);
 
     // Main loop: process digit positions from most significant to least
     for (int d = 63; d >= 0; d--)
@@ -253,7 +253,7 @@ static void
         // 4 doublings per digit position (w=4 window)
         for (size_t g = 0; g < num_groups; g++)
         {
-            if (accum_started[g])
+            if (lane_started[g])
             {
                 selene_dbl_8x(&accum[g], &accum[g]);
                 selene_dbl_8x(&accum[g], &accum[g]);
@@ -269,7 +269,7 @@ static void
             signed char digits[8];
             unsigned int abs_d[8];
             unsigned int neg_flag[8];
-            bool all_zero = true;
+            __mmask8 nonzero_mask = 0;
 
             for (int k = 0; k < 8; k++)
             {
@@ -277,16 +277,12 @@ static void
                 abs_d[k] = static_cast<unsigned int>((digits[k] < 0) ? -digits[k] : digits[k]);
                 neg_flag[k] = (digits[k] < 0) ? 1u : 0u;
                 if (digits[k] != 0)
-                    all_zero = false;
+                    nonzero_mask |= static_cast<__mmask8>(1 << k);
             }
 
-            if (all_zero)
+            if (!nonzero_mask)
                 continue;
 
-            // Per-lane table selection using k-masks:
-            // Start with identity, then for each table index j (1..8), build a
-            // mask of lanes whose |digit| == j and conditionally move that table
-            // entry into those lanes.
             selene_jacobian_8x selected;
             selene_identity_8x(&selected);
 
@@ -303,7 +299,6 @@ static void
                     selene_cmov_8x(&selected, &tables_8x[g * 8 + j], mask);
             }
 
-            // Per-lane conditional negate: for lanes where digit < 0, negate Y
             {
                 __mmask8 neg_mask = 0;
                 for (int k = 0; k < 8; k++)
@@ -320,28 +315,35 @@ static void
                 }
             }
 
-            // Accumulate
-            if (!accum_started[g])
+            // Accumulate with per-lane identity protection
+            __mmask8 first_time = nonzero_mask & ~lane_started[g];
+            __mmask8 need_add = nonzero_mask & lane_started[g];
+
+            if (need_add)
             {
-                selene_copy_8x(&accum[g], &selected);
-                accum_started[g] = true;
-            }
-            else
-            {
+                selene_jacobian_8x saved;
+                selene_copy_8x(&saved, &accum[g]);
                 selene_add_8x(&accum[g], &accum[g], &selected);
+                __mmask8 zero_mask = lane_started[g] & ~nonzero_mask;
+                if (zero_mask)
+                    selene_cmov_8x(&accum[g], &saved, zero_mask);
             }
+
+            if (first_time)
+                selene_cmov_8x(&accum[g], &selected, first_time);
+
+            lane_started[g] |= nonzero_mask;
         }
     }
 
-    // Combine all groups: unpack each 8-way accumulator and sum the individual
-    // results with scalar additions
+    // Combine all groups
     selene_jacobian total;
     selene_identity(&total);
     bool total_started = false;
 
     for (size_t g = 0; g < num_groups; g++)
     {
-        if (!accum_started[g])
+        if (!lane_started[g])
             continue;
 
         selene_jacobian parts[8];

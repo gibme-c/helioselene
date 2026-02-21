@@ -24,6 +24,11 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+/**
+ * @file helios_tobytes.h
+ * @brief Compressed point serialization for Helios: x-coordinate in LE, bit 255 encodes y-parity.
+ */
+
 #ifndef HELIOSELENE_HELIOS_TOBYTES_H
 #define HELIOSELENE_HELIOS_TOBYTES_H
 

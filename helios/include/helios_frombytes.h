@@ -24,6 +24,13 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+/**
+ * @file helios_frombytes.h
+ * @brief Compressed point deserialization for Helios with on-curve validation.
+ *
+ * Rejects off-curve points (weak twist security is ~107 bits for Helios).
+ */
+
 #ifndef HELIOSELENE_HELIOS_FROMBYTES_H
 #define HELIOSELENE_HELIOS_FROMBYTES_H
 

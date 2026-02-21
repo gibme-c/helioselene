@@ -24,6 +24,15 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+/**
+ * @file selene.h
+ * @brief Point types for the Selene curve (y^2 = x^3 - 3x + b over F_q).
+ *
+ * selene_jacobian uses Jacobian projective coordinates (X:Y:Z) where the affine point
+ * is (X/Z^2, Y/Z^3). The identity is represented as Z = 0.
+ * selene_affine stores the standard (x, y) representation, used in precomputation tables.
+ */
+
 #ifndef HELIOSELENE_SELENE_H
 #define HELIOSELENE_SELENE_H
 

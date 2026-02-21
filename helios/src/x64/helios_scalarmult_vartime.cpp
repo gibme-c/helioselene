@@ -33,6 +33,7 @@
 #include "helios_dbl.h"
 #include "helios_madd.h"
 #include "helios_ops.h"
+#include "helioselene_secure_erase.h"
 
 /*
  * Variable-time scalar multiplication using wNAF with window width 5.
@@ -121,6 +122,7 @@ static int wnaf_encode(int8_t naf[257], const unsigned char scalar[32])
         pos += 5; /* wNAF guarantees next w-1 digits are 0 */
     }
 
+    helioselene_secure_erase(bits, sizeof(bits));
     return highest;
 }
 
@@ -142,6 +144,9 @@ void helios_scalarmult_vartime_x64(helios_jacobian *r, const unsigned char scala
 
     if (top == 0)
     {
+        helioselene_secure_erase(naf, sizeof(naf));
+        helioselene_secure_erase(table, sizeof(table));
+        helioselene_secure_erase(&p2, sizeof(p2));
         helios_identity(r);
         return;
     }
@@ -153,6 +158,9 @@ void helios_scalarmult_vartime_x64(helios_jacobian *r, const unsigned char scala
 
     if (start < 0)
     {
+        helioselene_secure_erase(naf, sizeof(naf));
+        helioselene_secure_erase(table, sizeof(table));
+        helioselene_secure_erase(&p2, sizeof(p2));
         helios_identity(r);
         return;
     }
@@ -183,4 +191,8 @@ void helios_scalarmult_vartime_x64(helios_jacobian *r, const unsigned char scala
             }
         }
     }
+
+    helioselene_secure_erase(naf, sizeof(naf));
+    helioselene_secure_erase(table, sizeof(table));
+    helioselene_secure_erase(&p2, sizeof(p2));
 }

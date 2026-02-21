@@ -1,29 +1,49 @@
 # helioselene
 
+[![CI](https://github.com/gibme-c/helioselene/actions/workflows/ci.yml/badge.svg)](https://github.com/gibme-c/helioselene/actions/workflows/ci.yml)
+
 A standalone, zero-dependency C++17 elliptic curve library implementing the Helios/Selene curve cycle for [FCMP++](https://github.com/kayabaNerve/fcmp-plus-plus) integration. It replaces the Rust FFI approach with a native C++ implementation.
-
-Helios and Selene are a pair of prime-order short Weierstrass curves that form a **cycle**: Helios operates over the Ed25519 base field **F_p** (p = 2^255 - 19), and its group order is the base field of Selene, and vice versa. This cycle property makes them ideal for recursive proof composition -- a proof verified on one curve produces elements that live natively in the other curve's scalar field, eliminating expensive non-native field arithmetic.
-
-Both curves have the form **y² = x³ - 3x + b** (the a = -3 optimization enables faster point doubling). Both are cofactor 1, so every point on the curve is in the prime-order group.
 
 On 64-bit platforms (x86_64, ARM64), the library automatically uses an optimized radix-2^51 backend with 128-bit multiplication. On x86_64, **SIMD-accelerated backends** -- AVX2 and AVX-512 IFMA -- are selected at runtime via CPUID detection.
 
+### The Curve Cycle
+
+Helios and Selene are a pair of prime-order short Weierstrass curves that form a **cycle** ([tevador's construction](https://gist.github.com/tevador/4524c2092178df08996487d4e272b096)): Helios operates over the [Ed25519](https://cr.yp.to/ecdh/curve25519-20060209.pdf) base field **F_p** (p = 2^255 - 19), and its group order is the base field of Selene, and vice versa. This cycle property makes them ideal for recursive proof composition -- a proof verified on one curve produces elements that live natively in the other curve's scalar field, eliminating expensive non-native field arithmetic.
+
+Both curves have the form **y² = x³ - 3x + b** (the a = -3 optimization enables faster point doubling). Both are cofactor 1, so every point on the curve is in the prime-order group.
+
 ## Features
 
+### Core Curve Operations
+
 - **Two complete curve implementations** -- Helios (over F_p) and Selene (over F_q), with independent field arithmetic, point operations, and scalar math for each
-- **Field arithmetic** over F_p (2^255 - 19) and F_q (2^255 - γ, a Crandall prime) -- add, subtract, multiply, square, invert, square root, and more
+- **Field arithmetic** over F_p (2^255 - 19) and F_q (2^255 - γ, a Crandall prime) -- add, subtract, multiply, square, invert, square root, batch invert, and more
 - **Jacobian coordinate curve operations** -- point addition, mixed addition, doubling with a = -3 optimization (3M+5S)
-- **Constant-time scalar multiplication** -- signed 4-bit fixed-window with no secret-dependent branches or memory access patterns
+- **Constant-time scalar multiplication** -- variable-base signed 4-bit fixed-window, plus fixed-base w=5 with precomputed 16-entry affine tables for known/cached base points
 - **Variable-time scalar multiplication** -- wNAF w=5 for verification and public-data operations
-- **Multi-scalar multiplication** -- Straus (n ≤ 32) and Pippenger (n > 32) with signed-digit encoding and bucket accumulation
-- **Hash-to-curve** -- RFC 9380 Simplified SWU (SSWU) mapping from field elements to curve points
+- **Multi-scalar multiplication** -- Straus (n ≤ 32) and [Pippenger](https://cr.yp.to/papers/pippenger.pdf) (n > 32) with signed-digit encoding and bucket accumulation, plus a fixed-base MSM specialization that shares 255 doublings across all points
+- **Precomputed generator tables** -- static w=5 affine tables for the Helios and Selene base generators, deserialized from `.inl` data with zero runtime precomputation
+- **Scalar arithmetic** -- scalar muladd (`a*x + b mod order`) and scalar squaring for both Helios and Selene, built on the curve cycle's field operations
+
+### Higher-Level Primitives
+
+- **Hash-to-curve** -- [RFC 9380](https://www.rfc-editor.org/rfc/rfc9380.html) Simplified SWU (SSWU) mapping from field elements to curve points
 - **Pedersen commitments** -- `r*H + Σ(s_i * P_i)` computed via MSM
-- **Batch affine conversion** -- Montgomery's trick for converting multiple Jacobian points to affine coordinates with a single inversion
-- **Polynomial arithmetic** -- multiplication (schoolbook, Karatsuba, ECFFT), evaluation, interpolation, division, and construction from roots (see [Polynomials](#polynomials) below)
-- **EC-divisor witnesses** -- compute and evaluate divisor polynomials a(x) - y·b(x) for sets of curve points
+- **Batch affine conversion** -- [Montgomery's trick](https://cr.yp.to/bib/1987/montgomery.pdf) for converting multiple Jacobian points to affine coordinates with a single inversion
+- **Batch field inversion** -- standalone [Montgomery's trick](https://cr.yp.to/bib/1987/montgomery.pdf) utilities (`fp_batch_invert`, `fq_batch_invert`) for amortizing inversions across multiple elements
 - **Wei25519 bridge** -- converts Ed25519 x-coordinates (as raw 32-byte values) to Selene scalars
+
+### Polynomial & Divisor System
+
+- **Polynomial arithmetic** -- multiplication (schoolbook, Karatsuba, ECFFT), evaluation, interpolation, division, and construction from roots (see [Polynomials](#polynomials) below)
+- **EC-divisor witnesses** -- compute and evaluate divisor polynomials a(x) - y·b(x) for sets of curve points, with SIMD-accelerated evaluation (AVX2 4-way, IFMA 8-way)
+
+### Security & Platform
+
+- **Constant-time discipline** -- no secret-dependent branches or memory access, branchless scalar recode, `ct_barrier` + XOR-blend throughout (see [Constant-Time Discipline](#constant-time-discipline) below)
 - **Secure memory erasure** -- `helioselene_secure_erase` zeros secret data using platform-specific methods the compiler can't optimize away
 - **SIMD acceleration** (x86_64) -- runtime-dispatched AVX2 and AVX-512 IFMA backends for scalar multiplication and MSM, with automatic CPU feature detection via CPUID
+- **Public C++ API** -- type-safe `HeliosScalar`, `SeleneScalar`, `HeliosPoint`, `SelenePoint`, `FpPolynomial`, `FqPolynomial`, `HeliosDivisor`, `SeleneDivisor` classes with `std::optional` validation, operator overloads, and RAII
 - **Cross-platform** -- MSVC, GCC, Clang, MinGW
 
 ## Building
@@ -47,22 +67,55 @@ cmake --build build --config Release -j
 | Option | Default | Description |
 |--------|---------|-------------|
 | `BUILD_TESTS` | `OFF` | Build unit tests (`helioselene-tests`) and benchmark tool (`helioselene-benchmark`) |
-| `BUILD_TOOLS` | `OFF` | Build ECFFT precomputation tools (`helioselene-find-ecfft`, `helioselene-gen-ecfft`) |
+| `BUILD_TOOLS` | `OFF` | Build auxiliary tools (ECFFT precomputation, test vector generator) |
 | `FORCE_PORTABLE` | `OFF` | Force the 32-bit portable implementation on 64-bit platforms (for testing/comparison) |
 | `ENABLE_AVX2` | `ON`* | Enable AVX2 SIMD backend with runtime dispatch |
 | `ENABLE_AVX512` | `ON`* | Enable AVX-512 IFMA SIMD backend with runtime dispatch |
-| `ENABLE_ECFFT` | `ON` | Enable ECFFT polynomial multiplication for large degrees |
+| `ENABLE_ECFFT` | `OFF` | Enable ECFFT polynomial multiplication for large degrees |
 | `ENABLE_LTO` | `OFF` | Enable link-time optimization |
+| `ENABLE_ASAN` | `OFF` | Enable AddressSanitizer (GCC/Clang only) |
+| `ENABLE_UBSAN` | `OFF` | Enable UndefinedBehaviorSanitizer (GCC/Clang only) |
 | `ARCH` | `native` | Target CPU architecture for `-march` (`native`, `default`, or a specific arch) |
 
 \* On x86_64 only. Both default to `OFF` on other architectures or when `FORCE_PORTABLE` is set.
 
 ## Usage
 
-Include the master header to access all operations:
+Include the master header to access the C++ API and all low-level primitives:
 
 ```cpp
 #include "helioselene.h"
+
+// Initialize runtime dispatch (CPUID heuristic)
+helioselene::init();
+
+// Scalar arithmetic
+auto s = helioselene::HeliosScalar::one();
+auto t = s + s;
+auto bytes = t.to_bytes();
+
+// Point operations
+auto G = helioselene::HeliosPoint::generator();
+auto P = G.scalar_mul(s);
+auto compressed = P.to_bytes();
+
+// Deserialization with validation
+auto pt = helioselene::HeliosPoint::from_bytes(compressed.data()); // std::optional
+if (pt) { /* valid on-curve point */ }
+
+// Multi-scalar multiplication
+std::vector<helioselene::HeliosScalar> scalars = {s, t};
+std::vector<helioselene::HeliosPoint> points = {G, P};
+auto msm = helioselene::HeliosPoint::multi_scalar_mul(scalars.data(), points.data(), 2);
+
+// Polynomials and divisors
+auto div = helioselene::HeliosDivisor::compute(points.data(), points.size());
+```
+
+For low-level C-style primitives only (field elements, Jacobian coordinates, raw function pointers):
+
+```cpp
+#include "helioselene_primitives.h"
 ```
 
 Or include individual headers for specific operations:
@@ -82,12 +135,27 @@ target_link_libraries(your_target helioselene)
 
 ## Architecture
 
-The library is organized in layers, matching the math of elliptic curve cryptography:
+The library is organized as a set of independent modules, each with its own `include/` and `src/` directories:
+
+| Module | Directory | Description |
+|--------|-----------|-------------|
+| **common** | `common/` | Platform abstraction, CT barriers, secure erase, 128-bit multiply |
+| **fp** | `fp/` | F_p (2^255 - 19) field arithmetic -- all backends |
+| **fq** | `fq/` | F_q (Crandall prime) field arithmetic -- all backends |
+| **helios** | `helios/` | Helios curve operations -- point ops, scalarmult, MSM, batch affine, map-to-curve |
+| **selene** | `selene/` | Selene curve operations -- point ops, scalarmult, MSM, batch affine, map-to-curve |
+| **ec-divisors** | `ec-divisors/` | Polynomial arithmetic, EC-divisor witnesses, divisor evaluation (with SIMD) |
+| **ecfft** | `ecfft/` | ECFFT infrastructure -- precomputed domains, enter/exit/extend/reduce |
+| **api** | `src/api_*.cpp` | Public C++ API classes -- type-safe wrappers over the C-style primitives |
+
+These modules are layered, matching the math of elliptic curve cryptography:
 
 1. **Field elements (`fp_*`, `fq_*`)** -- Integers modulo p or q. These are the coordinates of curve points. Two independent fields because the two curves operate over different primes.
 2. **Curve points (`helios_*`, `selene_*`)** -- Points on each curve in Jacobian coordinates. Addition, doubling, scalar multiplication, encoding/decoding.
 3. **Polynomials (`fp_poly_*`, `fq_poly_*`)** -- Polynomial arithmetic over each field, used by the divisor module and the FCMP++ proof system.
 4. **Divisors (`helios_divisor_*`, `selene_divisor_*`)** -- EC-divisor witness computation and evaluation for the FCMP++ membership proof protocol.
+
+Each module is a separate CMake target. The top-level `helioselene` target links all modules together.
 
 ### Platform Dispatch
 
@@ -123,7 +191,7 @@ Two SIMD backends accelerate scalar multiplication and MSM:
 
 ### Crandall Reduction
 
-The F_q field uses the Crandall prime 2^255 - γ, where γ ≈ 2^127. Unlike F_p (where reduction by 2^255 - 19 folds back with a single-digit multiply by 19), Crandall reduction requires a wide multiply by the 127-bit value 2γ. This is the fundamental difference from Ed25519-style field arithmetic and the source of most implementation complexity in the Fq backends.
+The F_q field uses the [Crandall prime](https://link.springer.com/book/10.1007/0-387-28979-8) 2^255 - γ, where γ ≈ 2^127. Unlike F_p (where reduction by 2^255 - 19 folds back with a single-digit multiply by 19), Crandall reduction requires a wide multiply by the 127-bit value 2γ. This is the fundamental difference from Ed25519-style field arithmetic and the source of most implementation complexity in the Fq backends.
 
 ## Polynomials
 
@@ -147,6 +215,22 @@ The library automatically selects the best multiplication algorithm based on deg
 
 ### Polynomial API
 
+**C++ API** (recommended):
+
+```cpp
+using namespace helioselene;
+
+auto p = FpPolynomial::from_roots(root_bytes, n);   // (x - r0)(x - r1)...
+auto q = FpPolynomial::from_coefficients(coeff_bytes, n);
+auto product = p * q;                                // auto-selects schoolbook/Karatsuba/ECFFT
+auto sum = p + q;
+auto [quot, rem] = p.divmod(q);                      // polynomial division
+auto val = p.evaluate(x_bytes);                      // Horner's method
+auto interp = FpPolynomial::interpolate(x_bytes, y_bytes, n);  // Lagrange
+```
+
+**C-style API** (low-level):
+
 ```cpp
 // Multiply: r = a * b (auto-selects schoolbook/Karatsuba/ECFFT)
 void fp_poly_mul(fp_poly *r, const fp_poly *a, const fp_poly *b);
@@ -164,11 +248,24 @@ void fp_poly_divmod(fp_poly *q, fp_poly *rem, const fp_poly *a, const fp_poly *b
 void fp_poly_interpolate(fp_poly *out, const fp_fe *xs, const fp_fe *ys, size_t n);
 ```
 
-All operations are mirrored for F_q (`fq_poly_mul`, `fq_poly_eval`, etc.).
+All operations are mirrored for F_q (`FqPolynomial` / `fq_poly_*`).
 
 ### EC-Divisor Witnesses
 
 EC-divisors represent sets of curve points as polynomial pairs a(x) - y·b(x). The divisor "vanishes" (evaluates to zero) at exactly the points it encodes. This is the core primitive used by FCMP++ to prove set membership without revealing which element is being proven.
+
+**C++ API** (recommended):
+
+```cpp
+using namespace helioselene;
+
+auto div = HeliosDivisor::compute(points, n);           // compute divisor witness
+auto result = div.evaluate(x_bytes, y_bytes);           // evaluate D(x, y)
+const FpPolynomial& a = div.a();                        // access a(x) polynomial
+const FpPolynomial& b = div.b();                        // access b(x) polynomial
+```
+
+**C-style API** (low-level):
 
 ```cpp
 // Compute divisor for a set of affine points
@@ -178,9 +275,11 @@ void helios_compute_divisor(helios_divisor *d, const helios_affine *points, size
 void helios_evaluate_divisor(fp_fe result, const helios_divisor *d, const fp_fe x, const fp_fe y);
 ```
 
+Divisor evaluation is SIMD-accelerated: AVX2 uses 4-way parallelism and IFMA uses 8-way parallelism for batch point evaluation across the evaluation domain.
+
 ### ECFFT and Evaluation-Domain Operations
 
-The ECFFT (Elliptic Curve Fast Fourier Transform) replaces the multiplicative subgroups used in classical NTT/FFT with structured point sets derived from isogeny chains on auxiliary elliptic curves. This matters because the prime fields used by Helios and Selene lack the large power-of-2 roots of unity that classical FFT requires.
+The [ECFFT](https://arxiv.org/abs/2107.08473) (Elliptic Curve Fast Fourier Transform) replaces the multiplicative subgroups used in classical NTT/FFT with structured point sets derived from isogeny chains on auxiliary elliptic curves. This matters because the prime fields used by Helios and Selene lack the large power-of-2 roots of unity that classical FFT requires.
 
 The ECFFT infrastructure provides ENTER (coefficient → evaluation), EXIT (evaluation → coefficient), EXTEND, and REDUCE operations. While ENTER and EXIT are currently O(n²), the real value of the ECFFT lies in evaluation-domain workflows: once polynomials are represented as evaluation vectors, multiplication becomes O(n) pointwise products, and domain size management uses O(n log n) butterfly operations. Unlocking this performance requires protocol-level changes in how FCMP++ constructs and manipulates divisor polynomials -- a library-level optimization alone is not sufficient.
 
@@ -188,10 +287,10 @@ The precomputed ECFFT data (isogeny chain coefficients and domain cosets) is gen
 
 #### ECFFT Auxiliary Curves
 
-| Field | Auxiliary curve | Domain size | Levels |
-|-------|----------------|-------------|--------|
-| F_p (2^255 - 19) | y² = x³ + x + 3427 | 65,536 | 16 |
-| F_q (2^255 - γ) | y² = x³ - 3x + b | 65,536 | 16 |
+| Field | Auxiliary curve | b (hex) | Domain | Levels | Seed |
+|-------|----------------|---------|--------|--------|------|
+| F_p (2^255 - 19) | y² = x³ + x + 3427 | `0x0d63` | 65,536 | 16 | 1771386560 |
+| F_q (2^255 - γ) | y² = x³ - 3x + b | `0x1a9619f52c98e309904b2d133d9347e9cb9fe1313546df14ee7676bf4e6b2110` | 65,536 | 16 | 1771428012 |
 
 These auxiliary curves were selected for having group orders with high 2-adic valuation (large power-of-2 factor), which determines the maximum domain size. **Changing the auxiliary curve breaks backwards compatibility** -- the precomputed `.inl` data encodes the isogeny chain for a specific curve, and all downstream protocol proofs depend on it.
 
@@ -199,11 +298,14 @@ These auxiliary curves were selected for having group orders with high 2-adic va
 
 All operations on secret data (private scalars, signing keys) are constant-time:
 
-- No branches on secret-dependent values -- branchless conditional select via `ct_barrier` + XOR-blend
+- No branches on secret-dependent values -- branchless conditional select via `ct_barrier` + XOR-blend, branchless scalar recode in all CT scalarmult paths (w=4 and w=5)
 - No secret-dependent memory access -- full-table scan with masked selection for lookups
 - No variable-time instructions in hot paths
-- `helioselene_secure_erase()` on stack locals in constant-time scalar multiplication paths
+- `ct_barrier` applied in all conditional-move functions, including AVX2 `fp10_cmov`/`fq10_cmov`
+- `helioselene_secure_erase()` on stack locals in constant-time scalar multiplication paths, and defense-in-depth in vartime paths (`wnaf_encode` scalar copies, `cneg` temporaries)
 - Verification-only paths may use variable-time operations (explicitly tagged `_vartime` in the API)
+
+The public API also includes defensive input validation (null pointers and n=0 return identity/empty rather than crashing; polynomial `divmod` guards against zero divisor). These are robustness measures, not side-channel mitigations.
 
 ### Twist Security
 
@@ -216,7 +318,12 @@ The benchmark tool (`helioselene-benchmark`) measures all library operations:
 - `--init` -- Use CPUID heuristic dispatch (default: x64 baseline)
 - `--autotune` -- Use benchmarked best-per-function dispatch
 
-Operations benchmarked include field arithmetic (add, sub, mul, sq, invert, sqrt), point operations (dbl, madd, add), serialization, scalar multiplication (CT and vartime), MSM at multiple sizes (n = 1, 8, 32, 64, 256), SSWU hash-to-curve, batch affine conversion, Pedersen commitments, polynomial multiplication (Karatsuba and ECFFT), and divisor computation.
+Operations benchmarked include field arithmetic (add, sub, mul, sq, invert, sqrt), point operations (dbl, madd, add), serialization, scalar multiplication (CT and vartime, variable-base and fixed-base), MSM at multiple sizes (n = 1, 8, 32, 64, 256), fixed-base MSM, SSWU hash-to-curve, batch affine conversion, batch field inversion, Pedersen commitments, polynomial multiplication (Karatsuba and ECFFT), divisor computation, and divisor evaluation.
+
+Additional benchmark executables:
+
+- `helioselene-benchmark-contest` -- comparative benchmarks across backend tiers (portable, x64, AVX2, IFMA)
+- `helioselene-benchmark-fcmpp` -- FCMP++-specific benchmarks (Pedersen, divisor evaluation, polynomial operations)
 
 ## Testing
 
@@ -228,18 +335,33 @@ cmake --build build --config Release -j
 ./build/helioselene-tests
 ```
 
-300 tests across 42+ test groups covering: F_p/F_q arithmetic, square roots, point operations, scalar multiplication, MSM, SSWU hash-to-curve, batch affine, Pedersen commitments, polynomials (schoolbook, Karatsuba, interpolation, ECFFT), divisors, serialization, edge cases, Wei25519 bridge, and dispatch verification.
+545 tests across 50+ test groups covering: F_p/F_q arithmetic, square roots, point operations, scalar multiplication (variable-base and fixed-base), MSM (variable-base and fixed-base), precomputed generator tables, SSWU hash-to-curve, batch affine, batch field inversion, Pedersen commitments, scalar muladd/sq, polynomials (schoolbook, Karatsuba, interpolation, ECFFT), divisors, divisor evaluation, serialization, edge cases, Wei25519 bridge, point-to-scalar conversion, dispatch verification, the public C++ API (scalar/point/polynomial/divisor classes), and 161 Sage-validated test vector checks.
+
+### Test Vectors
+
+Portable test vectors are provided for downstream consumers implementing the Helios/Selene curve cycle in other languages. The test vectors cover every public API operation (scalar arithmetic, point operations, MSM, Pedersen commitments, hash-to-curve, polynomials, divisors, Wei25519 bridge, and batch inversion) and are independently validated by a SageMath script.
+
+- **JSON**: `test_vectors/helioselene_test_vectors.json` (~200 vectors, canonical JSON)
+- **C++ header**: `include/helioselene_test_vectors.h` (generated, for `#include` in C++ projects)
+- **SageMath validator**: `tools/test_vectors.sage` (independent cross-validation)
+
+To regenerate (requires `BUILD_TOOLS=ON`):
+```bash
+./helioselene-gen-testvectors > test_vectors/helioselene_test_vectors.json
+python tools/json_to_header.py test_vectors/helioselene_test_vectors.json include/helioselene_test_vectors.h
+sage tools/test_vectors.sage --validate test_vectors/helioselene_test_vectors.json
+```
 
 ### Full Test Matrix
 
-All four build configurations should be tested on both MSVC and MinGW (8 total builds):
+CI runs 28 jobs across Linux (gcc-11, gcc-12, clang-14, clang-15), macOS (Homebrew clang, AppleClang), and Windows (MSVC, MinGW GCC). Each x86_64 compiler tests all four backend configurations; ARM64 compilers test portable and native:
 
 | Config | CMake flags | Tests |
 |--------|-------------|-------|
-| FORCE_PORTABLE | `-DFORCE_PORTABLE=1` | 294 |
-| x64 no SIMD | `-DENABLE_AVX2=OFF -DENABLE_AVX512=OFF` | 294 |
-| x64 + AVX2 | `-DENABLE_AVX512=OFF` | 300 |
-| x64 + AVX2 + IFMA | (default) | 300 |
+| FORCE_PORTABLE | `-DFORCE_PORTABLE=1` | 539 |
+| x64 no SIMD | `-DENABLE_AVX2=OFF -DENABLE_AVX512=OFF` | 539 |
+| x64 + AVX2 | `-DENABLE_AVX512=OFF` | 545 |
+| x64 + AVX2 + IFMA | (default) | 545 |
 
 SIMD configurations include 6 additional dispatch verification tests that confirm each runtime-selected backend produces correct known-answer test (KAT) outputs.
 

@@ -219,16 +219,18 @@ static void
     }
 
     // Main loop: process digit positions from MSB to LSB
-    // Each group has its own 4-way accumulator
+    // Each group has its own 4-way accumulator with per-lane start tracking.
+    // The raw helios_add_4x formula corrupts lanes where either input has Z=0
+    // (identity), so we must use cmov to protect those lanes.
     std::vector<helios_jacobian_4x> accum(num_groups);
-    std::vector<bool> accum_started(num_groups, false);
+    std::vector<uint8_t> lane_started(num_groups, 0);
 
     for (int d = 63; d >= 0; d--)
     {
         // 4 doublings on all started accumulators
         for (size_t g = 0; g < num_groups; g++)
         {
-            if (accum_started[g])
+            if (lane_started[g])
             {
                 helios_dbl_4x(&accum[g], &accum[g]);
                 helios_dbl_4x(&accum[g], &accum[g]);
@@ -252,10 +254,13 @@ static void
             // For each lane, compute |digit| and sign
             signed char digits[4] = {d0, d1, d2, d3};
             unsigned int abs_d[4], neg[4];
+            uint8_t nonzero_mask = 0;
             for (int k = 0; k < 4; k++)
             {
                 abs_d[k] = static_cast<unsigned int>((digits[k] < 0) ? -digits[k] : digits[k]);
                 neg[k] = (digits[k] < 0) ? 1u : 0u;
+                if (digits[k] != 0)
+                    nonzero_mask |= static_cast<uint8_t>(1 << k);
             }
 
             // Per-lane table selection using conditional moves
@@ -287,15 +292,35 @@ static void
                     selected.Y.v[k] = _mm256_blendv_epi8(selected.Y.v[k], neg_sel.Y.v[k], neg_mask);
             }
 
-            if (!accum_started[g])
+            // Accumulate with per-lane identity protection
+            uint8_t first_time = nonzero_mask & ~lane_started[g];
+            uint8_t need_add = nonzero_mask & lane_started[g];
+
+            if (need_add)
             {
-                helios_copy_4x(&accum[g], &selected);
-                accum_started[g] = true;
-            }
-            else
-            {
+                helios_jacobian_4x saved;
+                helios_copy_4x(&saved, &accum[g]);
                 helios_add_4x(&accum[g], &accum[g], &selected);
+                // Restore accumulator for lanes where digit was 0
+                uint8_t zero_lanes = lane_started[g] & ~nonzero_mask;
+                if (zero_lanes)
+                {
+                    __m256i zmask = _mm256_set_epi64x(
+                        (zero_lanes & 8) ? -1LL : 0LL, (zero_lanes & 4) ? -1LL : 0LL,
+                        (zero_lanes & 2) ? -1LL : 0LL, (zero_lanes & 1) ? -1LL : 0LL);
+                    helios_cmov_4x(&accum[g], &saved, zmask);
+                }
             }
+
+            if (first_time)
+            {
+                __m256i fmask = _mm256_set_epi64x(
+                    (first_time & 8) ? -1LL : 0LL, (first_time & 4) ? -1LL : 0LL,
+                    (first_time & 2) ? -1LL : 0LL, (first_time & 1) ? -1LL : 0LL);
+                helios_cmov_4x(&accum[g], &selected, fmask);
+            }
+
+            lane_started[g] |= nonzero_mask;
         }
     }
 
@@ -307,7 +332,7 @@ static void
 
     for (size_t g = 0; g < num_groups; g++)
     {
-        if (!accum_started[g])
+        if (!lane_started[g])
             continue;
 
         helios_jacobian p0, p1, p2, p3;

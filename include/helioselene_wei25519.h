@@ -24,6 +24,15 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+/**
+ * @file helioselene_wei25519.h
+ * @brief Wei25519 bridge: ingest a Weierstrass-form x-coordinate as an F_p element.
+ *
+ * The caller's ed25519 library handles the Ed25519 -> Wei25519 coordinate transform.
+ * This function validates the raw 32-byte x-coordinate as a canonical F_p element
+ * (which is simultaneously a Selene scalar, due to the cycle property).
+ */
+
 #ifndef HELIOSELENE_WEI25519_H
 #define HELIOSELENE_WEI25519_H
 

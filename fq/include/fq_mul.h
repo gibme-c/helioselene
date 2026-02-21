@@ -24,6 +24,13 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+/**
+ * @file fq_mul.h
+ * @brief F_q multiplication dispatching to the active backend.
+ *
+ * Uses Crandall reduction (not the 2^255-19 shortcut).
+ */
+
 #ifndef HELIOSELENE_FQ_MUL_H
 #define HELIOSELENE_FQ_MUL_H
 

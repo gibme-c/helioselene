@@ -24,6 +24,11 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+/**
+ * @file helios_madd.h
+ * @brief Mixed addition for Helios: Jacobian + affine input, saving one multiplication over full Jacobian addition.
+ */
+
 #ifndef HELIOSELENE_HELIOS_MADD_H
 #define HELIOSELENE_HELIOS_MADD_H
 

@@ -243,9 +243,12 @@ static void
         }
     }
 
-    // Per-group 8-way accumulators
+    // Per-group 8-way accumulators with per-lane start tracking.
+    // lane_started tracks which lanes have received at least one nonzero digit.
+    // The raw helios_add_8x formula corrupts lanes where either input has Z=0
+    // (identity), so we must use cmov to protect those lanes.
     std::vector<helios_jacobian_8x> accum(num_groups);
-    std::vector<bool> accum_started(num_groups, false);
+    std::vector<__mmask8> lane_started(num_groups, 0);
 
     // Main loop: process digit positions from most significant to least
     for (int d = 63; d >= 0; d--)
@@ -253,7 +256,7 @@ static void
         // 4 doublings per digit position (w=4 window)
         for (size_t g = 0; g < num_groups; g++)
         {
-            if (accum_started[g])
+            if (lane_started[g])
             {
                 helios_dbl_8x(&accum[g], &accum[g]);
                 helios_dbl_8x(&accum[g], &accum[g]);
@@ -269,7 +272,7 @@ static void
             signed char digits[8];
             unsigned int abs_d[8];
             unsigned int neg_flag[8];
-            bool all_zero = true;
+            __mmask8 nonzero_mask = 0;
 
             for (int k = 0; k < 8; k++)
             {
@@ -277,10 +280,10 @@ static void
                 abs_d[k] = static_cast<unsigned int>((digits[k] < 0) ? -digits[k] : digits[k]);
                 neg_flag[k] = (digits[k] < 0) ? 1u : 0u;
                 if (digits[k] != 0)
-                    all_zero = false;
+                    nonzero_mask |= static_cast<__mmask8>(1 << k);
             }
 
-            if (all_zero)
+            if (!nonzero_mask)
                 continue;
 
             // Per-lane table selection using k-masks:
@@ -320,16 +323,29 @@ static void
                 }
             }
 
-            // Accumulate
-            if (!accum_started[g])
+            // Accumulate with per-lane identity protection:
+            // - Lanes not yet started: copy selected directly into those lanes
+            // - Lanes already started with nonzero digit: normal add
+            // - Lanes already started with zero digit: preserve accumulator
+            __mmask8 first_time = nonzero_mask & ~lane_started[g];
+            __mmask8 need_add = nonzero_mask & lane_started[g];
+
+            if (need_add)
             {
-                helios_copy_8x(&accum[g], &selected);
-                accum_started[g] = true;
-            }
-            else
-            {
+                helios_jacobian_8x saved;
+                helios_copy_8x(&saved, &accum[g]);
                 helios_add_8x(&accum[g], &accum[g], &selected);
+                // Restore accumulator for lanes where digit was 0
+                __mmask8 zero_mask = lane_started[g] & ~nonzero_mask;
+                if (zero_mask)
+                    helios_cmov_8x(&accum[g], &saved, zero_mask);
             }
+
+            // For lanes seeing their first nonzero digit, copy selected directly
+            if (first_time)
+                helios_cmov_8x(&accum[g], &selected, first_time);
+
+            lane_started[g] |= nonzero_mask;
         }
     }
 
@@ -341,7 +357,7 @@ static void
 
     for (size_t g = 0; g < num_groups; g++)
     {
-        if (!accum_started[g])
+        if (!lane_started[g])
             continue;
 
         helios_jacobian parts[8];

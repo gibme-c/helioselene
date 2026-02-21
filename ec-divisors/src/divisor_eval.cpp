@@ -24,6 +24,12 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+// divisor_eval.cpp — Evaluation-domain divisor operations using SoA layout.
+// Precomputes curve evaluations and barycentric weights over an integer domain {0..N-1}.
+// Supports SIMD-dispatched element-wise operations (AVX2/IFMA) for divisor multiplication.
+// Tree-reduce merges per-point divisors via the curve-equation multiplication formula:
+//   result.a = a1*a2 + curve(x)*b1*b2,  result.b = a1*b2 + a2*b1
+
 #include "divisor_eval.h"
 
 #include "divisor_eval_internal.h"
@@ -61,6 +67,78 @@
 
 #include <cstring>
 #include <mutex>
+
+/* Safe addition: handles identity, P==P (doubles), P==-P (returns identity).
+ * The raw helios_add/selene_add formulas produce garbage for these cases. */
+static void helios_add_safe(helios_jacobian *r, const helios_jacobian *p, const helios_jacobian *q)
+{
+    if (helios_is_identity(p))
+    {
+        helios_copy(r, q);
+        return;
+    }
+    if (helios_is_identity(q))
+    {
+        helios_copy(r, p);
+        return;
+    }
+    fp_fe z1z1, z2z2, u1, u2, diff;
+    fp_sq(z1z1, p->Z);
+    fp_sq(z2z2, q->Z);
+    fp_mul(u1, p->X, z2z2);
+    fp_mul(u2, q->X, z1z1);
+    fp_sub(diff, u1, u2);
+    if (!fp_isnonzero(diff))
+    {
+        fp_fe s1, s2, t;
+        fp_mul(t, q->Z, z2z2);
+        fp_mul(s1, p->Y, t);
+        fp_mul(t, p->Z, z1z1);
+        fp_mul(s2, q->Y, t);
+        fp_sub(diff, s1, s2);
+        if (!fp_isnonzero(diff))
+            helios_dbl(r, p);
+        else
+            helios_identity(r);
+        return;
+    }
+    helios_add(r, p, q);
+}
+
+static void selene_add_safe(selene_jacobian *r, const selene_jacobian *p, const selene_jacobian *q)
+{
+    if (selene_is_identity(p))
+    {
+        selene_copy(r, q);
+        return;
+    }
+    if (selene_is_identity(q))
+    {
+        selene_copy(r, p);
+        return;
+    }
+    fq_fe z1z1, z2z2, u1, u2, diff;
+    fq_sq(z1z1, p->Z);
+    fq_sq(z2z2, q->Z);
+    fq_mul(u1, p->X, z2z2);
+    fq_mul(u2, q->X, z1z1);
+    fq_sub(diff, u1, u2);
+    if (!fq_isnonzero(diff))
+    {
+        fq_fe s1, s2, t;
+        fq_mul(t, q->Z, z2z2);
+        fq_mul(s1, p->Y, t);
+        fq_mul(t, p->Z, z1z1);
+        fq_mul(s2, q->Y, t);
+        fq_sub(diff, s1, s2);
+        if (!fq_isnonzero(diff))
+            selene_dbl(r, p);
+        else
+            selene_identity(r);
+        return;
+    }
+    selene_add(r, p, q);
+}
 #include <vector>
 
 static const size_t N = EVAL_DOMAIN_SIZE;
@@ -832,7 +910,7 @@ void helios_eval_divisor_tree_reduce(
             helios_jacobian j1, j2, jsum;
             helios_from_affine(&j1, &sums[2 * i]);
             helios_from_affine(&j2, &sums[2 * i + 1]);
-            helios_add(&jsum, &j1, &j2);
+            helios_add_safe(&jsum, &j1, &j2);
             helios_to_affine(&next_sums[i], &jsum);
 
             helios_eval_divisor_merge(
@@ -1014,7 +1092,7 @@ void selene_eval_divisor_tree_reduce(
             selene_jacobian j1, j2, jsum;
             selene_from_affine(&j1, &sums[2 * i]);
             selene_from_affine(&j2, &sums[2 * i + 1]);
-            selene_add(&jsum, &j1, &j2);
+            selene_add_safe(&jsum, &j1, &j2);
             selene_to_affine(&next_sums[i], &jsum);
 
             selene_eval_divisor_merge(

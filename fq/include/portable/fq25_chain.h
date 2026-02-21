@@ -24,6 +24,11 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+/**
+ * @file fq25_chain.h
+ * @brief Portable (32-bit, radix-2^25.5) implementation of F_q addition chains with Crandall reduction.
+ */
+
 #ifndef HELIOSELENE_PORTABLE_FQ25_CHAIN_H
 #define HELIOSELENE_PORTABLE_FQ25_CHAIN_H
 

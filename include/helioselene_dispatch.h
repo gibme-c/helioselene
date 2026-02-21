@@ -24,6 +24,16 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+/**
+ * @file helioselene_dispatch.h
+ * @brief Runtime dispatch table for SIMD-accelerated curve operations.
+ *
+ * Manages a 6-slot function pointer table: {helios,selene} x {scalarmult, scalarmult_vartime,
+ * msm_vartime}. helioselene_init() populates slots based on CPUID (IFMA > AVX2 > x64 baseline).
+ * helioselene_autotune() benchmarks all available backends and picks the fastest per-slot.
+ * On non-SIMD platforms, init/autotune are no-ops (only one backend exists).
+ */
+
 #ifndef HELIOSELENE_DISPATCH_H
 #define HELIOSELENE_DISPATCH_H
 

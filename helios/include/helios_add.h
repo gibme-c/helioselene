@@ -24,6 +24,11 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+/**
+ * @file helios_add.h
+ * @brief Helios Jacobian point addition (complete formula, handles all edge cases including doubling).
+ */
+
 #ifndef HELIOSELENE_HELIOS_ADD_H
 #define HELIOSELENE_HELIOS_ADD_H
 

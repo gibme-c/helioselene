@@ -28,6 +28,7 @@
 
 #include "fq_ops.h"
 #include "fq_utils.h"
+#include "helioselene_secure_erase.h"
 #include "selene.h"
 #include "selene_add.h"
 #include "selene_dbl.h"
@@ -103,6 +104,7 @@ static int wnaf_encode(int8_t naf[257], const unsigned char scalar[32])
         pos += 5;
     }
 
+    helioselene_secure_erase(bits, sizeof(bits));
     return highest;
 }
 
@@ -122,6 +124,9 @@ void selene_scalarmult_vartime_x64(selene_jacobian *r, const unsigned char scala
 
     if (top == 0)
     {
+        helioselene_secure_erase(naf, sizeof(naf));
+        helioselene_secure_erase(table, sizeof(table));
+        helioselene_secure_erase(&p2, sizeof(p2));
         selene_identity(r);
         return;
     }
@@ -132,6 +137,9 @@ void selene_scalarmult_vartime_x64(selene_jacobian *r, const unsigned char scala
 
     if (start < 0)
     {
+        helioselene_secure_erase(naf, sizeof(naf));
+        helioselene_secure_erase(table, sizeof(table));
+        helioselene_secure_erase(&p2, sizeof(p2));
         selene_identity(r);
         return;
     }
@@ -160,4 +168,8 @@ void selene_scalarmult_vartime_x64(selene_jacobian *r, const unsigned char scala
             }
         }
     }
+
+    helioselene_secure_erase(naf, sizeof(naf));
+    helioselene_secure_erase(table, sizeof(table));
+    helioselene_secure_erase(&p2, sizeof(p2));
 }

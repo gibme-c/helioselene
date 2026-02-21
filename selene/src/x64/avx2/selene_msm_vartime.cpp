@@ -218,17 +218,15 @@ static void
         }
     }
 
-    // Main loop: process digit positions from MSB to LSB
-    // Each group has its own 4-way accumulator
+    // Main loop with per-lane start tracking for identity protection.
     std::vector<selene_jacobian_4x> accum(num_groups);
-    std::vector<bool> accum_started(num_groups, false);
+    std::vector<uint8_t> lane_started(num_groups, 0);
 
     for (int d = 63; d >= 0; d--)
     {
-        // 4 doublings on all started accumulators
         for (size_t g = 0; g < num_groups; g++)
         {
-            if (accum_started[g])
+            if (lane_started[g])
             {
                 selene_dbl_4x(&accum[g], &accum[g]);
                 selene_dbl_4x(&accum[g], &accum[g]);
@@ -237,10 +235,8 @@ static void
             }
         }
 
-        // Add contributions from each group
         for (size_t g = 0; g < num_groups; g++)
         {
-            // Get the 4 digits for this group at digit position d
             signed char d0 = (g * 4 + 0 < n) ? all_digits[(g * 4 + 0) * 64 + d] : 0;
             signed char d1 = (g * 4 + 1 < n) ? all_digits[(g * 4 + 1) * 64 + d] : 0;
             signed char d2 = (g * 4 + 2 < n) ? all_digits[(g * 4 + 2) * 64 + d] : 0;
@@ -249,22 +245,22 @@ static void
             if (d0 == 0 && d1 == 0 && d2 == 0 && d3 == 0)
                 continue;
 
-            // For each lane, compute |digit| and sign
             signed char digits[4] = {d0, d1, d2, d3};
             unsigned int abs_d[4], neg[4];
+            uint8_t nonzero_mask = 0;
             for (int k = 0; k < 4; k++)
             {
                 abs_d[k] = static_cast<unsigned int>((digits[k] < 0) ? -digits[k] : digits[k]);
                 neg[k] = (digits[k] < 0) ? 1u : 0u;
+                if (digits[k] != 0)
+                    nonzero_mask |= static_cast<uint8_t>(1 << k);
             }
 
-            // Per-lane table selection using conditional moves
             selene_jacobian_4x selected;
             selene_identity_4x(&selected);
 
             for (int j = 0; j < 8; j++)
             {
-                // Build per-lane mask: lane k selected if abs_d[k] == j+1
                 int64_t m0 = -static_cast<int64_t>(abs_d[0] == static_cast<unsigned int>(j + 1));
                 int64_t m1 = -static_cast<int64_t>(abs_d[1] == static_cast<unsigned int>(j + 1));
                 int64_t m2 = -static_cast<int64_t>(abs_d[2] == static_cast<unsigned int>(j + 1));
@@ -273,7 +269,6 @@ static void
                 selene_cmov_4x(&selected, &tables_4x[g * 8 + j], mask);
             }
 
-            // Per-lane conditional negate: negate Y for lanes where digit was negative
             {
                 selene_jacobian_4x neg_sel;
                 selene_neg_4x(&neg_sel, &selected);
@@ -282,32 +277,48 @@ static void
                 int64_t nm2 = -static_cast<int64_t>(neg[2]);
                 int64_t nm3 = -static_cast<int64_t>(neg[3]);
                 __m256i neg_mask = _mm256_set_epi64x(nm3, nm2, nm1, nm0);
-                // Blend Y coordinate: for lanes where neg, use negated Y
                 for (int k = 0; k < 10; k++)
                     selected.Y.v[k] = _mm256_blendv_epi8(selected.Y.v[k], neg_sel.Y.v[k], neg_mask);
             }
 
-            if (!accum_started[g])
+            uint8_t first_time = nonzero_mask & ~lane_started[g];
+            uint8_t need_add = nonzero_mask & lane_started[g];
+
+            if (need_add)
             {
-                selene_copy_4x(&accum[g], &selected);
-                accum_started[g] = true;
-            }
-            else
-            {
+                selene_jacobian_4x saved;
+                selene_copy_4x(&saved, &accum[g]);
                 selene_add_4x(&accum[g], &accum[g], &selected);
+                uint8_t zero_lanes = lane_started[g] & ~nonzero_mask;
+                if (zero_lanes)
+                {
+                    __m256i zmask = _mm256_set_epi64x(
+                        (zero_lanes & 8) ? -1LL : 0LL, (zero_lanes & 4) ? -1LL : 0LL,
+                        (zero_lanes & 2) ? -1LL : 0LL, (zero_lanes & 1) ? -1LL : 0LL);
+                    selene_cmov_4x(&accum[g], &saved, zmask);
+                }
             }
+
+            if (first_time)
+            {
+                __m256i fmask = _mm256_set_epi64x(
+                    (first_time & 8) ? -1LL : 0LL, (first_time & 4) ? -1LL : 0LL,
+                    (first_time & 2) ? -1LL : 0LL, (first_time & 1) ? -1LL : 0LL);
+                selene_cmov_4x(&accum[g], &selected, fmask);
+            }
+
+            lane_started[g] |= nonzero_mask;
         }
     }
 
-    // Combine results from all groups: unpack each 4-way accumulator
-    // and add the partial results together using scalar fq51 ops
+    // Combine results from all groups
     selene_jacobian total;
     selene_identity(&total);
     bool total_started = false;
 
     for (size_t g = 0; g < num_groups; g++)
     {
-        if (!accum_started[g])
+        if (!lane_started[g])
             continue;
 
         selene_jacobian p0, p1, p2, p3;

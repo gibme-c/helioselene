@@ -43,7 +43,7 @@ set(STATIC ON CACHE BOOL FORCE "Link libraries statically? Forced to ON")
 add_definitions(-DSTATICLIB)
 
 if(MSVC)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std:c++17 /W4 /GS /guard:cf /DWIN32_LEAN_AND_MEAN /wd4267 /wd4804 /D_DLL")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std:c++17 /W4 /GS /sdl /guard:cf /DWIN32_LEAN_AND_MEAN /wd4267 /wd4804 /D_DLL")
     set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /O2")
     string(REPLACE "/Ob0" "/Ob2" CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")
     set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /Oi")
@@ -54,7 +54,18 @@ else()
         set(ARCH_FLAG "-march=${ARCH}")
     endif()
 
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17 -Wall -Wextra -Wuninitialized -fstack-protector-strong ${ARCH_FLAG}")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17 -Wall -Wextra -Wuninitialized -Wformat-security -fstack-protector-strong ${ARCH_FLAG}")
+
+    # Stack clash protection (GCC 8.3+, Clang 11+)
+    # Exclude AppleClang and Windows Clang: they accept the flag at configure
+    # time but emit "argument unused during compilation" warnings on every TU.
+    include(CheckCXXCompilerFlag)
+    if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang" AND NOT (CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND WIN32))
+        check_cxx_compiler_flag("-fstack-clash-protection" HAS_STACK_CLASH_PROTECTION)
+        if(HAS_STACK_CLASH_PROTECTION)
+            set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fstack-clash-protection")
+        endif()
+    endif()
 
     # Disable auto-vectorization to prevent the compiler from introducing
     # SIMD instructions that could create data-dependent timing behavior,
@@ -73,8 +84,13 @@ else()
         set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static")
     endif()
 
-    if(NOT APPLE)
+    if(NOT APPLE AND NOT WIN32)
         set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static-libgcc -static-libstdc++")
+    endif()
+
+    # ELF linker hardening (not applicable on Apple, Windows, or MSVC)
+    if(NOT APPLE AND NOT WIN32)
+        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-z,relro -Wl,-z,now -Wl,-z,noexecstack")
     endif()
 endif()
 
@@ -119,6 +135,21 @@ if(ENABLE_LTO)
     message(STATUS "HELIOSELENE: Link-time optimization enabled")
 endif()
 
+option(ENABLE_ASAN "Enable AddressSanitizer" OFF)
+option(ENABLE_UBSAN "Enable UndefinedBehaviorSanitizer" OFF)
+if(NOT MSVC)
+    if(ENABLE_ASAN)
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address -fno-omit-frame-pointer")
+        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=address")
+        message(STATUS "HELIOSELENE: AddressSanitizer enabled")
+    endif()
+    if(ENABLE_UBSAN)
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=undefined -fno-omit-frame-pointer")
+        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=undefined")
+        message(STATUS "HELIOSELENE: UndefinedBehaviorSanitizer enabled")
+    endif()
+endif()
+
 # ── Sub-libraries ──
 add_subdirectory(common)
 add_subdirectory(fp)
@@ -128,12 +159,19 @@ add_subdirectory(selene)
 add_subdirectory(ecfft)
 add_subdirectory(ec-divisors)
 
-# ── Main library: dispatch + master include ──
+# ── Main library: dispatch + master include + public C++ API ──
+set(HELIOSELENE_API_SOURCES
+    src/api_scalar.cpp
+    src/api_point.cpp
+    src/api_polynomial.cpp
+    src/api_divisor.cpp
+)
+
 if(ENABLE_AVX2 OR ENABLE_AVX512)
-    # SIMD dispatch requires compiled sources
     add_library(helioselene STATIC
         src/cpuid.cpp
         src/dispatch.cpp
+        ${HELIOSELENE_API_SOURCES}
     )
     message(STATUS "HELIOSELENE: SIMD dispatch enabled")
 
@@ -153,38 +191,23 @@ if(ENABLE_AVX2 OR ENABLE_AVX512)
         target_compile_definitions(helioselene PUBLIC HELIOSELENE_NO_AVX2=1)
     endif()
 else()
-    # No compiled sources needed — header-only umbrella
-    add_library(helioselene INTERFACE)
+    add_library(helioselene STATIC ${HELIOSELENE_API_SOURCES})
 endif()
 
 if(ENABLE_ECFFT)
     message(STATUS "HELIOSELENE: ECFFT polynomial multiplication enabled")
 endif()
 
-# Use generator expressions for PUBLIC/INTERFACE compatibility
-if(ENABLE_AVX2 OR ENABLE_AVX512)
-    target_include_directories(helioselene PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
-    target_link_libraries(helioselene PUBLIC
-        helioselene-ec-divisors
-        helioselene-helios
-        helioselene-selene
-        helioselene-fp
-        helioselene-fq
-        helioselene-ecfft
-        helioselene-common
-    )
-else()
-    target_include_directories(helioselene INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-    target_link_libraries(helioselene INTERFACE
-        helioselene-ec-divisors
-        helioselene-helios
-        helioselene-selene
-        helioselene-fp
-        helioselene-fq
-        helioselene-ecfft
-        helioselene-common
-    )
-endif()
+target_include_directories(helioselene PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(helioselene PUBLIC
+    helioselene-ec-divisors
+    helioselene-helios
+    helioselene-selene
+    helioselene-fp
+    helioselene-fq
+    helioselene-ecfft
+    helioselene-common
+)
 
 # ── Tests and benchmarks ──
 option(BUILD_TESTS "Build unit tests and benchmarks" OFF)
@@ -224,6 +247,10 @@ if(BUILD_TOOLS)
     add_executable(gen-ecfft-data tools/gen_ecfft_data.cpp)
     target_link_libraries(gen-ecfft-data helioselene)
     set_property(TARGET gen-ecfft-data PROPERTY OUTPUT_NAME "helioselene-gen-ecfft")
+
+    add_executable(gen-test-vectors tools/gen_test_vectors.cpp)
+    target_link_libraries(gen-test-vectors helioselene)
+    set_property(TARGET gen-test-vectors PROPERTY OUTPUT_NAME "helioselene-gen-testvectors")
 
     message(STATUS "HELIOSELENE: Auxiliary tools enabled")
 endif()

@@ -163,6 +163,7 @@ static void sswu_selene(selene_jacobian *r, const fq_fe u)
     /* sgn0(u) != sgn0(y) => negate y */
     int u_sign = fq_isnegative(u);
     int y_sign = fq_isnegative(y);
+
     if (u_sign != y_sign)
     {
         fq_neg(y, y);

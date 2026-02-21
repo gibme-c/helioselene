@@ -24,6 +24,15 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+/**
+ * @file helioselene_secure_erase.h
+ * @brief Guaranteed memory zeroing that survives dead-store elimination.
+ *
+ * Compilers may optimize away a plain memset on a buffer that is about to go out of scope.
+ * This function uses platform-specific mechanisms (SecureZeroMemory, explicit_bzero, or a
+ * volatile function pointer) to ensure sensitive data is actually erased.
+ */
+
 #ifndef HELIOSELENE_SECURE_ERASE_H
 #define HELIOSELENE_SECURE_ERASE_H
 

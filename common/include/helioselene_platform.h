@@ -24,6 +24,15 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+/**
+ * @file helioselene_platform.h
+ * @brief Compile-time platform detection and 128-bit multiplication support.
+ *
+ * Detects x86-64 vs ARM64 vs 32-bit, and selects between __int128 (GCC/Clang) or
+ * _umul128 intrinsic (MSVC) for 64x64->128 multiplication. FORCE_PORTABLE overrides
+ * 64-bit detection to force the 32-bit radix-2^25.5 backend.
+ */
+
 #ifndef HELIOSELENE_PLATFORM_H
 #define HELIOSELENE_PLATFORM_H
 

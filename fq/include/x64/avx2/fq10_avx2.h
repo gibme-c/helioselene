@@ -52,6 +52,7 @@
 #ifndef HELIOSELENE_X64_AVX2_FQ10_AVX2_H
 #define HELIOSELENE_X64_AVX2_FQ10_AVX2_H
 
+#include "ct_barrier.h"
 #include "fq_ops.h"
 #include "helioselene_platform.h"
 #include "portable/fq25.h"
@@ -324,7 +325,7 @@ static FQ10_AVX2_FORCE_INLINE void fq10_copy(fq10 h, const fq10 f)
  */
 static FQ10_AVX2_FORCE_INLINE void fq10_cmov(fq10 t, const fq10 u, int64_t b)
 {
-    int64_t mask = -b;
+    int64_t mask = -(int64_t)ct_barrier_u64((uint64_t)b);
     t[0] ^= mask & (t[0] ^ u[0]);
     t[1] ^= mask & (t[1] ^ u[1]);
     t[2] ^= mask & (t[2] ^ u[2]);

@@ -24,6 +24,14 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+/**
+ * @file helioselene_cpuid.h
+ * @brief Runtime CPU feature detection for SIMD backend selection.
+ *
+ * Queries CPUID on x86-64 for AVX2, AVX-512F, and AVX-512 IFMA support.
+ * On non-x86 platforms, all feature queries return false (baseline backend only).
+ */
+
 #ifndef HELIOSELENE_CPUID_H
 #define HELIOSELENE_CPUID_H
 

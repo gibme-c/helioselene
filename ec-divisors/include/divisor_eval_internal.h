@@ -24,6 +24,12 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+/**
+ * @file divisor_eval_internal.h
+ * @brief Internal helpers for divisor evaluation: polynomial evaluation kernels
+ *        and coefficient access.
+ */
+
 #ifndef HELIOSELENE_DIVISOR_EVAL_INTERNAL_H
 #define HELIOSELENE_DIVISOR_EVAL_INTERNAL_H
 

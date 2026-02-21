@@ -24,6 +24,14 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+/**
+ * @file ecfft_fp.h
+ * @brief ECFFT (Elliptic Curve Fast Fourier Transform) interface for F_p polynomials.
+ *
+ * Uses precomputed coset data from an auxiliary curve over F_p to achieve
+ * O(n log^2 n) polynomial multiplication.
+ */
+
 #ifndef HELIOSELENE_ECFFT_FP_H
 #define HELIOSELENE_ECFFT_FP_H
 

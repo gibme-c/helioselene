@@ -66,38 +66,38 @@
  *                          [--min-v2 N]
  */
 
-#include <cstdint>
-#include <cstdio>
-#include <cstring>
-#include <cstdlib>
-#include <ctime>
 #include <atomic>
 #include <chrono>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <ctime>
 #include <mutex>
 #include <thread>
 #include <vector>
 
 // Field arithmetic (Fq)
 #include "fq.h"
-#include "fq_ops.h"
-#include "fq_mul.h"
-#include "fq_sq.h"
 #include "fq_frombytes.h"
+#include "fq_invert.h"
+#include "fq_mul.h"
+#include "fq_ops.h"
+#include "fq_sq.h"
+#include "fq_sqrt.h"
 #include "fq_tobytes.h"
 #include "fq_utils.h"
-#include "fq_sqrt.h"
-#include "fq_invert.h"
 
 // Field arithmetic (Fp)
 #include "fp.h"
-#include "fp_ops.h"
-#include "fp_mul.h"
-#include "fp_sq.h"
 #include "fp_frombytes.h"
+#include "fp_invert.h"
+#include "fp_mul.h"
+#include "fp_ops.h"
+#include "fp_sq.h"
+#include "fp_sqrt.h"
 #include "fp_tobytes.h"
 #include "fp_utils.h"
-#include "fp_sqrt.h"
-#include "fp_invert.h"
 
 // ============================================================================
 // PRNG (xoshiro256** by Blackman & Vigna, 2018) — per-thread instance
@@ -155,16 +155,16 @@ struct Prng
 // Shared state
 // ============================================================================
 
-static std::atomic<int> g_trials_done{0};
-static std::atomic<int> g_found{0};
-static std::atomic<int> g_best_levels{0};
+static std::atomic<int> g_trials_done {0};
+static std::atomic<int> g_found {0};
+static std::atomic<int> g_best_levels {0};
 static std::mutex g_print_mutex;
-static std::atomic<bool> g_stop{false};
+static std::atomic<bool> g_stop {false};
 
 struct Candidate
 {
     unsigned char b[32];
-    int v2;     // 2-adic valuation of #E (= a + b where 2-Sylow ≅ Z/2^a × Z/2^b)
+    int v2; // 2-adic valuation of #E (= a + b where 2-Sylow ≅ Z/2^a × Z/2^b)
     int levels; // ECFFT domain exponent (= b = max_chain + 1, the larger cyclic factor)
 };
 
@@ -216,16 +216,34 @@ static int fq_sqrt_qr(fe_t out, const fe_t z)
 }
 
 static const FieldOps FQ_OPS = {
-    fq_mul, fq_sq, fq_add, fq_sub, fq_copy, fq_0, fq_1,
-    fq_isnonzero, fq_frombytes, fq_tobytes,
-    fq_neg, fq_invert, fq_sqrt_qr
-};
+    fq_mul,
+    fq_sq,
+    fq_add,
+    fq_sub,
+    fq_copy,
+    fq_0,
+    fq_1,
+    fq_isnonzero,
+    fq_frombytes,
+    fq_tobytes,
+    fq_neg,
+    fq_invert,
+    fq_sqrt_qr};
 
 static const FieldOps FP_OPS = {
-    fp_mul, fp_sq, fp_add, fp_sub, fp_copy, fp_0, fp_1,
-    fp_isnonzero, fp_frombytes, fp_tobytes,
-    fp_neg, fp_invert, fp_sqrt_qr
-};
+    fp_mul,
+    fp_sq,
+    fp_add,
+    fp_sub,
+    fp_copy,
+    fp_0,
+    fp_1,
+    fp_isnonzero,
+    fp_frombytes,
+    fp_tobytes,
+    fp_neg,
+    fp_invert,
+    fp_sqrt_qr};
 
 // ============================================================================
 // Polynomial arithmetic mod cubic: GF(p)[x] / (x^3 + ax + b)
@@ -244,8 +262,7 @@ static const FieldOps FP_OPS = {
 // See Cantor-Zassenhaus [CZ81] and [Cass91] §8.
 // ============================================================================
 
-static void polymod3_sq(fe_t r[3], const fe_t f[3],
-    const fe_t neg_a, const fe_t neg_b, const FieldOps *ops)
+static void polymod3_sq(fe_t r[3], const fe_t f[3], const fe_t neg_a, const fe_t neg_b, const FieldOps *ops)
 {
     fe_t d0, d1, d2, d3, d4, t1, t2;
     ops->sq(d0, f[0]);
@@ -271,8 +288,7 @@ static void polymod3_sq(fe_t r[3], const fe_t f[3],
     ops->copy(r[2], d2);
 }
 
-static void polymod3_mulx(fe_t r[3], const fe_t f[3],
-    const fe_t neg_a, const fe_t neg_b, const FieldOps *ops)
+static void polymod3_mulx(fe_t r[3], const fe_t f[3], const fe_t neg_a, const fe_t neg_b, const FieldOps *ops)
 {
     fe_t new0, new1, t;
     ops->mul(new0, f[2], neg_b);
@@ -283,8 +299,8 @@ static void polymod3_mulx(fe_t r[3], const fe_t f[3],
     ops->copy(r[0], new0);
 }
 
-static void polymod3_powx(fe_t result[3], const int *bits, int msb,
-    const fe_t neg_a, const fe_t neg_b, const FieldOps *ops)
+static void
+    polymod3_powx(fe_t result[3], const int *bits, int msb, const fe_t neg_a, const fe_t neg_b, const FieldOps *ops)
 {
     ops->one(result[0]);
     ops->zero(result[1]);
@@ -303,8 +319,7 @@ static void polymod3_powx(fe_t result[3], const int *bits, int msb,
     }
 }
 
-static int check_full_2torsion(const fe_t a, const fe_t b,
-    const int *q_bits, int q_msb, const FieldOps *ops)
+static int check_full_2torsion(const fe_t a, const fe_t b, const int *q_bits, int q_msb, const FieldOps *ops)
 {
     fe_t neg_a, neg_b;
     ops->neg(neg_a, a);
@@ -348,27 +363,38 @@ static void poly4_reduce(fe_t d[7], const fe_t q[4], const FieldOps *ops)
     // Reduce x^6 coefficient: x^6 = x^2 * x^4 = x^2 * (-q[3]*x^3 - q[2]*x^2 - q[1]*x - q[0])
     // = -q[3]*x^5 - q[2]*x^4 - q[1]*x^3 - q[0]*x^2
     // So d[6]*x^6 adds: d[6]*(-q[3]) to x^5, d[6]*(-q[2]) to x^4, d[6]*(-q[1]) to x^3, d[6]*(-q[0]) to x^2
-    ops->mul(t, d[6], q[3]); ops->sub(d[5], d[5], t);
-    ops->mul(t, d[6], q[2]); ops->sub(d[4], d[4], t);
-    ops->mul(t, d[6], q[1]); ops->sub(d[3], d[3], t);
-    ops->mul(t, d[6], q[0]); ops->sub(d[2], d[2], t);
+    ops->mul(t, d[6], q[3]);
+    ops->sub(d[5], d[5], t);
+    ops->mul(t, d[6], q[2]);
+    ops->sub(d[4], d[4], t);
+    ops->mul(t, d[6], q[1]);
+    ops->sub(d[3], d[3], t);
+    ops->mul(t, d[6], q[0]);
+    ops->sub(d[2], d[2], t);
 
     // Reduce x^5: x^5 = x * x^4 = -q[3]*x^4 - q[2]*x^3 - q[1]*x^2 - q[0]*x
-    ops->mul(t, d[5], q[3]); ops->sub(d[4], d[4], t);
-    ops->mul(t, d[5], q[2]); ops->sub(d[3], d[3], t);
-    ops->mul(t, d[5], q[1]); ops->sub(d[2], d[2], t);
-    ops->mul(t, d[5], q[0]); ops->sub(d[1], d[1], t);
+    ops->mul(t, d[5], q[3]);
+    ops->sub(d[4], d[4], t);
+    ops->mul(t, d[5], q[2]);
+    ops->sub(d[3], d[3], t);
+    ops->mul(t, d[5], q[1]);
+    ops->sub(d[2], d[2], t);
+    ops->mul(t, d[5], q[0]);
+    ops->sub(d[1], d[1], t);
 
     // Reduce x^4: x^4 = -q[3]*x^3 - q[2]*x^2 - q[1]*x - q[0]
-    ops->mul(t, d[4], q[3]); ops->sub(d[3], d[3], t);
-    ops->mul(t, d[4], q[2]); ops->sub(d[2], d[2], t);
-    ops->mul(t, d[4], q[1]); ops->sub(d[1], d[1], t);
-    ops->mul(t, d[4], q[0]); ops->sub(d[0], d[0], t);
+    ops->mul(t, d[4], q[3]);
+    ops->sub(d[3], d[3], t);
+    ops->mul(t, d[4], q[2]);
+    ops->sub(d[2], d[2], t);
+    ops->mul(t, d[4], q[1]);
+    ops->sub(d[1], d[1], t);
+    ops->mul(t, d[4], q[0]);
+    ops->sub(d[0], d[0], t);
 }
 
 // Square a degree-3 polynomial mod quartic
-static void poly4_sq(fe_t r[4], const fe_t f[4],
-    const fe_t q[4], const FieldOps *ops)
+static void poly4_sq(fe_t r[4], const fe_t f[4], const fe_t q[4], const FieldOps *ops)
 {
     fe_t d[7];
     fe_t t;
@@ -376,16 +402,27 @@ static void poly4_sq(fe_t r[4], const fe_t f[4],
     // d[0] = f0^2
     ops->sq(d[0], f[0]);
     // d[1] = 2*f0*f1
-    ops->mul(t, f[0], f[1]); ops->add(d[1], t, t);
+    ops->mul(t, f[0], f[1]);
+    ops->add(d[1], t, t);
     // d[2] = f1^2 + 2*f0*f2
-    ops->sq(d[2], f[1]); ops->mul(t, f[0], f[2]); ops->add(t, t, t); ops->add(d[2], d[2], t);
+    ops->sq(d[2], f[1]);
+    ops->mul(t, f[0], f[2]);
+    ops->add(t, t, t);
+    ops->add(d[2], d[2], t);
     // d[3] = 2*f1*f2 + 2*f0*f3
-    ops->mul(d[3], f[1], f[2]); ops->add(d[3], d[3], d[3]);
-    ops->mul(t, f[0], f[3]); ops->add(t, t, t); ops->add(d[3], d[3], t);
+    ops->mul(d[3], f[1], f[2]);
+    ops->add(d[3], d[3], d[3]);
+    ops->mul(t, f[0], f[3]);
+    ops->add(t, t, t);
+    ops->add(d[3], d[3], t);
     // d[4] = f2^2 + 2*f1*f3
-    ops->sq(d[4], f[2]); ops->mul(t, f[1], f[3]); ops->add(t, t, t); ops->add(d[4], d[4], t);
+    ops->sq(d[4], f[2]);
+    ops->mul(t, f[1], f[3]);
+    ops->add(t, t, t);
+    ops->add(d[4], d[4], t);
     // d[5] = 2*f2*f3
-    ops->mul(t, f[2], f[3]); ops->add(d[5], t, t);
+    ops->mul(t, f[2], f[3]);
+    ops->add(d[5], t, t);
     // d[6] = f3^2
     ops->sq(d[6], f[3]);
 
@@ -398,18 +435,21 @@ static void poly4_sq(fe_t r[4], const fe_t f[4],
 }
 
 // Multiply by x mod quartic: shift up, reduce x^4
-static void poly4_mulx(fe_t r[4], const fe_t f[4],
-    const fe_t q[4], const FieldOps *ops)
+static void poly4_mulx(fe_t r[4], const fe_t f[4], const fe_t q[4], const FieldOps *ops)
 {
     // f[3]*x^4 + f[2]*x^3 + f[1]*x^2 + f[0]*x
     // x^4 = -q[3]*x^3 - q[2]*x^2 - q[1]*x - q[0]
     // So: (f[2] - f[3]*q[3])*x^3 + (f[1] - f[3]*q[2])*x^2
     //   + (f[0] - f[3]*q[1])*x + (-f[3]*q[0])
     fe_t t, new0, new1, new2, new3;
-    ops->mul(t, f[3], q[0]); ops->neg(new0, t);
-    ops->mul(t, f[3], q[1]); ops->sub(new1, f[0], t);
-    ops->mul(t, f[3], q[2]); ops->sub(new2, f[1], t);
-    ops->mul(t, f[3], q[3]); ops->sub(new3, f[2], t);
+    ops->mul(t, f[3], q[0]);
+    ops->neg(new0, t);
+    ops->mul(t, f[3], q[1]);
+    ops->sub(new1, f[0], t);
+    ops->mul(t, f[3], q[2]);
+    ops->sub(new2, f[1], t);
+    ops->mul(t, f[3], q[3]);
+    ops->sub(new3, f[2], t);
     ops->copy(r[0], new0);
     ops->copy(r[1], new1);
     ops->copy(r[2], new2);
@@ -417,8 +457,7 @@ static void poly4_mulx(fe_t r[4], const fe_t f[4],
 }
 
 // Multiply two degree-3 polynomials mod quartic
-static void poly4_mul(fe_t r[4], const fe_t f[4], const fe_t g[4],
-    const fe_t q[4], const FieldOps *ops)
+static void poly4_mul(fe_t r[4], const fe_t f[4], const fe_t g[4], const fe_t q[4], const FieldOps *ops)
 {
     fe_t d[7];
     fe_t t;
@@ -427,23 +466,32 @@ static void poly4_mul(fe_t r[4], const fe_t f[4], const fe_t g[4],
     ops->mul(d[0], f[0], g[0]);
 
     ops->mul(d[1], f[0], g[1]);
-    ops->mul(t, f[1], g[0]); ops->add(d[1], d[1], t);
+    ops->mul(t, f[1], g[0]);
+    ops->add(d[1], d[1], t);
 
     ops->mul(d[2], f[0], g[2]);
-    ops->mul(t, f[1], g[1]); ops->add(d[2], d[2], t);
-    ops->mul(t, f[2], g[0]); ops->add(d[2], d[2], t);
+    ops->mul(t, f[1], g[1]);
+    ops->add(d[2], d[2], t);
+    ops->mul(t, f[2], g[0]);
+    ops->add(d[2], d[2], t);
 
     ops->mul(d[3], f[0], g[3]);
-    ops->mul(t, f[1], g[2]); ops->add(d[3], d[3], t);
-    ops->mul(t, f[2], g[1]); ops->add(d[3], d[3], t);
-    ops->mul(t, f[3], g[0]); ops->add(d[3], d[3], t);
+    ops->mul(t, f[1], g[2]);
+    ops->add(d[3], d[3], t);
+    ops->mul(t, f[2], g[1]);
+    ops->add(d[3], d[3], t);
+    ops->mul(t, f[3], g[0]);
+    ops->add(d[3], d[3], t);
 
     ops->mul(d[4], f[1], g[3]);
-    ops->mul(t, f[2], g[2]); ops->add(d[4], d[4], t);
-    ops->mul(t, f[3], g[1]); ops->add(d[4], d[4], t);
+    ops->mul(t, f[2], g[2]);
+    ops->add(d[4], d[4], t);
+    ops->mul(t, f[3], g[1]);
+    ops->add(d[4], d[4], t);
 
     ops->mul(d[5], f[2], g[3]);
-    ops->mul(t, f[3], g[2]); ops->add(d[5], d[5], t);
+    ops->mul(t, f[3], g[2]);
+    ops->add(d[5], d[5], t);
 
     ops->mul(d[6], f[3], g[3]);
 
@@ -456,8 +504,7 @@ static void poly4_mul(fe_t r[4], const fe_t f[4], const fe_t g[4],
 }
 
 // Compute x^p mod quartic via square-and-multiply
-static void poly4_powx_p(fe_t result[4], const int *bits, int msb,
-    const fe_t q[4], const FieldOps *ops)
+static void poly4_powx_p(fe_t result[4], const int *bits, int msb, const fe_t q[4], const FieldOps *ops)
 {
     // Start with 1
     ops->one(result[0]);
@@ -480,8 +527,8 @@ static void poly4_powx_p(fe_t result[4], const int *bits, int msb,
 }
 
 // Compute base^exp mod quartic via square-and-multiply (general base)
-static void poly4_pow(fe_t result[4], const fe_t base[4],
-    const int *bits, int msb, const fe_t q[4], const FieldOps *ops)
+static void
+    poly4_pow(fe_t result[4], const fe_t base[4], const int *bits, int msb, const fe_t q[4], const FieldOps *ops)
 {
     ops->one(result[0]);
     ops->zero(result[1]);
@@ -526,8 +573,13 @@ static int compute_pm1_half_bits(int pm1_half_bits[255], const int *prime_bits)
     for (int i = 0; i < 255; i++)
     {
         int val = prime_bits[i] - borrow;
-        if (val < 0) { val += 2; borrow = 1; }
-        else borrow = 0;
+        if (val < 0)
+        {
+            val += 2;
+            borrow = 1;
+        }
+        else
+            borrow = 0;
         pm1_bits[i] = val;
     }
     pm1_bits[255] = 0;
@@ -566,14 +618,17 @@ static int poly_degree(const fe_t *p, int max_deg, const FieldOps *ops)
 // Compute gcd of two polynomials a (degree <= da) and b (degree <= db)
 // Result stored in g with degree returned. g must have space for max(da,db)+1 elements.
 // Uses Euclidean algorithm. Modifies a and b in place.
-static int poly_gcd(fe_t *a, int da, fe_t *b, int db,
-    fe_t *g, const FieldOps *ops)
+static int poly_gcd(fe_t *a, int da, fe_t *b, int db, fe_t *g, const FieldOps *ops)
 {
     // Make a the higher-degree one
     if (da < db)
     {
-        fe_t *tmp_p = a; a = b; b = tmp_p;
-        int tmp_d = da; da = db; db = tmp_d;
+        fe_t *tmp_p = a;
+        a = b;
+        b = tmp_p;
+        int tmp_d = da;
+        da = db;
+        db = tmp_d;
     }
 
     // Euclidean algorithm
@@ -605,8 +660,12 @@ static int poly_gcd(fe_t *a, int da, fe_t *b, int db,
         }
 
         // Swap a, b
-        fe_t *tmp_p = a; a = b; b = tmp_p;
-        int tmp_d = da; da = db; db = tmp_d;
+        fe_t *tmp_p = a;
+        a = b;
+        b = tmp_p;
+        int tmp_d = da;
+        da = db;
+        db = tmp_d;
         da = poly_degree(a, da, ops);
         db = poly_degree(b, db, ops);
     }
@@ -633,8 +692,8 @@ static int poly_gcd(fe_t *a, int da, fe_t *b, int db,
 // For degree 2: use quadratic formula (need sqrt)
 // For degree 3+: use Frobenius splitting (x^p mod poly) to factor further
 // Returns 1 if a root was found and stored in root, 0 otherwise.
-static int find_root_of_gcd(fe_t root, const fe_t *g, int deg,
-    const int *prime_bits, int prime_msb, const FieldOps *ops)
+static int
+    find_root_of_gcd(fe_t root, const fe_t *g, int deg, const int *prime_bits, int prime_msb, const FieldOps *ops)
 {
     if (deg == 1)
     {
@@ -700,24 +759,37 @@ static int find_root_of_gcd(fe_t root, const fe_t *g, int deg,
         {
             // Square xp mod cubic
             fe_t f0 = {0}, f1 = {0}, f2 = {0};
-            ops->copy(f0, xp[0]); ops->copy(f1, xp[1]); ops->copy(f2, xp[2]);
+            ops->copy(f0, xp[0]);
+            ops->copy(f1, xp[1]);
+            ops->copy(f2, xp[2]);
 
             fe_t d0, d1, d2, d3, d4, t;
             ops->sq(d0, f0);
-            ops->mul(t, f0, f1); ops->add(d1, t, t);
-            ops->mul(t, f0, f2); ops->add(d2, t, t);
-            fe_t t2; ops->sq(t2, f1); ops->add(d2, d2, t2);
-            ops->mul(t, f1, f2); ops->add(d3, t, t);
+            ops->mul(t, f0, f1);
+            ops->add(d1, t, t);
+            ops->mul(t, f0, f2);
+            ops->add(d2, t, t);
+            fe_t t2;
+            ops->sq(t2, f1);
+            ops->add(d2, d2, t2);
+            ops->mul(t, f1, f2);
+            ops->add(d3, t, t);
             ops->sq(d4, f2);
 
             // Reduce x^4: d4 * (-g2*x^2 - g1*x - g0)
-            ops->mul(t, d4, g[2]); ops->sub(d2, d2, t);
-            ops->mul(t, d4, g[1]); ops->sub(d1, d1, t);
-            ops->mul(t, d4, g[0]); ops->sub(d0, d0, t);
+            ops->mul(t, d4, g[2]);
+            ops->sub(d2, d2, t);
+            ops->mul(t, d4, g[1]);
+            ops->sub(d1, d1, t);
+            ops->mul(t, d4, g[0]);
+            ops->sub(d0, d0, t);
             // Reduce x^3: d3 * (-g2*x^2 - g1*x - g0)
-            ops->mul(t, d3, g[2]); ops->sub(d2, d2, t);
-            ops->mul(t, d3, g[1]); ops->sub(d1, d1, t);
-            ops->mul(t, d3, g[0]); ops->sub(d0, d0, t);
+            ops->mul(t, d3, g[2]);
+            ops->sub(d2, d2, t);
+            ops->mul(t, d3, g[1]);
+            ops->sub(d1, d1, t);
+            ops->mul(t, d3, g[0]);
+            ops->sub(d0, d0, t);
 
             ops->copy(xp[0], d0);
             ops->copy(xp[1], d1);
@@ -729,9 +801,12 @@ static int find_root_of_gcd(fe_t root, const fe_t *g, int deg,
                 // f2*x^3 + f1*x^2 + f0*x
                 // = f2*(-g2*x^2 - g1*x - g0) + f1*x^2 + f0*x
                 fe_t n0, n1, n2;
-                ops->mul(n0, xp[2], g[0]); ops->neg(n0, n0);
-                ops->mul(t, xp[2], g[1]); ops->sub(n1, xp[0], t);
-                ops->mul(t, xp[2], g[2]); ops->sub(n2, xp[1], t);
+                ops->mul(n0, xp[2], g[0]);
+                ops->neg(n0, n0);
+                ops->mul(t, xp[2], g[1]);
+                ops->sub(n1, xp[0], t);
+                ops->mul(t, xp[2], g[2]);
+                ops->sub(n2, xp[1], t);
                 ops->copy(xp[0], n0);
                 ops->copy(xp[1], n1);
                 ops->copy(xp[2], n2);
@@ -739,16 +814,21 @@ static int find_root_of_gcd(fe_t root, const fe_t *g, int deg,
         }
 
         // h(x) = x^p - x mod cubic
-        fe_t one_fe; ops->one(one_fe);
+        fe_t one_fe;
+        ops->one(one_fe);
         ops->sub(xp[1], xp[1], one_fe);
 
         // gcd(h, g)
         // h has degree <= 2, g has degree 3
         // Copy both for GCD (it modifies in place)
         fe_t aa[4], bb[3];
-        ops->copy(aa[0], g[0]); ops->copy(aa[1], g[1]); ops->copy(aa[2], g[2]);
+        ops->copy(aa[0], g[0]);
+        ops->copy(aa[1], g[1]);
+        ops->copy(aa[2], g[2]);
         ops->one(aa[3]); // monic
-        ops->copy(bb[0], xp[0]); ops->copy(bb[1], xp[1]); ops->copy(bb[2], xp[2]);
+        ops->copy(bb[0], xp[0]);
+        ops->copy(bb[1], xp[1]);
+        ops->copy(bb[2], xp[2]);
 
         fe_t gg[4];
         int gd = poly_gcd(aa, 3, bb, 2, gg, ops);
@@ -765,8 +845,13 @@ static int find_root_of_gcd(fe_t root, const fe_t *g, int deg,
 
 // Helper: try to extract a root from a degree-1..3 factor via find_root_of_gcd.
 // If the factor has degree 4 (= the quartic itself) or 0, returns 0.
-static int try_extract_root_from_factor(fe_t root, const fe_t *g, int deg,
-    const int *prime_bits, int prime_msb, const FieldOps *ops)
+static int try_extract_root_from_factor(
+    fe_t root,
+    const fe_t *g,
+    int deg,
+    const int *prime_bits,
+    int prime_msb,
+    const FieldOps *ops)
 {
     if (deg >= 1 && deg <= 3)
         return find_root_of_gcd(root, g, deg, prime_bits, prime_msb, ops);
@@ -775,8 +860,7 @@ static int try_extract_root_from_factor(fe_t root, const fe_t *g, int deg,
 
 // Find one root of monic quartic q(x) = x^4 + q[3]*x^3 + q[2]*x^2 + q[1]*x + q[0]
 // Returns 1 if root found, 0 if no roots in GF(p).
-static int find_one_root(fe_t root, const fe_t quartic[4],
-    const FieldOps *ops, const int *prime_bits, int prime_msb)
+static int find_one_root(fe_t root, const fe_t quartic[4], const FieldOps *ops, const int *prime_bits, int prime_msb)
 {
     // Compute h(x) = x^p mod quartic
     fe_t xp[4];
@@ -929,8 +1013,13 @@ static int find_one_root(fe_t root, const fe_t quartic[4],
 // Find all 3 roots of x^3 + ax + b over GF(p).
 // Assumes the cubic splits completely. Uses gcd(x^p - x, cubic) approach.
 // Returns 1 on success, 0 on failure.
-static int find_cubic_roots(fe_t roots[3], const fe_t a, const fe_t b,
-    const int *prime_bits, int prime_msb, const FieldOps *ops)
+static int find_cubic_roots(
+    fe_t roots[3],
+    const fe_t a,
+    const fe_t b,
+    const int *prime_bits,
+    int prime_msb,
+    const FieldOps *ops)
 {
     fe_t neg_a, neg_b;
     ops->neg(neg_a, a);
@@ -1147,7 +1236,8 @@ static int find_cubic_roots(fe_t roots[3], const fe_t a, const fe_t b,
         ops->zero(c_fe);
         for (int k = 0; k < c_val; k++)
         {
-            fe_t one2; ops->one(one2);
+            fe_t one2;
+            ops->one(one2);
             ops->add(c_fe, c_fe, one2);
         }
         ops->add(base[0], base[0], c_fe);
@@ -1164,21 +1254,34 @@ static int find_cubic_roots(fe_t roots[3], const fe_t a, const fe_t b,
             // Square
             {
                 fe_t f0, f1, f2;
-                ops->copy(f0, result[0]); ops->copy(f1, result[1]); ops->copy(f2, result[2]);
+                ops->copy(f0, result[0]);
+                ops->copy(f1, result[1]);
+                ops->copy(f2, result[2]);
                 fe_t d0, d1, d2, d3, d4, t;
                 ops->sq(d0, f0);
-                ops->mul(t, f0, f1); ops->add(d1, t, t);
-                ops->mul(t, f0, f2); ops->add(d2, t, t);
-                fe_t t2; ops->sq(t2, f1); ops->add(d2, d2, t2);
-                ops->mul(t, f1, f2); ops->add(d3, t, t);
+                ops->mul(t, f0, f1);
+                ops->add(d1, t, t);
+                ops->mul(t, f0, f2);
+                ops->add(d2, t, t);
+                fe_t t2;
+                ops->sq(t2, f1);
+                ops->add(d2, d2, t2);
+                ops->mul(t, f1, f2);
+                ops->add(d3, t, t);
                 ops->sq(d4, f2);
                 // Reduce mod cubic: x^3 = -g[2]*x^2 - g[1]*x - g[0]
                 // But our cubic is x^3 + a*x + b (no x^2 term)
-                ops->mul(t, d4, neg_a); ops->add(d2, d2, t);
-                ops->mul(t, d4, neg_b); ops->add(d1, d1, t);
-                ops->mul(t, d3, neg_a); ops->add(d1, d1, t);
-                ops->mul(t, d3, neg_b); ops->add(d0, d0, t);
-                ops->copy(tmp[0], d0); ops->copy(tmp[1], d1); ops->copy(tmp[2], d2);
+                ops->mul(t, d4, neg_a);
+                ops->add(d2, d2, t);
+                ops->mul(t, d4, neg_b);
+                ops->add(d1, d1, t);
+                ops->mul(t, d3, neg_a);
+                ops->add(d1, d1, t);
+                ops->mul(t, d3, neg_b);
+                ops->add(d0, d0, t);
+                ops->copy(tmp[0], d0);
+                ops->copy(tmp[1], d1);
+                ops->copy(tmp[2], d2);
             }
             ops->copy(result[0], tmp[0]);
             ops->copy(result[1], tmp[1]);
@@ -1188,21 +1291,34 @@ static int find_cubic_roots(fe_t roots[3], const fe_t a, const fe_t b,
             {
                 // Multiply by base
                 fe_t f[3];
-                ops->copy(f[0], result[0]); ops->copy(f[1], result[1]); ops->copy(f[2], result[2]);
+                ops->copy(f[0], result[0]);
+                ops->copy(f[1], result[1]);
+                ops->copy(f[2], result[2]);
                 // schoolbook f * base mod cubic
                 fe_t d0, d1, d2, d3, d4, t;
                 ops->mul(d0, f[0], base[0]);
-                ops->mul(t, f[0], base[1]); ops->mul(d1, f[1], base[0]); ops->add(d1, d1, t);
-                ops->mul(t, f[0], base[2]); fe_t t2; ops->mul(t2, f[1], base[1]);
-                ops->add(d2, t, t2); ops->mul(t, f[2], base[0]); ops->add(d2, d2, t);
-                ops->mul(t, f[1], base[2]); ops->mul(t2, f[2], base[1]);
+                ops->mul(t, f[0], base[1]);
+                ops->mul(d1, f[1], base[0]);
+                ops->add(d1, d1, t);
+                ops->mul(t, f[0], base[2]);
+                fe_t t2;
+                ops->mul(t2, f[1], base[1]);
+                ops->add(d2, t, t2);
+                ops->mul(t, f[2], base[0]);
+                ops->add(d2, d2, t);
+                ops->mul(t, f[1], base[2]);
+                ops->mul(t2, f[2], base[1]);
                 ops->add(d3, t, t2);
                 ops->mul(d4, f[2], base[2]);
                 // reduce
-                ops->mul(t, d4, neg_a); ops->add(d2, d2, t);
-                ops->mul(t, d4, neg_b); ops->add(d1, d1, t);
-                ops->mul(t, d3, neg_a); ops->add(d1, d1, t);
-                ops->mul(t, d3, neg_b); ops->add(d0, d0, t);
+                ops->mul(t, d4, neg_a);
+                ops->add(d2, d2, t);
+                ops->mul(t, d4, neg_b);
+                ops->add(d1, d1, t);
+                ops->mul(t, d3, neg_a);
+                ops->add(d1, d1, t);
+                ops->mul(t, d3, neg_b);
+                ops->add(d0, d0, t);
                 ops->copy(result[0], d0);
                 ops->copy(result[1], d1);
                 ops->copy(result[2], d2);
@@ -1298,7 +1414,8 @@ static void hex_string(char *out, size_t out_size, const unsigned char *bytes, i
     for (int i = len - 1; i >= 0; i--)
     {
         int n = snprintf(out + pos, out_size - pos, "%02x", bytes[i]);
-        if (n > 0) pos += (size_t)n;
+        if (n > 0)
+            pos += (size_t)n;
     }
 }
 
@@ -1332,9 +1449,16 @@ static void hex_string(char *out, size_t out_size, const unsigned char *bytes, i
 
 // Compute the halving chain length for 2-torsion point (e_i, 0) on E: y^2 = x^3 + Ax + B.
 // Returns the number of successful halvings (0 means not halvable at level 2->3).
-static int halving_chain(const fe_t e_i, const fe_t e_j, const fe_t e_k,
-    const fe_t A, const fe_t B,
-    const FieldOps *ops, const int *prime_bits, int prime_msb, int max_depth)
+static int halving_chain(
+    const fe_t e_i,
+    const fe_t e_j,
+    const fe_t e_k,
+    const fe_t A,
+    const fe_t B,
+    const FieldOps *ops,
+    const int *prime_bits,
+    int prime_msb,
+    int max_depth)
 {
     // Level 2->3: D_i = (e_i - e_j)(e_i - e_k); halvable iff D_i is QR
     fe_t diff_j, diff_k, D_i, sqrt_D;
@@ -1479,25 +1603,29 @@ static int halving_chain(const fe_t e_i, const fe_t e_j, const fe_t e_k,
 //
 // Returns v2(#E). Also sets *levels_out = max(chains) + 1 = the ECFFT domain
 // exponent (the larger cyclic factor of the 2-Sylow subgroup).
-static int compute_v2(const fe_t A, const fe_t B, const fe_t roots[3],
-    const FieldOps *ops, const int *prime_bits, int prime_msb,
+static int compute_v2(
+    const fe_t A,
+    const fe_t B,
+    const fe_t roots[3],
+    const FieldOps *ops,
+    const int *prime_bits,
+    int prime_msb,
     int *levels_out)
 {
     int chains[3];
     int max_depth = 30; // way more than we'll ever see
 
-    chains[0] = halving_chain(roots[0], roots[1], roots[2],
-        A, B, ops, prime_bits, prime_msb, max_depth);
-    chains[1] = halving_chain(roots[1], roots[0], roots[2],
-        A, B, ops, prime_bits, prime_msb, max_depth);
-    chains[2] = halving_chain(roots[2], roots[0], roots[1],
-        A, B, ops, prime_bits, prime_msb, max_depth);
+    chains[0] = halving_chain(roots[0], roots[1], roots[2], A, B, ops, prime_bits, prime_msb, max_depth);
+    chains[1] = halving_chain(roots[1], roots[0], roots[2], A, B, ops, prime_bits, prime_msb, max_depth);
+    chains[2] = halving_chain(roots[2], roots[0], roots[1], A, B, ops, prime_bits, prime_msb, max_depth);
 
     int mn = chains[0], mx = chains[0];
     for (int i = 1; i < 3; i++)
     {
-        if (chains[i] < mn) mn = chains[i];
-        if (chains[i] > mx) mx = chains[i];
+        if (chains[i] < mn)
+            mn = chains[i];
+        if (chains[i] > mx)
+            mx = chains[i];
     }
 
     if (levels_out)
@@ -1533,14 +1661,28 @@ static void get_q_bytes(unsigned char q_bytes[32])
             uint16_t sum = (uint16_t)gamma[6 + i] + (uint16_t)((unsigned char)(lo >> (8 * i)));
             gamma[6 + i] = (unsigned char)sum;
             int j = 7 + i;
-            while (sum > 255 && j < 32) { sum = (uint16_t)gamma[j] + (uint16_t)(sum >> 8); gamma[j] = (unsigned char)sum; j++; if (sum <= 255) break; }
+            while (sum > 255 && j < 32)
+            {
+                sum = (uint16_t)gamma[j] + (uint16_t)(sum >> 8);
+                gamma[j] = (unsigned char)sum;
+                j++;
+                if (sum <= 255)
+                    break;
+            }
         }
         for (int i = 0; i < 8 && (14 + i) < 32; i++)
         {
             uint16_t sum = (uint16_t)gamma[14 + i] + (uint16_t)((unsigned char)(hi >> (8 * i)));
             gamma[14 + i] = (unsigned char)sum;
             int j = 15 + i;
-            while (sum > 255 && j < 32) { sum = (uint16_t)gamma[j] + (uint16_t)(sum >> 8); gamma[j] = (unsigned char)sum; j++; if (sum <= 255) break; }
+            while (sum > 255 && j < 32)
+            {
+                sum = (uint16_t)gamma[j] + (uint16_t)(sum >> 8);
+                gamma[j] = (unsigned char)sum;
+                j++;
+                if (sum <= 255)
+                    break;
+            }
         }
     }
     {
@@ -1551,14 +1693,28 @@ static void get_q_bytes(unsigned char q_bytes[32])
             uint16_t sum = (uint16_t)gamma[12 + i] + (uint16_t)((unsigned char)(lo >> (8 * i)));
             gamma[12 + i] = (unsigned char)sum;
             int j = 13 + i;
-            while (sum > 255 && j < 32) { sum = (uint16_t)gamma[j] + (uint16_t)(sum >> 8); gamma[j] = (unsigned char)sum; j++; if (sum <= 255) break; }
+            while (sum > 255 && j < 32)
+            {
+                sum = (uint16_t)gamma[j] + (uint16_t)(sum >> 8);
+                gamma[j] = (unsigned char)sum;
+                j++;
+                if (sum <= 255)
+                    break;
+            }
         }
         for (int i = 0; i < 8 && (20 + i) < 32; i++)
         {
             uint16_t sum = (uint16_t)gamma[20 + i] + (uint16_t)((unsigned char)(hi >> (8 * i)));
             gamma[20 + i] = (unsigned char)sum;
             int j = 21 + i;
-            while (sum > 255 && j < 32) { sum = (uint16_t)gamma[j] + (uint16_t)(sum >> 8); gamma[j] = (unsigned char)sum; j++; if (sum <= 255) break; }
+            while (sum > 255 && j < 32)
+            {
+                sum = (uint16_t)gamma[j] + (uint16_t)(sum >> 8);
+                gamma[j] = (unsigned char)sum;
+                j++;
+                if (sum <= 255)
+                    break;
+            }
         }
     }
 
@@ -1567,8 +1723,15 @@ static void get_q_bytes(unsigned char q_bytes[32])
     {
         int top_byte = (i == 31) ? 0x80 : 0;
         int diff = top_byte - gamma[i] - borrow;
-        if (diff < 0) { diff += 256; borrow = 1; }
-        else { borrow = 0; }
+        if (diff < 0)
+        {
+            diff += 256;
+            borrow = 1;
+        }
+        else
+        {
+            borrow = 0;
+        }
         q_bytes[i] = (unsigned char)diff;
     }
 }
@@ -1586,8 +1749,7 @@ static void get_p_bytes(unsigned char p_bytes[32])
 // Status thread
 // ============================================================================
 
-static void status_thread_fn(int total_trials, int num_threads,
-    std::chrono::steady_clock::time_point start_time)
+static void status_thread_fn(int total_trials, int num_threads, std::chrono::steady_clock::time_point start_time)
 {
     while (!g_stop.load(std::memory_order_relaxed))
     {
@@ -1604,8 +1766,16 @@ static void status_thread_fn(int total_trials, int num_threads,
         double pct = (total_trials > 0) ? 100.0 * done / total_trials : 0.0;
 
         std::lock_guard<std::mutex> lock(g_print_mutex);
-        fprintf(stderr, "  [%5.1f%%] %d / %d trials, %d hits, best levels=%d, %.0f curves/sec (%d threads)\n",
-            pct, done, total_trials, found, best, rate, num_threads);
+        fprintf(
+            stderr,
+            "  [%5.1f%%] %d / %d trials, %d hits, best levels=%d, %.0f curves/sec (%d threads)\n",
+            pct,
+            done,
+            total_trials,
+            found,
+            best,
+            rate,
+            num_threads);
     }
 }
 
@@ -1615,23 +1785,35 @@ static void status_thread_fn(int total_trials, int num_threads,
 
 static void fe_from_int(fe_t out, int val, const FieldOps *ops)
 {
-    if (val == 0) { ops->zero(out); return; }
+    if (val == 0)
+    {
+        ops->zero(out);
+        return;
+    }
     fe_t one_fe;
     ops->one(one_fe);
     ops->zero(out);
     int abs_val = val < 0 ? -val : val;
     for (int i = 0; i < abs_val; i++)
         ops->add(out, out, one_fe);
-    if (val < 0) ops->neg(out, out);
+    if (val < 0)
+        ops->neg(out, out);
 }
 
 // ============================================================================
 // Generic worker
 // ============================================================================
 
-static void worker(int thread_id, int trials_start, int trials_count,
-    const int *field_bits, int field_msb, int min_levels,
-    const FieldOps *ops, const char *field_name, int a_int)
+static void worker(
+    int thread_id,
+    int trials_start,
+    int trials_count,
+    const int *field_bits,
+    int field_msb,
+    int min_levels,
+    const FieldOps *ops,
+    const char *field_name,
+    int a_int)
 {
     Prng rng;
     rng.seed((uint64_t)thread_id * 0x9E3779B97F4A7C15ULL + (uint64_t)trials_start);
@@ -1711,8 +1893,15 @@ static void worker(int thread_id, int trials_start, int trials_count,
 
                     std::lock_guard<std::mutex> lock(g_print_mutex);
                     g_candidates.push_back(c);
-                    fprintf(stderr, "  *** HIT: field=%s a=%d b=0x%s levels=%d (v2=%d, domain=%d) ***\n",
-                        field_name, a_int, b_hex, levels, v2, 1 << levels);
+                    fprintf(
+                        stderr,
+                        "  *** HIT: field=%s a=%d b=0x%s levels=%d (v2=%d, domain=%d) ***\n",
+                        field_name,
+                        a_int,
+                        b_hex,
+                        levels,
+                        v2,
+                        1 << levels);
                 }
             }
         }
@@ -1725,8 +1914,7 @@ static void worker(int thread_id, int trials_start, int trials_count,
 // Search
 // ============================================================================
 
-static int search_field(const char *field, int max_trials, int min_levels,
-    int num_threads, int a_int)
+static int search_field(const char *field, int max_trials, int min_levels, int num_threads, int a_int)
 {
     unsigned char field_bytes[32];
     int bits[255];
@@ -1756,8 +1944,13 @@ static int search_field(const char *field, int max_trials, int min_levels,
     while (msb > 0 && bits[msb] == 0)
         msb--;
 
-    fprintf(stderr, "Trials: %d, min levels: %d (domain >= %d), threads: %d\n",
-        max_trials, min_levels, 1 << min_levels, num_threads);
+    fprintf(
+        stderr,
+        "Trials: %d, min levels: %d (domain >= %d), threads: %d\n",
+        max_trials,
+        min_levels,
+        1 << min_levels,
+        num_threads);
     fprintf(stderr, "2-descent halving chains for native computation.\n\n");
 
     g_trials_done.store(0);
@@ -1793,10 +1986,15 @@ static int search_field(const char *field, int max_trials, int min_levels,
     int done = g_trials_done.load();
     int found = (int)g_candidates.size();
 
-    fprintf(stderr, "\nDone: %d hits (levels >= %d) from %d trials in %.1f sec (%.0f curves/sec)\n",
-        found, min_levels, done, elapsed, done / elapsed);
-    fprintf(stderr, "Best levels: %d (domain %d)\n",
-        g_best_levels.load(), 1 << g_best_levels.load());
+    fprintf(
+        stderr,
+        "\nDone: %d hits (levels >= %d) from %d trials in %.1f sec (%.0f curves/sec)\n",
+        found,
+        min_levels,
+        done,
+        elapsed,
+        done / elapsed);
+    fprintf(stderr, "Best levels: %d (domain %d)\n", g_best_levels.load(), 1 << g_best_levels.load());
 
     return found;
 }
@@ -1859,12 +2057,14 @@ int main(int argc, char **argv)
             if (strcmp(argv[i], "auto") == 0)
             {
                 num_threads = (int)std::thread::hardware_concurrency();
-                if (num_threads < 1) num_threads = 1;
+                if (num_threads < 1)
+                    num_threads = 1;
             }
             else
             {
                 num_threads = atoi(argv[i]);
-                if (num_threads < 1) num_threads = 1;
+                if (num_threads < 1)
+                    num_threads = 1;
             }
         }
         else if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0)
@@ -1896,8 +2096,13 @@ int main(int argc, char **argv)
     {
         char b_hex[65];
         hex_string(b_hex, sizeof(b_hex), g_candidates[i].b, 32);
-        printf("field=%s a=%d b=0x%s levels=%d v2=%d domain=%d\n",
-            field, a_int, b_hex, g_candidates[i].levels, g_candidates[i].v2,
+        printf(
+            "field=%s a=%d b=0x%s levels=%d v2=%d domain=%d\n",
+            field,
+            a_int,
+            b_hex,
+            g_candidates[i].levels,
+            g_candidates[i].v2,
             1 << g_candidates[i].levels);
     }
 

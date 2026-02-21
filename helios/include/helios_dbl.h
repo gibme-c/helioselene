@@ -24,6 +24,11 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+/**
+ * @file helios_dbl.h
+ * @brief Helios Jacobian point doubling with the a = -3 optimization (3M + 5S instead of 4M + 4S).
+ */
+
 #ifndef HELIOSELENE_HELIOS_DBL_H
 #define HELIOSELENE_HELIOS_DBL_H
 

@@ -24,6 +24,11 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+/**
+ * @file selene_scalar.h
+ * @brief Selene scalar operations: arithmetic mod p (the Selene group order / Helios base field prime, p = 2^255-19).
+ */
+
 #ifndef HELIOSELENE_SELENE_SCALAR_H
 #define HELIOSELENE_SELENE_SCALAR_H
 
@@ -99,6 +104,11 @@ static inline void selene_scalar_zero(fp_fe out)
  *   out = lo + hi * 2^256 (mod p)
  *
  * Since p = 2^255 - 19, we have 2^256 mod p = 2*19 = 38.
+ *
+ * Note: fp_frombytes strips bit 255 (used for y-parity in point encoding).
+ * For wide reduction, bit 255 of each half carries value, so we add back:
+ *   lo_bit255 * (2^255 mod p) = lo_bit255 * 19
+ *   hi_bit255 * (2^511 mod p) = hi_bit255 * 19 * 38 = hi_bit255 * 722
  */
 static inline void selene_scalar_reduce_wide(fp_fe out, const unsigned char wide[64])
 {
@@ -114,6 +124,19 @@ static inline void selene_scalar_reduce_wide(fp_fe out, const unsigned char wide
 
     fp_mul(hi_shifted, hi, TWO_TO_256_MOD_P);
     fp_add(out, lo, hi_shifted);
+
+    /* Correct for bit 255 stripped by fp_frombytes from each half. */
+    int lo_b = (wide[31] >> 7) & 1;
+    int hi_b = (wide[63] >> 7) & 1;
+    int corr = lo_b * 19 + hi_b * 722;
+
+    if (corr)
+    {
+        fp_fe correction;
+        fp_0(correction);
+        correction[0] = corr;
+        fp_add(out, out, correction);
+    }
 }
 
 /*

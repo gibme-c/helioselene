@@ -24,6 +24,11 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+/**
+ * @file helios_to_scalar.h
+ * @brief Convert a Helios point's x-coordinate to a Selene scalar (via the cycle property).
+ */
+
 #ifndef HELIOSELENE_HELIOS_TO_SCALAR_H
 #define HELIOSELENE_HELIOS_TO_SCALAR_H
 

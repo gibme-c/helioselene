@@ -24,6 +24,14 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+/**
+ * @file fq_ops.h
+ * @brief Basic F_q arithmetic: add, sub, neg, copy, zero, one, conditional operations.
+ *
+ * F_q uses 8q bias for subtraction (not 4q like F_p) because gamma ~ 2^126
+ * makes lower limbs much smaller than 2^51.
+ */
+
 #ifndef HELIOSELENE_FQ_OPS_H
 #define HELIOSELENE_FQ_OPS_H
 

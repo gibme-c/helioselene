@@ -24,6 +24,13 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+/**
+ * @file selene_frombytes.h
+ * @brief Compressed point deserialization for Selene with on-curve validation.
+ *
+ * Rejects off-curve points (weak twist security is ~99 bits for Selene).
+ */
+
 #ifndef HELIOSELENE_SELENE_FROMBYTES_H
 #define HELIOSELENE_SELENE_FROMBYTES_H
 

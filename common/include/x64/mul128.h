@@ -24,6 +24,15 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+/**
+ * @file mul128.h
+ * @brief Portable 64x64->128-bit multiplication abstraction.
+ *
+ * On GCC/Clang: uses native __int128. On MSVC x64: uses _umul128 intrinsic with an
+ * emulated 128-bit struct providing operator+ and shift helpers for use in schoolbook
+ * multiplication accumulators.
+ */
+
 #ifndef HELIOSELENE_X64_MUL128_H
 #define HELIOSELENE_X64_MUL128_H
 

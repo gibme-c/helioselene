@@ -81,13 +81,8 @@ static inline void selene_scalar_recode_signed5(int8_t digits[52], const unsigne
             word |= ((unsigned int)scalar[byte_idx + 1]) << 8;
 
         int val = (int)((word >> bit_pos) & 0x1fu) + carry;
-        carry = 0;
-        if (val > 16)
-        {
-            val -= 32;
-            carry = 1;
-        }
-        digits[i] = (int8_t)val;
+        carry = (val + 16) >> 5;
+        digits[i] = (int8_t)(val - (carry << 5));
     }
     /* Last window: bit 255 (1 bit) */
     digits[51] = (int8_t)(((scalar[31] >> 7) & 1) + carry);

@@ -24,6 +24,11 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+/**
+ * @file helios_msm_vartime.h
+ * @brief x64 backend for Helios variable-time multi-scalar multiplication.
+ */
+
 #ifndef HELIOSELENE_X64_HELIOS_MSM_VARTIME_H
 #define HELIOSELENE_X64_HELIOS_MSM_VARTIME_H
 

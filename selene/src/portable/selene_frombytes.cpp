@@ -90,11 +90,11 @@ int selene_frombytes_portable(selene_jacobian *r, const unsigned char s[32])
     unsigned char x_check[32];
     fq_tobytes(x_check, x);
 
+    unsigned char x_diff = 0;
     for (int i = 0; i < 32; i++)
-    {
-        if (x_check[i] != x_bytes[i])
-            return -1;
-    }
+        x_diff |= x_check[i] ^ x_bytes[i];
+    if (x_diff != 0)
+        return -1;
 
     /* Load SELENE_B from limbs */
     fq_fe selene_b;

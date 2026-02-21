@@ -24,6 +24,11 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+/**
+ * @file fq51_inline.h
+ * @brief x64 (radix-2^51) implementation of F_q inline arithmetic helpers with Crandall reduction.
+ */
+
 #ifndef HELIOSELENE_X64_FQ51_INLINE_H
 #define HELIOSELENE_X64_FQ51_INLINE_H
 

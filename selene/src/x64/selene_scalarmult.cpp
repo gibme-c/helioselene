@@ -55,13 +55,8 @@ static void scalar_recode_signed4(int8_t digits[64], const unsigned char scalar[
     for (int i = 0; i < 63; i++)
     {
         int val = nibbles[i] + carry;
-        carry = 0;
-        if (val > 8)
-        {
-            val -= 16;
-            carry = 1;
-        }
-        digits[i] = (int8_t)val;
+        carry = (val + 8) >> 4;
+        digits[i] = (int8_t)(val - (carry << 4));
     }
     digits[63] = (int8_t)(nibbles[63] + carry);
 }
@@ -105,6 +100,7 @@ static void batch_to_affine(selene_affine *out, const selene_jacobian *in, int n
         fq_mul(out[0].y, in[0].Y, z_inv3);
     }
 
+    helioselene_secure_erase(&inv, sizeof(inv));
     helioselene_secure_erase(z_vals, n * sizeof(fq_fe));
     helioselene_secure_erase(products, n * sizeof(fq_fe));
     delete[] z_vals;

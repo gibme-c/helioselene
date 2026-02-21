@@ -87,7 +87,10 @@ static inline void fq51x4_store_soa(fq_evals *ev, size_t i, const fq51x4 *in)
 
 /* ---- Fp 4-way arithmetic (radix-2^51, p = 2^255 - 19) ---- */
 
-static inline __m256i mask51(void) { return _mm256_set1_epi64x(0x7ffffffffffffLL); }
+static inline __m256i mask51(void)
+{
+    return _mm256_set1_epi64x(0x7ffffffffffffLL);
+}
 
 /* Lazy add: no carry */
 static inline void fp51x4_add(fp51x4 *h, const fp51x4 *f, const fp51x4 *g)

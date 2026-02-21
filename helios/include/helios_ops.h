@@ -24,6 +24,11 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+/**
+ * @file helios_ops.h
+ * @brief Core Helios point operations: identity, copy, negate, is_identity, affine conversion.
+ */
+
 #ifndef HELIOSELENE_HELIOS_OPS_H
 #define HELIOSELENE_HELIOS_OPS_H
 
@@ -34,6 +39,7 @@
 #include "fp_sq.h"
 #include "fp_utils.h"
 #include "helios.h"
+#include "helioselene_secure_erase.h"
 
 /* Set r to the identity (point at infinity): (1:1:0) */
 static inline void helios_identity(helios_jacobian *r)
@@ -86,6 +92,7 @@ static inline void helios_cneg(helios_jacobian *r, unsigned int b)
     fp_fe neg_y;
     fp_neg(neg_y, r->Y);
     fp_cmov(r->Y, neg_y, b);
+    helioselene_secure_erase(neg_y, sizeof(neg_y));
 }
 
 /* Constant-time conditional negate for affine: if b, negate y in place */
@@ -94,6 +101,7 @@ static inline void helios_affine_cneg(helios_affine *r, unsigned int b)
     fp_fe neg_y;
     fp_neg(neg_y, r->y);
     fp_cmov(r->y, neg_y, b);
+    helioselene_secure_erase(neg_y, sizeof(neg_y));
 }
 
 /* Convert Jacobian to affine: x = X/Z^2, y = Y/Z^3 */

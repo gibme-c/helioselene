@@ -24,6 +24,11 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+/**
+ * @file helios_constants.h
+ * @brief Curve constants for Helios: generator (Gx, Gy), curve parameter b, and helper constants.
+ */
+
 #ifndef HELIOSELENE_HELIOS_CONSTANTS_H
 #define HELIOSELENE_HELIOS_CONSTANTS_H
 

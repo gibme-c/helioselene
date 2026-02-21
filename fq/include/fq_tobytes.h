@@ -24,6 +24,11 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+/**
+ * @file fq_tobytes.h
+ * @brief Serialize an fq_fe field element to 32-byte canonical little-endian form.
+ */
+
 #ifndef HELIOSELENE_FQ_TOBYTES_H
 #define HELIOSELENE_FQ_TOBYTES_H
 

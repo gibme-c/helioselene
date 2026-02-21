@@ -24,6 +24,15 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+/**
+ * @file ct_barrier.h
+ * @brief Constant-time barriers to prevent compiler optimization of secret-dependent operations.
+ *
+ * On GCC/Clang, uses inline asm to make the value opaque to the optimizer.
+ * On MSVC, uses a volatile round-trip. Both prevent the compiler from deducing
+ * that a conditional move or XOR-blend can be replaced by a branch.
+ */
+
 #ifndef HELIOSELENE_CT_BARRIER_H
 #define HELIOSELENE_CT_BARRIER_H
 

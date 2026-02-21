@@ -24,6 +24,11 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+/**
+ * @file fp_frombytes.h
+ * @brief x64 (radix-2^51) implementation of F_p deserialization.
+ */
+
 #ifndef HELIOSELENE_X64_FP_FROMBYTES_H
 #define HELIOSELENE_X64_FP_FROMBYTES_H
 #include "fp.h"

@@ -24,6 +24,11 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+/**
+ * @file selene_constants.h
+ * @brief Curve constants for Selene: generator (Gx, Gy), curve parameter b, and helper constants.
+ */
+
 #ifndef HELIOSELENE_SELENE_CONSTANTS_H
 #define HELIOSELENE_SELENE_CONSTANTS_H
 

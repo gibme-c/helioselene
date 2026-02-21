@@ -31,7 +31,8 @@
  * Groups:
  *   1. Node benchmarks (tree construction): Pedersen hash via MSM + to_affine
  *   2. Wallet benchmarks (proof construction): scalar_mul_divisor pipeline + multiexp
- *   3. Composite scores: weighted real-world timing estimates
+ *   3. Verification benchmarks (batch multiexp)
+ *   4. Composite scores: weighted real-world timing estimates
  */
 
 #include "helioselene.h"
@@ -344,6 +345,100 @@ int main(int argc, char *argv[])
         50);
 
     /* ================================================================
+     * Group 3: Verification Benchmarks (Batch Multiexp)
+     *
+     * FCMP++ verification = selene_msm(522 + 80*batch) + helios_msm(265 + 80*batch)
+     * Fixed generators: Selene 522 (g,h,g_bold[256],h_bold[256],h_sum[8])
+     *                   Helios 265 (g,h,g_bold[128],h_bold[128],h_sum[7])
+     * Per-proof additional: ~80 points per curve
+     * ================================================================ */
+
+    std::cout << std::endl;
+    std::cout << "=== FCMP++ Verification (Batch Multiexp) ===" << std::endl;
+    std::cout << std::endl;
+    benchmark_header();
+
+    constexpr size_t FCMPP_SELENE_FIXED = 522;
+    constexpr size_t FCMPP_HELIOS_FIXED = 265;
+    constexpr size_t FCMPP_PER_PROOF = 80;
+
+    auto verify_iters = [](size_t n) -> size_t
+    {
+        if (n >= 1000)
+            return 1000;
+        if (n >= 600)
+            return 2000;
+        return 5000;
+    };
+
+    auto verify_warmup = [](size_t n) -> size_t
+    {
+        if (n >= 1000)
+            return 50;
+        if (n >= 600)
+            return 100;
+        return 200;
+    };
+
+    constexpr size_t verify_batches[] = {1, 2, 4, 10};
+
+    for (const auto batch : verify_batches)
+    {
+        const size_t s_n = FCMPP_SELENE_FIXED + FCMPP_PER_PROOF * batch;
+        const size_t h_n = FCMPP_HELIOS_FIXED + FCMPP_PER_PROOF * batch;
+
+        std::vector<selene_jacobian> s_verify_pts;
+        generate_selene_points(s_verify_pts, s_n);
+        std::vector<unsigned char> s_verify_sc;
+        generate_scalars(s_verify_sc, s_n);
+
+        std::vector<helios_jacobian> h_verify_pts;
+        generate_helios_points(h_verify_pts, h_n);
+        std::vector<unsigned char> h_verify_sc;
+        generate_scalars(h_verify_sc, h_n);
+
+        char label[64];
+
+        /* Selene MSM */
+        std::snprintf(label, sizeof(label), "selene_verify batch=%zu n=%zu", batch, s_n);
+        benchmark(
+            [&]()
+            {
+                selene_msm_vartime(&s_msm_result, s_verify_sc.data(), s_verify_pts.data(), s_n);
+                benchmark_do_not_optimize(s_msm_result);
+            },
+            label,
+            verify_iters(s_n),
+            verify_warmup(s_n));
+
+        /* Helios MSM */
+        std::snprintf(label, sizeof(label), "helios_verify batch=%zu n=%zu", batch, h_n);
+        benchmark(
+            [&]()
+            {
+                helios_msm_vartime(&h_msm_result, h_verify_sc.data(), h_verify_pts.data(), h_n);
+                benchmark_do_not_optimize(h_msm_result);
+            },
+            label,
+            verify_iters(h_n),
+            verify_warmup(h_n));
+
+        /* Combined verify */
+        std::snprintf(label, sizeof(label), "fcmpp_verify batch=%zu (%zu+%zu)", batch, s_n, h_n);
+        benchmark(
+            [&]()
+            {
+                selene_msm_vartime(&s_msm_result, s_verify_sc.data(), s_verify_pts.data(), s_n);
+                helios_msm_vartime(&h_msm_result, h_verify_sc.data(), h_verify_pts.data(), h_n);
+                benchmark_do_not_optimize(s_msm_result);
+                benchmark_do_not_optimize(h_msm_result);
+            },
+            label,
+            verify_iters(s_n + h_n),
+            verify_warmup(s_n + h_n));
+    }
+
+    /* ================================================================
      * Group 4: Composite Scores
      *
      * Capture per-call averages and compute weighted real-world scores.
@@ -411,16 +506,61 @@ int main(int argc, char *argv[])
         },
         COMPOSITE_MSM_ITERS);
 
+    /* Verification timings */
+    constexpr size_t COMPOSITE_VERIFY_ITERS = 50;
+
+    const size_t verify1_s_n = FCMPP_SELENE_FIXED + FCMPP_PER_PROOF * 1;
+    const size_t verify1_h_n = FCMPP_HELIOS_FIXED + FCMPP_PER_PROOF * 1;
+    std::vector<selene_jacobian> s_v1_pts;
+    generate_selene_points(s_v1_pts, verify1_s_n);
+    std::vector<unsigned char> s_v1_sc;
+    generate_scalars(s_v1_sc, verify1_s_n);
+    std::vector<helios_jacobian> h_v1_pts;
+    generate_helios_points(h_v1_pts, verify1_h_n);
+    std::vector<unsigned char> h_v1_sc;
+    generate_scalars(h_v1_sc, verify1_h_n);
+
+    const double verify1_us = time_average_us(
+        [&]()
+        {
+            selene_msm_vartime(&s_msm_result, s_v1_sc.data(), s_v1_pts.data(), verify1_s_n);
+            helios_msm_vartime(&h_msm_result, h_v1_sc.data(), h_v1_pts.data(), verify1_h_n);
+            benchmark_do_not_optimize(s_msm_result);
+            benchmark_do_not_optimize(h_msm_result);
+        },
+        COMPOSITE_VERIFY_ITERS);
+
+    const size_t verify10_s_n = FCMPP_SELENE_FIXED + FCMPP_PER_PROOF * 10;
+    const size_t verify10_h_n = FCMPP_HELIOS_FIXED + FCMPP_PER_PROOF * 10;
+    std::vector<selene_jacobian> s_v10_pts;
+    generate_selene_points(s_v10_pts, verify10_s_n);
+    std::vector<unsigned char> s_v10_sc;
+    generate_scalars(s_v10_sc, verify10_s_n);
+    std::vector<helios_jacobian> h_v10_pts;
+    generate_helios_points(h_v10_pts, verify10_h_n);
+    std::vector<unsigned char> h_v10_sc;
+    generate_scalars(h_v10_sc, verify10_h_n);
+
+    const double verify10_us = time_average_us(
+        [&]()
+        {
+            selene_msm_vartime(&s_msm_result, s_v10_sc.data(), s_v10_pts.data(), verify10_s_n);
+            helios_msm_vartime(&h_msm_result, h_v10_sc.data(), h_v10_pts.data(), verify10_h_n);
+            benchmark_do_not_optimize(s_msm_result);
+            benchmark_do_not_optimize(h_msm_result);
+        },
+        COMPOSITE_VERIFY_ITERS);
+
     /* Node (100M outputs):
      *   2,631,579 × selene_tree_hash(228) + 146,199 × helios_tree_hash(18) */
     const double node_us = 2631579.0 * selene_tree_228_us + 146199.0 * helios_tree_18_us;
     const double node_s = node_us / 1e6;
 
     /* Wallet (1-input tx):
-     *   9 × selene_scalar_mul_divisor(253) + 3 × helios_scalar_mul_divisor(253)
+     *   4 × selene_scalar_mul_divisor(253) + 8 × helios_scalar_mul_divisor(253)
      *   + 1 × selene_multiexp(256) + 1 × helios_multiexp(128) */
     const double wallet_us =
-        9.0 * selene_div_us + 3.0 * helios_div_us + selene_multiexp_256_us + helios_multiexp_128_us;
+        4.0 * selene_div_us + 8.0 * helios_div_us + selene_multiexp_256_us + helios_multiexp_128_us;
     const double wallet_s = wallet_us / 1e6;
 
     /* Wallet + Privacy = wallet + node */
@@ -446,10 +586,17 @@ int main(int argc, char *argv[])
               << std::endl;
 
     std::cout << std::endl;
+    std::cout << std::fixed << std::setprecision(1);
+    std::cout << std::setw(LABEL_W) << "Verify (batch=1):" << std::setw(VALUE_W) << (verify1_us / 1000.0) << " ms"
+              << std::endl;
+    std::cout << std::setw(LABEL_W) << "Verify (batch=10):" << std::setw(VALUE_W) << (verify10_us / 1000.0) << " ms"
+              << std::endl;
+
+    std::cout << std::endl;
     std::cout << std::fixed << std::setprecision(2);
     std::cout << std::setw(LABEL_W) << "Node (100M outputs):" << std::setw(VALUE_W) << node_s << " seconds"
               << std::endl;
-    std::cout << std::setw(LABEL_W) << "Wallet (1-input tx):" << std::setw(VALUE_W) << wallet_s << " seconds"
+    std::cout << std::setw(LABEL_W) << "Wallet (1-input tx):" << std::setw(VALUE_W) << (wallet_us / 1000.0) << " ms"
               << std::endl;
     std::cout << std::setw(LABEL_W) << "Wallet + Privacy:" << std::setw(VALUE_W) << wallet_privacy_s << " seconds"
               << std::endl;

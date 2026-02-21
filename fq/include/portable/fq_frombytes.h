@@ -24,6 +24,11 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+/**
+ * @file fq_frombytes.h
+ * @brief Portable (32-bit, radix-2^25.5) implementation of F_q deserialization with Crandall reduction.
+ */
+
 #ifndef HELIOSELENE_PORTABLE_FQ_FROMBYTES_H
 #define HELIOSELENE_PORTABLE_FQ_FROMBYTES_H
 #include "fq.h"

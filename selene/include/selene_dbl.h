@@ -24,6 +24,11 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+/**
+ * @file selene_dbl.h
+ * @brief Selene Jacobian point doubling with the a = -3 optimization (3M + 5S).
+ */
+
 #ifndef HELIOSELENE_SELENE_DBL_H
 #define HELIOSELENE_SELENE_DBL_H
 

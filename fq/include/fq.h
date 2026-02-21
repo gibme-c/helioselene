@@ -24,6 +24,15 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+/**
+ * @file fq.h
+ * @brief Field element type for F_q where q = 2^255 - gamma (Crandall prime, gamma ~ 2^126).
+ *
+ * On 64-bit platforms: fq_fe is uint64_t[5] in radix-2^51 representation.
+ * On 32-bit platforms: fq_fe is int32_t[10] in radix-2^25.5 (alternating 26/25-bit limbs).
+ * Same layout as fp_fe, but reduction uses Crandall folding instead of the 2^255-19 shortcut.
+ */
+
 #ifndef HELIOSELENE_FQ_H
 #define HELIOSELENE_FQ_H
 

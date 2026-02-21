@@ -24,6 +24,12 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+/**
+ * @file divisor_eval.h
+ * @brief Optimized divisor evaluation using structure-of-arrays (SoA) layout
+ *        for batch point evaluation.
+ */
+
 #ifndef HELIOSELENE_DIVISOR_EVAL_H
 #define HELIOSELENE_DIVISOR_EVAL_H
 

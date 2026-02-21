@@ -24,6 +24,15 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+/**
+ * @file helioselene_benchmark.h
+ * @brief Micro-benchmarking framework with adaptive batching and progress display.
+ *
+ * Provides benchmark() / benchmark_long() templates that measure median, min, max, and total
+ * time per operation. Uses priority elevation and CPU pinning for stable results on Windows/Linux.
+ * Batch sizes are auto-tuned from warmup timing to target ~10ms per batch.
+ */
+
 #ifndef HELIOSELENE_BENCHMARK_H
 #define HELIOSELENE_BENCHMARK_H
 

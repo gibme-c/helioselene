@@ -24,6 +24,15 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+/**
+ * @file poly.h
+ * @brief Univariate polynomial types and arithmetic over F_p and F_q.
+ *
+ * Uses schoolbook multiplication for deg < 32, Karatsuba for 32 <= deg < 1024,
+ * and ECFFT stubs for deg >= 1024. Polynomials are stored in ascending degree
+ * order (coeffs[i] = coefficient of x^i).
+ */
+
 #ifndef HELIOSELENE_POLY_H
 #define HELIOSELENE_POLY_H
 

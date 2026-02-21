@@ -24,6 +24,11 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+/**
+ * @file fq_divsteps.h
+ * @brief x64 (radix-2^51) implementation of F_q divsteps inversion with Crandall reduction.
+ */
+
 #ifndef HELIOSELENE_X64_FQ_DIVSTEPS_H
 #define HELIOSELENE_X64_FQ_DIVSTEPS_H
 
@@ -42,6 +47,7 @@
  */
 
 #include "helioselene_platform.h"
+#include "x64/fq51.h"
 
 #include <cstdint>
 
@@ -424,11 +430,43 @@ static inline void fq_divsteps_normalize(uint64_t out[5], fq_signed62 *d, const 
 
 static inline void fq_fe_to_signed62(fq_signed62 *s, const uint64_t fe[5])
 {
+    /*
+     * Normalize to canonical 51-bit limbs first.
+     * Lazy add can produce limbs > 51 bits; shifting non-canonical limbs
+     * (e.g. fe[1] << 51) would overflow uint64_t and corrupt the value.
+     */
+    uint64_t h0 = fe[0], h1 = fe[1], h2 = fe[2], h3 = fe[3], h4 = fe[4];
+    uint64_t c;
+    c = h0 >> 51;
+    h1 += c;
+    h0 &= FQ51_MASK;
+    c = h1 >> 51;
+    h2 += c;
+    h1 &= FQ51_MASK;
+    c = h2 >> 51;
+    h3 += c;
+    h2 &= FQ51_MASK;
+    c = h3 >> 51;
+    h4 += c;
+    h3 &= FQ51_MASK;
+    c = h4 >> 51;
+    h4 &= FQ51_MASK;
+    /* Gamma fold: carry from limb 4 wraps as carry * gamma */
+    h0 += c * GAMMA_51[0];
+    h1 += c * GAMMA_51[1];
+    h2 += c * GAMMA_51[2];
+    c = h0 >> 51;
+    h1 += c;
+    h0 &= FQ51_MASK;
+    c = h1 >> 51;
+    h2 += c;
+    h1 &= FQ51_MASK;
+
     /* Reconstruct 4x64 from 5x51 */
-    uint64_t w0 = fe[0] | (fe[1] << 51);
-    uint64_t w1 = (fe[1] >> 13) | (fe[2] << 38);
-    uint64_t w2 = (fe[2] >> 26) | (fe[3] << 25);
-    uint64_t w3 = (fe[3] >> 39) | (fe[4] << 12);
+    uint64_t w0 = h0 | (h1 << 51);
+    uint64_t w1 = (h1 >> 13) | (h2 << 38);
+    uint64_t w2 = (h2 >> 26) | (h3 << 25);
+    uint64_t w3 = (h3 >> 39) | (h4 << 12);
 
     /* Extract 62-bit limbs */
     s->v[0] = (int64_t)(w0 & FQ_M62);

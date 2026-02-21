@@ -24,6 +24,11 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+/**
+ * @file fq_sqrt.h
+ * @brief Square root in F_q. Uses Tonelli-Shanks or a direct exponentiation depending on q mod 4.
+ */
+
 #ifndef HELIOSELENE_FQ_SQRT_H
 #define HELIOSELENE_FQ_SQRT_H
 

@@ -24,6 +24,11 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+/**
+ * @file fp_mul.h
+ * @brief F_p multiplication dispatching to the active backend.
+ */
+
 #ifndef HELIOSELENE_FP_MUL_H
 #define HELIOSELENE_FP_MUL_H
 

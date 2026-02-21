@@ -60,11 +60,11 @@ int selene_frombytes_x64(selene_jacobian *r, const unsigned char s[32])
     unsigned char x_check[32];
     fq_tobytes(x_check, x);
 
+    unsigned char x_diff = 0;
     for (int i = 0; i < 32; i++)
-    {
-        if (x_check[i] != x_bytes[i])
-            return -1;
-    }
+        x_diff |= x_check[i] ^ x_bytes[i];
+    if (x_diff != 0)
+        return -1;
 
     /* Compute rhs = x^3 - 3x + b */
     fq_fe x2, x3, rhs;

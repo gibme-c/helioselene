@@ -24,6 +24,11 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+/**
+ * @file selene_scalarmult.h
+ * @brief Constant-time Selene scalar multiplication using signed 4-bit fixed-window method.
+ */
+
 #ifndef HELIOSELENE_SELENE_SCALARMULT_H
 #define HELIOSELENE_SELENE_SCALARMULT_H
 

@@ -24,6 +24,11 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+/**
+ * @file fp_cmov.h
+ * @brief Constant-time conditional move for fp_fe via XOR-blend (no branches on the selector).
+ */
+
 #ifndef HELIOSELENE_FP_CMOV_H
 #define HELIOSELENE_FP_CMOV_H
 

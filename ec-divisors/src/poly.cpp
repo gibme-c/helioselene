@@ -24,6 +24,10 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+// poly.cpp — Polynomial arithmetic over F_p and F_q.
+// Schoolbook (deg < 32), Karatsuba (32 <= deg < 1024), ECFFT (deg >= 1024).
+// Includes evaluation (Horner), from_roots, divmod (long division), and Lagrange interpolation.
+
 #include "poly.h"
 
 #ifdef HELIOSELENE_ECFFT
@@ -46,12 +50,14 @@ const ecfft_fq_ctx *ecfft_fq_global_ctx();
 #include "fp_ops.h"
 #include "fp_sq.h"
 #include "fp_tobytes.h"
+#include "fp_utils.h"
 #include "fq_frombytes.h"
 #include "fq_invert.h"
 #include "fq_mul.h"
 #include "fq_ops.h"
 #include "fq_sq.h"
 #include "fq_tobytes.h"
+#include "fq_utils.h"
 
 /* Karatsuba threshold: use schoolbook below this many coefficients */
 static const size_t KARATSUBA_THRESHOLD = 32;
@@ -583,6 +589,18 @@ void fp_poly_divmod(fp_poly *q, fp_poly *rem, const fp_poly *a, const fp_poly *b
     fp_poly_strip(&bstrip);
     nb = bstrip.coeffs.size();
 
+    /* Check for zero divisor (after strip: single zero coefficient) */
+    {
+        fp_fe lead_check;
+        fp_fe_load(lead_check, &bstrip.coeffs[nb - 1]);
+        if (!fp_isnonzero(lead_check))
+        {
+            q->coeffs.resize(1);
+            fp_0(q->coeffs[0].v);
+            return;
+        }
+    }
+
     /* If deg(a) < deg(b), quotient is 0 and remainder is a */
     if (na < nb)
     {
@@ -858,6 +876,18 @@ void fq_poly_divmod(fq_poly *q, fq_poly *rem, const fq_poly *a, const fq_poly *b
     fq_poly bstrip = *b;
     fq_poly_strip(&bstrip);
     nb = bstrip.coeffs.size();
+
+    /* Check for zero divisor (after strip: single zero coefficient) */
+    {
+        fq_fe lead_check;
+        fq_fe_load(lead_check, &bstrip.coeffs[nb - 1]);
+        if (!fq_isnonzero(lead_check))
+        {
+            q->coeffs.resize(1);
+            fq_0(q->coeffs[0].v);
+            return;
+        }
+    }
 
     if (na < nb)
     {

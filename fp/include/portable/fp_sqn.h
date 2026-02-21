@@ -24,6 +24,11 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+/**
+ * @file fp_sqn.h
+ * @brief Portable (32-bit, radix-2^25.5) implementation of F_p repeated squaring.
+ */
+
 #ifndef HELIOSELENE_PORTABLE_FP_SQN_H
 #define HELIOSELENE_PORTABLE_FP_SQN_H
 #include "fp.h"

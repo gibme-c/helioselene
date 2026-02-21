@@ -24,6 +24,11 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+/**
+ * @file fp_sqrt.h
+ * @brief Square root in F_p via the p ≡ 5 (mod 8) shortcut: sqrt(a) = a^{(p+3)/8} (with Legendre adjustment).
+ */
+
 #ifndef HELIOSELENE_FP_SQRT_H
 #define HELIOSELENE_FP_SQRT_H
 

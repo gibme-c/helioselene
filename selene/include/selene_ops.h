@@ -24,6 +24,11 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+/**
+ * @file selene_ops.h
+ * @brief Core Selene point operations: identity, copy, negate, is_identity, affine conversion.
+ */
+
 #ifndef HELIOSELENE_SELENE_OPS_H
 #define HELIOSELENE_SELENE_OPS_H
 
@@ -33,6 +38,7 @@
 #include "fq_ops.h"
 #include "fq_sq.h"
 #include "fq_utils.h"
+#include "helioselene_secure_erase.h"
 #include "selene.h"
 
 /* Set r to the identity (point at infinity): (1:1:0) */
@@ -86,6 +92,7 @@ static inline void selene_cneg(selene_jacobian *r, unsigned int b)
     fq_fe neg_y;
     fq_neg(neg_y, r->Y);
     fq_cmov(r->Y, neg_y, b);
+    helioselene_secure_erase(neg_y, sizeof(neg_y));
 }
 
 /* Constant-time conditional negate for affine: if b, negate y in place */
@@ -94,6 +101,7 @@ static inline void selene_affine_cneg(selene_affine *r, unsigned int b)
     fq_fe neg_y;
     fq_neg(neg_y, r->y);
     fq_cmov(r->y, neg_y, b);
+    helioselene_secure_erase(neg_y, sizeof(neg_y));
 }
 
 /* Convert Jacobian to affine: x = X/Z^2, y = Y/Z^3 */

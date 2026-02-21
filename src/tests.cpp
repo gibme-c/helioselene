@@ -24,15 +24,8 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#include "fp_batch_invert.h"
-#include "fq_batch_invert.h"
-#include "helios_msm_fixed.h"
-#include "helios_precomp.h"
-#include "helios_scalarmult_fixed.h"
 #include "helioselene.h"
-#include "selene_msm_fixed.h"
-#include "selene_precomp.h"
-#include "selene_scalarmult_fixed.h"
+#include "helioselene_test_vectors.h"
 
 #include <cstring>
 #include <iomanip>
@@ -290,6 +283,78 @@ static void test_fq()
     fq_mul(c, inv_a, a);
     fq_tobytes(buf, c);
     check_bytes("inv(a) * a == 1", one_bytes, buf, 32);
+
+    /* Test invert with fully-populated input (exercises all limbs) */
+    {
+        static const unsigned char denom_bytes[32] = {0xcf, 0x58, 0x73, 0x16, 0xeb, 0x6b, 0x39, 0x24, 0x6b, 0x9b, 0x4c,
+                                                      0xa1, 0x6d, 0xdc, 0x6a, 0x24, 0x98, 0xe9, 0x0f, 0xf1, 0x3a, 0x61,
+                                                      0xca, 0x45, 0x67, 0xaf, 0xb1, 0x1b, 0xec, 0x4a, 0x63, 0x49};
+        fq_fe denom_fe, inv_denom, check_one;
+        fq_frombytes(denom_fe, denom_bytes);
+        fq_invert(inv_denom, denom_fe);
+        fq_mul(check_one, inv_denom, denom_fe);
+        fq_tobytes(buf, check_one);
+        check_bytes("inv(full_denom) * full_denom == 1", one_bytes, buf, 32);
+        /* Cross-check: known inverse should also give 1 when multiplied by denom */
+        static const unsigned char x64_inv_bytes[32] = {
+            0xd5, 0x94, 0x1e, 0xd6, 0x78, 0xd1, 0x68, 0xfa, 0x41, 0x79, 0x2a, 0x59, 0xfc, 0xe8, 0xee, 0x82,
+            0xad, 0x67, 0xe3, 0x4e, 0xbf, 0x7f, 0xbd, 0xd1, 0x9f, 0xce, 0xaa, 0xfa, 0x41, 0x36, 0xf4, 0x4b};
+        fq_fe x64_inv_fe;
+        fq_frombytes(x64_inv_fe, x64_inv_bytes);
+        fq_fe cross_check;
+        fq_mul(cross_check, x64_inv_fe, denom_fe);
+        fq_tobytes(buf, cross_check);
+        check_bytes("x64_inv * denom == 1 (cross-check)", one_bytes, buf, 32);
+#if !HELIOSELENE_PLATFORM_64BIT
+        /* Verify GAMMA_25 matches GAMMA_51 via byte round-trip */
+        {
+            /* Construct gamma from GAMMA_25 limbs directly */
+            fq_fe gamma_25_fe;
+            gamma_25_fe[0] = GAMMA_25[0];
+            gamma_25_fe[1] = GAMMA_25[1];
+            gamma_25_fe[2] = GAMMA_25[2];
+            gamma_25_fe[3] = GAMMA_25[3];
+            gamma_25_fe[4] = GAMMA_25[4];
+            gamma_25_fe[5] = 0;
+            gamma_25_fe[6] = 0;
+            gamma_25_fe[7] = 0;
+            gamma_25_fe[8] = 0;
+            gamma_25_fe[9] = 0;
+            unsigned char gamma_25_bytes[32];
+            fq_tobytes(gamma_25_bytes, gamma_25_fe);
+
+            /* Construct gamma from GAMMA_51 via byte packing */
+            uint64_t g51[5] = {0x12D8D86D83861ULL, 0x269135294F229ULL, 0x102021FULL, 0, 0};
+            unsigned char gamma_51_bytes[32];
+            /* Pack 51-bit limbs to bytes */
+            uint64_t w0 = g51[0] | (g51[1] << 51);
+            uint64_t w1 = (g51[1] >> 13) | (g51[2] << 38);
+            uint64_t w2 = (g51[2] >> 26);
+            uint64_t w3 = 0;
+            for (int i = 0; i < 8; i++)
+                gamma_51_bytes[i] = (unsigned char)(w0 >> (8 * i));
+            for (int i = 0; i < 8; i++)
+                gamma_51_bytes[8 + i] = (unsigned char)(w1 >> (8 * i));
+            for (int i = 0; i < 8; i++)
+                gamma_51_bytes[16 + i] = (unsigned char)(w2 >> (8 * i));
+            for (int i = 0; i < 8; i++)
+                gamma_51_bytes[24 + i] = (unsigned char)(w3 >> (8 * i));
+
+            check_bytes("GAMMA_25 == GAMMA_51 (byte comparison)", gamma_51_bytes, gamma_25_bytes, 32);
+        }
+#endif // !HELIOSELENE_PLATFORM_64BIT
+        /* Simple mul test: denom * 2 via add vs mul(denom, 2) */
+        fq_fe two_fe;
+        fq_1(two_fe);
+        fq_add(two_fe, two_fe, two_fe);
+        fq_fe denom_times_2_add, denom_times_2_mul;
+        fq_add(denom_times_2_add, denom_fe, denom_fe);
+        fq_mul(denom_times_2_mul, denom_fe, two_fe);
+        unsigned char dadd[32], dmul[32];
+        fq_tobytes(dadd, denom_times_2_add);
+        fq_tobytes(dmul, denom_times_2_mul);
+        check_bytes("denom*2 add vs mul", dadd, dmul, 32);
+    }
 
     fq_sub(c, a, a);
     fq_tobytes(buf, c);
@@ -5050,6 +5115,980 @@ static void test_dispatch()
 #endif
 }
 
+static void test_cpp_api()
+{
+    using namespace helioselene;
+
+    std::cout << std::endl << "=== C++ API ===" << std::endl;
+
+    /* ---- Scalar round-trip ---- */
+    {
+        auto s = HeliosScalar::from_bytes(test_a_bytes);
+        check_int("api: helios scalar from_bytes valid", 1, s.has_value() ? 1 : 0);
+        auto bytes = s->to_bytes();
+        check_bytes("api: helios scalar round-trip", test_a_bytes, bytes.data(), 32);
+    }
+    {
+        auto s = SeleneScalar::from_bytes(test_a_bytes);
+        check_int("api: selene scalar from_bytes valid", 1, s.has_value() ? 1 : 0);
+        auto bytes = s->to_bytes();
+        check_bytes("api: selene scalar round-trip", test_a_bytes, bytes.data(), 32);
+    }
+
+    /* ---- Scalar arithmetic ---- */
+    {
+        auto a = HeliosScalar::from_bytes(test_a_bytes).value();
+        auto b = HeliosScalar::from_bytes(test_b_bytes).value();
+        auto one = HeliosScalar::one();
+
+        /* a + b == b + a (commutativity) */
+        auto ab = (a + b).to_bytes();
+        auto ba = (b + a).to_bytes();
+        check_bytes("api: helios scalar a+b == b+a", ab.data(), ba.data(), 32);
+
+        /* a * one == a */
+        auto a_times_1 = (a * one).to_bytes();
+        auto a_bytes = a.to_bytes();
+        check_bytes("api: helios scalar a*1 == a", a_bytes.data(), a_times_1.data(), 32);
+
+        /* a * invert(a) == one */
+        auto inv = a.invert();
+        check_int("api: helios scalar invert non-null", 1, inv.has_value() ? 1 : 0);
+        auto prod = (a * inv.value()).to_bytes();
+        auto one_b = one.to_bytes();
+        check_bytes("api: helios scalar a*inv(a) == 1", one_b.data(), prod.data(), 32);
+
+        /* zero invert returns nullopt */
+        auto z_inv = HeliosScalar::zero().invert();
+        check_int("api: helios scalar inv(0) == nullopt", 0, z_inv.has_value() ? 1 : 0);
+
+        /* is_zero */
+        check_int("api: helios scalar zero.is_zero", 1, HeliosScalar::zero().is_zero() ? 1 : 0);
+        check_int("api: helios scalar one.is_zero", 0, one.is_zero() ? 1 : 0);
+    }
+    {
+        auto a = SeleneScalar::from_bytes(test_a_bytes).value();
+        auto one = SeleneScalar::one();
+
+        auto inv = a.invert();
+        check_int("api: selene scalar invert non-null", 1, inv.has_value() ? 1 : 0);
+        auto prod = (a * inv.value()).to_bytes();
+        auto one_b = one.to_bytes();
+        check_bytes("api: selene scalar a*inv(a) == 1", one_b.data(), prod.data(), 32);
+    }
+
+    /* ---- Scalar from_bytes rejects invalid ---- */
+    {
+        /* Bit 255 set */
+        unsigned char bad[32] = {};
+        bad[31] = 0x80;
+        auto s = HeliosScalar::from_bytes(bad);
+        check_int("api: helios scalar rejects bit255", 0, s.has_value() ? 1 : 0);
+        auto s2 = SeleneScalar::from_bytes(bad);
+        check_int("api: selene scalar rejects bit255", 0, s2.has_value() ? 1 : 0);
+    }
+
+    /* ---- Scalar muladd ---- */
+    {
+        auto a = HeliosScalar::from_bytes(test_a_bytes).value();
+        auto b = HeliosScalar::from_bytes(test_b_bytes).value();
+        auto one = HeliosScalar::one();
+        auto lhs = HeliosScalar::muladd(a, b, one).to_bytes();
+        auto rhs = (a * b + one).to_bytes();
+        check_bytes("api: helios muladd a*b+1", lhs.data(), rhs.data(), 32);
+    }
+
+    /* ---- Point round-trip ---- */
+    {
+        auto G = HeliosPoint::generator();
+        auto bytes = G.to_bytes();
+        auto p = HeliosPoint::from_bytes(bytes.data());
+        check_int("api: helios point from_bytes valid", 1, p.has_value() ? 1 : 0);
+        auto bytes2 = p->to_bytes();
+        check_bytes("api: helios point round-trip", bytes.data(), bytes2.data(), 32);
+    }
+    {
+        auto G = SelenePoint::generator();
+        auto bytes = G.to_bytes();
+        auto p = SelenePoint::from_bytes(bytes.data());
+        check_int("api: selene point from_bytes valid", 1, p.has_value() ? 1 : 0);
+        auto bytes2 = p->to_bytes();
+        check_bytes("api: selene point round-trip", bytes.data(), bytes2.data(), 32);
+    }
+
+    /* ---- Point arithmetic ---- */
+    {
+        auto G = HeliosPoint::generator();
+        auto one = HeliosScalar::one();
+        auto G1 = G.scalar_mul(one).to_bytes();
+        auto Gb = G.to_bytes();
+        check_bytes("api: helios G*1 == G", Gb.data(), G1.data(), 32);
+
+        /* identity checks */
+        auto I = HeliosPoint::identity();
+        check_int("api: helios identity.is_identity", 1, I.is_identity() ? 1 : 0);
+        check_int("api: helios G.is_identity", 0, G.is_identity() ? 1 : 0);
+
+        /* dbl works */
+        auto two = one + one;
+        auto G2_sm = G.scalar_mul(two).to_bytes();
+        auto G2_dbl = G.dbl().to_bytes();
+        check_bytes("api: helios dbl == 2*G", G2_sm.data(), G2_dbl.data(), 32);
+
+        /* P + Q where P != Q and neither is identity */
+        auto three = two + one;
+        auto G3 = G.scalar_mul(three);
+        auto G2 = G.dbl();
+        auto sum = (G2 + G).to_bytes();
+        auto G3b = G3.to_bytes();
+        check_bytes("api: helios 2G+G == 3G", G3b.data(), sum.data(), 32);
+
+        /* negation: -G serializes differently from G (y-parity flips) */
+        auto negG = (-G).to_bytes();
+        check_nonzero("api: helios -G != G", std::memcmp(Gb.data(), negG.data(), 32));
+    }
+    {
+        auto G = SelenePoint::generator();
+        auto one = SeleneScalar::one();
+        auto G1 = G.scalar_mul(one).to_bytes();
+        auto Gb = G.to_bytes();
+        check_bytes("api: selene G*1 == G", Gb.data(), G1.data(), 32);
+    }
+
+    /* ---- Point from_bytes rejects invalid ---- */
+    {
+        unsigned char bad[32] = {};
+        bad[0] = 0x02; /* Likely off-curve */
+        auto p = HeliosPoint::from_bytes(bad);
+        check_int("api: helios point rejects off-curve", 0, p.has_value() ? 1 : 0);
+    }
+
+    /* ---- MSM: compare API wrapper against C-level MSM ---- */
+    {
+        auto G = HeliosPoint::generator();
+        auto G2 = G.dbl();
+        HeliosScalar scalars[2] = {
+            HeliosScalar::from_bytes(test_a_bytes).value(), HeliosScalar::from_bytes(test_b_bytes).value()};
+        HeliosPoint points[2] = {G, G2};
+        auto msm = HeliosPoint::multi_scalar_mul(scalars, points, 2);
+
+        /* Compare against C-level MSM */
+        unsigned char c_scalars[64];
+        std::memcpy(c_scalars, scalars[0].to_bytes().data(), 32);
+        std::memcpy(c_scalars + 32, scalars[1].to_bytes().data(), 32);
+        helios_jacobian c_points[2], c_result;
+        helios_copy(&c_points[0], &G.raw());
+        helios_copy(&c_points[1], &G2.raw());
+        helios_msm_vartime(&c_result, c_scalars, c_points, 2);
+        unsigned char c_bytes[32];
+        helios_tobytes(c_bytes, &c_result);
+        auto api_bytes = msm.to_bytes();
+        check_bytes("api: helios msm matches C-level", c_bytes, api_bytes.data(), 32);
+    }
+    {
+        auto G = SelenePoint::generator();
+        auto G2 = G.dbl();
+        SeleneScalar scalars[2] = {
+            SeleneScalar::from_bytes(test_a_bytes).value(), SeleneScalar::from_bytes(test_b_bytes).value()};
+        SelenePoint points[2] = {G, G2};
+        auto msm = SelenePoint::multi_scalar_mul(scalars, points, 2);
+
+        unsigned char c_scalars[64];
+        std::memcpy(c_scalars, scalars[0].to_bytes().data(), 32);
+        std::memcpy(c_scalars + 32, scalars[1].to_bytes().data(), 32);
+        selene_jacobian c_points[2], c_result;
+        selene_copy(&c_points[0], &G.raw());
+        selene_copy(&c_points[1], &G2.raw());
+        selene_msm_vartime(&c_result, c_scalars, c_points, 2);
+        unsigned char c_bytes[32];
+        selene_tobytes(c_bytes, &c_result);
+        auto api_bytes = msm.to_bytes();
+        check_bytes("api: selene msm matches C-level", c_bytes, api_bytes.data(), 32);
+    }
+
+    /* ---- Pedersen: compare API wrapper against C-level ---- */
+    {
+        auto G = HeliosPoint::generator();
+        auto H = G.dbl();
+        auto blind = HeliosScalar::from_bytes(test_a_bytes).value();
+        auto val = HeliosScalar::from_bytes(test_b_bytes).value();
+        auto commit = HeliosPoint::pedersen_commit(blind, H, &val, &G, 1);
+
+        /* Compare against C-level pedersen */
+        auto bb = blind.to_bytes();
+        auto vb = val.to_bytes();
+        helios_jacobian c_result;
+        helios_pedersen_commit(&c_result, bb.data(), &H.raw(), vb.data(), &G.raw(), 1);
+        unsigned char c_bytes[32];
+        helios_tobytes(c_bytes, &c_result);
+        auto api_bytes = commit.to_bytes();
+        check_bytes("api: helios pedersen matches C-level", c_bytes, api_bytes.data(), 32);
+    }
+
+    /* ---- Map to curve ---- */
+    {
+        auto p1 = HeliosPoint::map_to_curve(test_a_bytes);
+        check_int("api: helios map_to_curve not identity", 0, p1.is_identity() ? 1 : 0);
+
+        auto p2 = HeliosPoint::map_to_curve(test_a_bytes, test_b_bytes);
+        check_int("api: helios map_to_curve2 not identity", 0, p2.is_identity() ? 1 : 0);
+    }
+
+    /* ---- x_coordinate_bytes ---- */
+    {
+        auto G = HeliosPoint::generator();
+        auto xb = G.x_coordinate_bytes();
+        /* x-coordinate of Helios generator is 3 */
+        unsigned char expected_x[32] = {};
+        expected_x[0] = 0x03;
+        check_bytes("api: helios G x-coord == 3", expected_x, xb.data(), 32);
+    }
+
+    /* ---- Polynomial ---- */
+    {
+        /* p(x) = x - r => from_roots([r]) => p(r) == 0 */
+        auto poly = FpPolynomial::from_roots(test_a_bytes, 1);
+        auto val = poly.evaluate(test_a_bytes);
+        check_bytes("api: fp poly eval root == 0", zero_bytes, val.data(), 32);
+        check_int("api: fp poly degree from 1 root", 1, (int)poly.degree());
+    }
+    {
+        auto poly = FqPolynomial::from_roots(test_a_bytes, 1);
+        auto val = poly.evaluate(test_a_bytes);
+        check_bytes("api: fq poly eval root == 0", zero_bytes, val.data(), 32);
+    }
+
+    /* ---- Polynomial multiply consistency ---- */
+    {
+        /* (x - a) * (x - b) should equal from_roots([a, b]) */
+        unsigned char roots[64];
+        std::memcpy(roots, test_a_bytes, 32);
+        std::memcpy(roots + 32, test_b_bytes, 32);
+
+        auto pa = FpPolynomial::from_roots(test_a_bytes, 1);
+        auto pb = FpPolynomial::from_roots(test_b_bytes, 1);
+        auto prod = pa * pb;
+        auto direct = FpPolynomial::from_roots(roots, 2);
+
+        /* Evaluate both at point 1 and compare */
+        auto v1 = prod.evaluate(one_bytes);
+        auto v2 = direct.evaluate(one_bytes);
+        check_bytes("api: fp poly mul == from_roots", v1.data(), v2.data(), 32);
+    }
+
+    /* ---- Divisor compute + evaluate ---- */
+    {
+        auto G = HeliosPoint::generator();
+        auto P2 = G.dbl();
+        HeliosPoint pts[2] = {G, P2};
+        auto div = HeliosDivisor::compute(pts, 2);
+
+        /* Divisor should vanish at the points: get affine coords and evaluate */
+        auto G_xb = G.x_coordinate_bytes();
+        helios_affine aff;
+        helios_to_affine(&aff, &G.raw());
+        unsigned char y_bytes[32];
+        fp_tobytes(y_bytes, aff.y);
+
+        auto val = div.evaluate(G_xb.data(), y_bytes);
+        check_bytes("api: helios divisor eval at G == 0", zero_bytes, val.data(), 32);
+    }
+    {
+        auto G = SelenePoint::generator();
+        auto P2 = G.dbl();
+        SelenePoint pts[2] = {G, P2};
+        auto div = SeleneDivisor::compute(pts, 2);
+
+        auto G_xb = G.x_coordinate_bytes();
+        selene_affine aff;
+        selene_to_affine(&aff, &G.raw());
+        unsigned char y_bytes[32];
+        fq_tobytes(y_bytes, aff.y);
+
+        auto val = div.evaluate(G_xb.data(), y_bytes);
+        check_bytes("api: selene divisor eval at G == 0", zero_bytes, val.data(), 32);
+    }
+
+    /* ---- Wei25519 bridge ---- */
+    {
+        /* Valid x-coordinate (3 is valid as F_p element) */
+        unsigned char x3[32] = {};
+        x3[0] = 0x03;
+        auto s = selene_scalar_from_wei25519_x(x3);
+        check_int("api: wei25519 valid x", 1, s.has_value() ? 1 : 0);
+        auto sb = s->to_bytes();
+        check_bytes("api: wei25519 x value", x3, sb.data(), 32);
+
+        /* Invalid: bit 255 set */
+        unsigned char bad[32] = {};
+        bad[31] = 0x80;
+        auto s2 = selene_scalar_from_wei25519_x(bad);
+        check_int("api: wei25519 rejects bit255", 0, s2.has_value() ? 1 : 0);
+    }
+
+    /* ---- Namespace init/autotune ---- */
+    {
+        helioselene::init();
+        /* No crash is the test */
+        ++tests_run;
+        ++tests_passed;
+        std::cout << "  PASS: api: namespace init()" << std::endl;
+    }
+}
+
+static void test_serialization_roundtrip()
+{
+    using namespace helioselene;
+
+    std::cout << std::endl << "=== Serialization round-trip ===" << std::endl;
+
+    /* Helper: round-trip a point through to_bytes/from_bytes */
+    auto helios_point_rt = [](const char *label, const HeliosPoint &p)
+    {
+        auto bytes = p.to_bytes();
+        auto p2 = HeliosPoint::from_bytes(bytes.data());
+        check_int(label, 1, p2.has_value() ? 1 : 0);
+        if (p2)
+        {
+            auto bytes2 = p2->to_bytes();
+            check_bytes(label, bytes.data(), bytes2.data(), 32);
+        }
+    };
+    auto selene_point_rt = [](const char *label, const SelenePoint &p)
+    {
+        auto bytes = p.to_bytes();
+        auto p2 = SelenePoint::from_bytes(bytes.data());
+        check_int(label, 1, p2.has_value() ? 1 : 0);
+        if (p2)
+        {
+            auto bytes2 = p2->to_bytes();
+            check_bytes(label, bytes.data(), bytes2.data(), 32);
+        }
+    };
+    auto helios_scalar_rt = [](const char *label, const HeliosScalar &s)
+    {
+        auto bytes = s.to_bytes();
+        auto s2 = HeliosScalar::from_bytes(bytes.data());
+        check_int(label, 1, s2.has_value() ? 1 : 0);
+        if (s2)
+        {
+            auto bytes2 = s2->to_bytes();
+            check_bytes(label, bytes.data(), bytes2.data(), 32);
+        }
+    };
+    auto selene_scalar_rt = [](const char *label, const SeleneScalar &s)
+    {
+        auto bytes = s.to_bytes();
+        auto s2 = SeleneScalar::from_bytes(bytes.data());
+        check_int(label, 1, s2.has_value() ? 1 : 0);
+        if (s2)
+        {
+            auto bytes2 = s2->to_bytes();
+            check_bytes(label, bytes.data(), bytes2.data(), 32);
+        }
+    };
+
+    /* ---- Helios point round-trips ---- */
+    {
+        auto G = HeliosPoint::generator();
+        auto one = HeliosScalar::one();
+        auto two = one + one;
+        auto three = two + one;
+        auto a = HeliosScalar::from_bytes(test_a_bytes).value();
+        auto b = HeliosScalar::from_bytes(test_b_bytes).value();
+
+        helios_point_rt("rt: helios G", G);
+
+        /* Identity + P == P (operator+ must handle identity inputs) */
+        {
+            auto I = HeliosPoint::identity();
+            auto sum = I + G;
+            check_int("rt: helios identity+G not identity", 0, sum.is_identity() ? 1 : 0);
+            auto Gb = G.to_bytes();
+            auto sb = sum.to_bytes();
+            check_bytes("rt: helios identity+G == G", Gb.data(), sb.data(), 32);
+
+            auto sum2 = G + I;
+            check_int("rt: helios G+identity not identity", 0, sum2.is_identity() ? 1 : 0);
+            auto sb2 = sum2.to_bytes();
+            check_bytes("rt: helios G+identity == G", Gb.data(), sb2.data(), 32);
+
+            /* Accumulation pattern: identity + P1 + P2 */
+            auto P2 = G.dbl();
+            auto accum = I + G + P2;
+            auto direct = G + P2;
+            check_bytes("rt: helios accum I+G+2G", direct.to_bytes().data(), accum.to_bytes().data(), 32);
+        }
+
+        /* P + P == dbl(P) (operator+ must handle equal inputs) */
+        {
+            auto sum = G + G;
+            auto dbl_G = G.dbl();
+            check_bytes("rt: helios G+G == dbl(G)", dbl_G.to_bytes().data(), sum.to_bytes().data(), 32);
+
+            /* Also with non-affine Z (computed point) */
+            auto P = G.scalar_mul(a);
+            auto sum2 = P + P;
+            auto dbl_P = P.dbl();
+            check_bytes("rt: helios P+P == dbl(P)", dbl_P.to_bytes().data(), sum2.to_bytes().data(), 32);
+        }
+
+        /* P + (-P) == identity */
+        {
+            auto negG = -G;
+            auto sum = G + negG;
+            check_int("rt: helios G+(-G) is identity", 1, sum.is_identity() ? 1 : 0);
+
+            auto P = G.scalar_mul(a);
+            auto negP = -P;
+            auto sum2 = P + negP;
+            check_int("rt: helios P+(-P) is identity", 1, sum2.is_identity() ? 1 : 0);
+        }
+
+        helios_point_rt("rt: helios 2G (dbl)", G.dbl());
+        helios_point_rt("rt: helios 3G (add)", G.dbl() + G);
+        helios_point_rt("rt: helios -G (neg)", -G);
+        helios_point_rt("rt: helios G*1", G.scalar_mul(one));
+        helios_point_rt("rt: helios G*2", G.scalar_mul(two));
+        helios_point_rt("rt: helios G*3", G.scalar_mul(three));
+        helios_point_rt("rt: helios G*a", G.scalar_mul(a));
+        helios_point_rt("rt: helios G*b", G.scalar_mul(b));
+        helios_point_rt("rt: helios G*a + G*b", G.scalar_mul(a) + G.scalar_mul(b));
+        helios_point_rt("rt: helios map_to_curve(a)", HeliosPoint::map_to_curve(test_a_bytes));
+        helios_point_rt("rt: helios map_to_curve(a,b)", HeliosPoint::map_to_curve(test_a_bytes, test_b_bytes));
+
+        /* Iterated doubling: 2^k * G for k=1..10 */
+        auto P = G;
+        for (int k = 1; k <= 10; k++)
+        {
+            P = P.dbl();
+            std::string name = "rt: helios 2^" + std::to_string(k) + "*G";
+            helios_point_rt(name.c_str(), P);
+        }
+    }
+
+    /* ---- Selene point round-trips ---- */
+    {
+        auto G = SelenePoint::generator();
+        auto one = SeleneScalar::one();
+        auto two = one + one;
+        auto three = two + one;
+        auto a = SeleneScalar::from_bytes(test_a_bytes).value();
+        auto b = SeleneScalar::from_bytes(test_b_bytes).value();
+
+        selene_point_rt("rt: selene G", G);
+
+        /* Identity + P == P */
+        {
+            auto I = SelenePoint::identity();
+            auto sum = I + G;
+            check_int("rt: selene identity+G not identity", 0, sum.is_identity() ? 1 : 0);
+            auto Gb = G.to_bytes();
+            auto sb = sum.to_bytes();
+            check_bytes("rt: selene identity+G == G", Gb.data(), sb.data(), 32);
+
+            auto sum2 = G + I;
+            check_int("rt: selene G+identity not identity", 0, sum2.is_identity() ? 1 : 0);
+            auto sb2 = sum2.to_bytes();
+            check_bytes("rt: selene G+identity == G", Gb.data(), sb2.data(), 32);
+
+            auto P2 = G.dbl();
+            auto accum = I + G + P2;
+            auto direct = G + P2;
+            check_bytes("rt: selene accum I+G+2G", direct.to_bytes().data(), accum.to_bytes().data(), 32);
+        }
+
+        /* P + P == dbl(P) */
+        {
+            auto sum = G + G;
+            auto dbl_G = G.dbl();
+            check_bytes("rt: selene G+G == dbl(G)", dbl_G.to_bytes().data(), sum.to_bytes().data(), 32);
+
+            auto P = G.scalar_mul(a);
+            auto sum2 = P + P;
+            auto dbl_P = P.dbl();
+            check_bytes("rt: selene P+P == dbl(P)", dbl_P.to_bytes().data(), sum2.to_bytes().data(), 32);
+        }
+
+        /* P + (-P) == identity */
+        {
+            auto negG = -G;
+            auto sum = G + negG;
+            check_int("rt: selene G+(-G) is identity", 1, sum.is_identity() ? 1 : 0);
+
+            auto P = G.scalar_mul(a);
+            auto negP = -P;
+            auto sum2 = P + negP;
+            check_int("rt: selene P+(-P) is identity", 1, sum2.is_identity() ? 1 : 0);
+        }
+
+        selene_point_rt("rt: selene 2G (dbl)", G.dbl());
+        selene_point_rt("rt: selene 3G (add)", G.dbl() + G);
+        selene_point_rt("rt: selene -G (neg)", -G);
+        selene_point_rt("rt: selene G*1", G.scalar_mul(one));
+        selene_point_rt("rt: selene G*2", G.scalar_mul(two));
+        selene_point_rt("rt: selene G*3", G.scalar_mul(three));
+        selene_point_rt("rt: selene G*a", G.scalar_mul(a));
+        selene_point_rt("rt: selene G*b", G.scalar_mul(b));
+        selene_point_rt("rt: selene G*a + G*b", G.scalar_mul(a) + G.scalar_mul(b));
+        selene_point_rt("rt: selene map_to_curve(a)", SelenePoint::map_to_curve(test_a_bytes));
+        selene_point_rt("rt: selene map_to_curve(a,b)", SelenePoint::map_to_curve(test_a_bytes, test_b_bytes));
+
+        auto P = G;
+        for (int k = 1; k <= 10; k++)
+        {
+            P = P.dbl();
+            std::string name = "rt: selene 2^" + std::to_string(k) + "*G";
+            selene_point_rt(name.c_str(), P);
+        }
+    }
+
+    /* ---- MSM vs scalar_mul+add consistency ---- */
+    {
+        auto G = HeliosPoint::generator();
+        auto a = HeliosScalar::from_bytes(test_a_bytes).value();
+        auto b = HeliosScalar::from_bytes(test_b_bytes).value();
+
+        /* n=2: MSM(a,b; G,2G) == a*G + b*2G */
+        {
+            auto G2 = G.dbl();
+            HeliosScalar s[2] = {a, b};
+            HeliosPoint p[2] = {G, G2};
+            auto msm = HeliosPoint::multi_scalar_mul(s, p, 2);
+            auto manual = G.scalar_mul(a) + G2.scalar_mul(b);
+            check_int("rt: helios msm n=2 not identity", 0, msm.is_identity() ? 1 : 0);
+            check_bytes("rt: helios msm n=2 == manual", manual.to_bytes().data(), msm.to_bytes().data(), 32);
+        }
+
+        /* n=2 with map_to_curve points (non-trivial Z after scalarmul) */
+        {
+            auto P0 = HeliosPoint::map_to_curve(test_a_bytes);
+            auto P1 = HeliosPoint::map_to_curve(test_b_bytes);
+            HeliosScalar s[2] = {a, b};
+            HeliosPoint p[2] = {P0, P1};
+            auto msm = HeliosPoint::multi_scalar_mul(s, p, 2);
+            auto manual = P0.scalar_mul(a) + P1.scalar_mul(b);
+            check_int("rt: helios msm n=2 h2c not identity", 0, msm.is_identity() ? 1 : 0);
+            check_bytes("rt: helios msm n=2 h2c == manual", manual.to_bytes().data(), msm.to_bytes().data(), 32);
+        }
+
+        /* n=1: MSM(a; G) == a*G */
+        {
+            HeliosScalar s[1] = {a};
+            HeliosPoint p[1] = {G};
+            auto msm = HeliosPoint::multi_scalar_mul(s, p, 1);
+            auto manual = G.scalar_mul(a);
+            check_bytes("rt: helios msm n=1 == manual", manual.to_bytes().data(), msm.to_bytes().data(), 32);
+        }
+
+        /* n=3 */
+        {
+            auto G2 = G.dbl();
+            auto G3 = G2 + G;
+            auto one = HeliosScalar::one();
+            HeliosScalar s[3] = {a, b, one};
+            HeliosPoint p[3] = {G, G2, G3};
+            auto msm = HeliosPoint::multi_scalar_mul(s, p, 3);
+            auto manual = G.scalar_mul(a) + G2.scalar_mul(b) + G3.scalar_mul(one);
+            check_bytes("rt: helios msm n=3 == manual", manual.to_bytes().data(), msm.to_bytes().data(), 32);
+        }
+    }
+    {
+        auto G = SelenePoint::generator();
+        auto a = SeleneScalar::from_bytes(test_a_bytes).value();
+        auto b = SeleneScalar::from_bytes(test_b_bytes).value();
+
+        {
+            auto G2 = G.dbl();
+            SeleneScalar s[2] = {a, b};
+            SelenePoint p[2] = {G, G2};
+            auto msm = SelenePoint::multi_scalar_mul(s, p, 2);
+            auto manual = G.scalar_mul(a) + G2.scalar_mul(b);
+            check_int("rt: selene msm n=2 not identity", 0, msm.is_identity() ? 1 : 0);
+            check_bytes("rt: selene msm n=2 == manual", manual.to_bytes().data(), msm.to_bytes().data(), 32);
+        }
+
+        {
+            auto P0 = SelenePoint::map_to_curve(test_a_bytes);
+            auto P1 = SelenePoint::map_to_curve(test_b_bytes);
+            SeleneScalar s[2] = {a, b};
+            SelenePoint p[2] = {P0, P1};
+            auto msm = SelenePoint::multi_scalar_mul(s, p, 2);
+            auto manual = P0.scalar_mul(a) + P1.scalar_mul(b);
+            check_int("rt: selene msm n=2 h2c not identity", 0, msm.is_identity() ? 1 : 0);
+            check_bytes("rt: selene msm n=2 h2c == manual", manual.to_bytes().data(), msm.to_bytes().data(), 32);
+        }
+
+        {
+            SeleneScalar s[1] = {a};
+            SelenePoint p[1] = {G};
+            auto msm = SelenePoint::multi_scalar_mul(s, p, 1);
+            auto manual = G.scalar_mul(a);
+            check_bytes("rt: selene msm n=1 == manual", manual.to_bytes().data(), msm.to_bytes().data(), 32);
+        }
+
+        {
+            auto G2 = G.dbl();
+            auto G3 = G2 + G;
+            auto one = SeleneScalar::one();
+            SeleneScalar s[3] = {a, b, one};
+            SelenePoint p[3] = {G, G2, G3};
+            auto msm = SelenePoint::multi_scalar_mul(s, p, 3);
+            auto manual = G.scalar_mul(a) + G2.scalar_mul(b) + G3.scalar_mul(one);
+            check_bytes("rt: selene msm n=3 == manual", manual.to_bytes().data(), msm.to_bytes().data(), 32);
+        }
+    }
+
+    /* ---- Helios scalar round-trips ---- */
+    {
+        auto a = HeliosScalar::from_bytes(test_a_bytes).value();
+        auto b = HeliosScalar::from_bytes(test_b_bytes).value();
+        auto one = HeliosScalar::one();
+
+        helios_scalar_rt("rt: helios scalar zero", HeliosScalar::zero());
+        helios_scalar_rt("rt: helios scalar one", one);
+        helios_scalar_rt("rt: helios scalar a", a);
+        helios_scalar_rt("rt: helios scalar a+b", a + b);
+        helios_scalar_rt("rt: helios scalar a*b", a * b);
+        helios_scalar_rt("rt: helios scalar a-b", a - b);
+        helios_scalar_rt("rt: helios scalar -a", -a);
+        helios_scalar_rt("rt: helios scalar a^2", a.sq());
+        helios_scalar_rt("rt: helios scalar inv(a)", a.invert().value());
+    }
+
+    /* ---- Selene scalar round-trips ---- */
+    {
+        auto a = SeleneScalar::from_bytes(test_a_bytes).value();
+        auto b = SeleneScalar::from_bytes(test_b_bytes).value();
+        auto one = SeleneScalar::one();
+
+        selene_scalar_rt("rt: selene scalar zero", SeleneScalar::zero());
+        selene_scalar_rt("rt: selene scalar one", one);
+        selene_scalar_rt("rt: selene scalar a", a);
+        selene_scalar_rt("rt: selene scalar a+b", a + b);
+        selene_scalar_rt("rt: selene scalar a*b", a * b);
+        selene_scalar_rt("rt: selene scalar a-b", a - b);
+        selene_scalar_rt("rt: selene scalar -a", -a);
+        selene_scalar_rt("rt: selene scalar a^2", a.sq());
+        selene_scalar_rt("rt: selene scalar inv(a)", a.invert().value());
+    }
+}
+
+static void test_vector_validation()
+{
+    using namespace helioselene;
+    namespace tv = helioselene_test_vectors;
+
+    std::cout << std::endl << "=== Test Vector Validation ===" << std::endl;
+
+    /* ---- Helios Scalar ---- */
+    std::cout << "  --- Helios Scalar ---" << std::endl;
+    for (size_t i = 0; i < tv::helios_scalar::from_bytes_count; i++)
+    {
+        auto &v = tv::helios_scalar::from_bytes_vectors[i];
+        auto r = HeliosScalar::from_bytes(v.input);
+        std::string name = std::string("tv: helios scalar from_bytes ") + v.label;
+        if (v.valid)
+        {
+            check_int((name + " valid").c_str(), 1, r.has_value() ? 1 : 0);
+            if (r)
+                check_bytes((name + " value").c_str(), v.result, r->to_bytes().data(), 32);
+        }
+        else
+        {
+            check_int((name + " invalid").c_str(), 0, r.has_value() ? 1 : 0);
+        }
+    }
+    for (size_t i = 0; i < tv::helios_scalar::add_count; i++)
+    {
+        auto &v = tv::helios_scalar::add_vectors[i];
+        auto a = HeliosScalar::from_bytes(v.a).value();
+        auto b = HeliosScalar::from_bytes(v.b).value();
+        auto r = a + b;
+        check_bytes((std::string("tv: helios scalar add ") + v.label).c_str(), v.result, r.to_bytes().data(), 32);
+    }
+    for (size_t i = 0; i < tv::helios_scalar::sub_count; i++)
+    {
+        auto &v = tv::helios_scalar::sub_vectors[i];
+        auto a = HeliosScalar::from_bytes(v.a).value();
+        auto b = HeliosScalar::from_bytes(v.b).value();
+        auto r = a - b;
+        check_bytes((std::string("tv: helios scalar sub ") + v.label).c_str(), v.result, r.to_bytes().data(), 32);
+    }
+    for (size_t i = 0; i < tv::helios_scalar::mul_count; i++)
+    {
+        auto &v = tv::helios_scalar::mul_vectors[i];
+        auto a = HeliosScalar::from_bytes(v.a).value();
+        auto b = HeliosScalar::from_bytes(v.b).value();
+        auto r = a * b;
+        check_bytes((std::string("tv: helios scalar mul ") + v.label).c_str(), v.result, r.to_bytes().data(), 32);
+    }
+    for (size_t i = 0; i < tv::helios_scalar::sq_count; i++)
+    {
+        auto &v = tv::helios_scalar::sq_vectors[i];
+        auto a = HeliosScalar::from_bytes(v.a).value();
+        auto r = a.sq();
+        check_bytes((std::string("tv: helios scalar sq ") + v.label).c_str(), v.result, r.to_bytes().data(), 32);
+    }
+    for (size_t i = 0; i < tv::helios_scalar::negate_count; i++)
+    {
+        auto &v = tv::helios_scalar::negate_vectors[i];
+        auto a = HeliosScalar::from_bytes(v.a).value();
+        auto r = -a;
+        check_bytes((std::string("tv: helios scalar neg ") + v.label).c_str(), v.result, r.to_bytes().data(), 32);
+    }
+    for (size_t i = 0; i < tv::helios_scalar::invert_count; i++)
+    {
+        auto &v = tv::helios_scalar::invert_vectors[i];
+        auto a = HeliosScalar::from_bytes(v.a).value();
+        auto r = a.invert();
+        std::string name = std::string("tv: helios scalar inv ") + v.label;
+        if (v.valid)
+        {
+            check_int((name + " valid").c_str(), 1, r.has_value() ? 1 : 0);
+            if (r)
+                check_bytes((name + " value").c_str(), v.result, r->to_bytes().data(), 32);
+        }
+        else
+        {
+            check_int((name + " invalid").c_str(), 0, r.has_value() ? 1 : 0);
+        }
+    }
+    for (size_t i = 0; i < tv::helios_scalar::reduce_wide_count; i++)
+    {
+        auto &v = tv::helios_scalar::reduce_wide_vectors[i];
+        auto r = HeliosScalar::reduce_wide(v.input);
+        check_bytes(
+            (std::string("tv: helios scalar reduce_wide ") + v.label).c_str(), v.result, r.to_bytes().data(), 32);
+    }
+    for (size_t i = 0; i < tv::helios_scalar::muladd_count; i++)
+    {
+        auto &v = tv::helios_scalar::muladd_vectors[i];
+        auto a = HeliosScalar::from_bytes(v.a).value();
+        auto b = HeliosScalar::from_bytes(v.b).value();
+        auto c = HeliosScalar::from_bytes(v.c).value();
+        auto r = HeliosScalar::muladd(a, b, c);
+        check_bytes((std::string("tv: helios scalar muladd ") + v.label).c_str(), v.result, r.to_bytes().data(), 32);
+    }
+    for (size_t i = 0; i < tv::helios_scalar::is_zero_count; i++)
+    {
+        auto &v = tv::helios_scalar::is_zero_vectors[i];
+        auto a = HeliosScalar::from_bytes(v.a).value();
+        check_int((std::string("tv: helios scalar is_zero ") + v.label).c_str(), v.result ? 1 : 0, a.is_zero() ? 1 : 0);
+    }
+
+    /* ---- Selene Scalar ---- */
+    std::cout << "  --- Selene Scalar ---" << std::endl;
+    for (size_t i = 0; i < tv::selene_scalar::from_bytes_count; i++)
+    {
+        auto &v = tv::selene_scalar::from_bytes_vectors[i];
+        auto r = SeleneScalar::from_bytes(v.input);
+        std::string name = std::string("tv: selene scalar from_bytes ") + v.label;
+        if (v.valid)
+        {
+            check_int((name + " valid").c_str(), 1, r.has_value() ? 1 : 0);
+            if (r)
+                check_bytes((name + " value").c_str(), v.result, r->to_bytes().data(), 32);
+        }
+        else
+        {
+            check_int((name + " invalid").c_str(), 0, r.has_value() ? 1 : 0);
+        }
+    }
+    for (size_t i = 0; i < tv::selene_scalar::add_count; i++)
+    {
+        auto &v = tv::selene_scalar::add_vectors[i];
+        auto a = SeleneScalar::from_bytes(v.a).value();
+        auto b = SeleneScalar::from_bytes(v.b).value();
+        auto r = a + b;
+        check_bytes((std::string("tv: selene scalar add ") + v.label).c_str(), v.result, r.to_bytes().data(), 32);
+    }
+    for (size_t i = 0; i < tv::selene_scalar::sub_count; i++)
+    {
+        auto &v = tv::selene_scalar::sub_vectors[i];
+        auto a = SeleneScalar::from_bytes(v.a).value();
+        auto b = SeleneScalar::from_bytes(v.b).value();
+        auto r = a - b;
+        check_bytes((std::string("tv: selene scalar sub ") + v.label).c_str(), v.result, r.to_bytes().data(), 32);
+    }
+    for (size_t i = 0; i < tv::selene_scalar::mul_count; i++)
+    {
+        auto &v = tv::selene_scalar::mul_vectors[i];
+        auto a = SeleneScalar::from_bytes(v.a).value();
+        auto b = SeleneScalar::from_bytes(v.b).value();
+        auto r = a * b;
+        check_bytes((std::string("tv: selene scalar mul ") + v.label).c_str(), v.result, r.to_bytes().data(), 32);
+    }
+    for (size_t i = 0; i < tv::selene_scalar::sq_count; i++)
+    {
+        auto &v = tv::selene_scalar::sq_vectors[i];
+        auto a = SeleneScalar::from_bytes(v.a).value();
+        auto r = a.sq();
+        check_bytes((std::string("tv: selene scalar sq ") + v.label).c_str(), v.result, r.to_bytes().data(), 32);
+    }
+    for (size_t i = 0; i < tv::selene_scalar::negate_count; i++)
+    {
+        auto &v = tv::selene_scalar::negate_vectors[i];
+        auto a = SeleneScalar::from_bytes(v.a).value();
+        auto r = -a;
+        check_bytes((std::string("tv: selene scalar neg ") + v.label).c_str(), v.result, r.to_bytes().data(), 32);
+    }
+    for (size_t i = 0; i < tv::selene_scalar::invert_count; i++)
+    {
+        auto &v = tv::selene_scalar::invert_vectors[i];
+        auto a = SeleneScalar::from_bytes(v.a).value();
+        auto r = a.invert();
+        std::string name = std::string("tv: selene scalar inv ") + v.label;
+        if (v.valid)
+        {
+            check_int((name + " valid").c_str(), 1, r.has_value() ? 1 : 0);
+            if (r)
+                check_bytes((name + " value").c_str(), v.result, r->to_bytes().data(), 32);
+        }
+        else
+        {
+            check_int((name + " invalid").c_str(), 0, r.has_value() ? 1 : 0);
+        }
+    }
+    for (size_t i = 0; i < tv::selene_scalar::reduce_wide_count; i++)
+    {
+        auto &v = tv::selene_scalar::reduce_wide_vectors[i];
+        auto r = SeleneScalar::reduce_wide(v.input);
+        check_bytes(
+            (std::string("tv: selene scalar reduce_wide ") + v.label).c_str(), v.result, r.to_bytes().data(), 32);
+    }
+    for (size_t i = 0; i < tv::selene_scalar::muladd_count; i++)
+    {
+        auto &v = tv::selene_scalar::muladd_vectors[i];
+        auto a = SeleneScalar::from_bytes(v.a).value();
+        auto b = SeleneScalar::from_bytes(v.b).value();
+        auto c = SeleneScalar::from_bytes(v.c).value();
+        auto r = SeleneScalar::muladd(a, b, c);
+        check_bytes((std::string("tv: selene scalar muladd ") + v.label).c_str(), v.result, r.to_bytes().data(), 32);
+    }
+    for (size_t i = 0; i < tv::selene_scalar::is_zero_count; i++)
+    {
+        auto &v = tv::selene_scalar::is_zero_vectors[i];
+        auto a = SeleneScalar::from_bytes(v.a).value();
+        check_int((std::string("tv: selene scalar is_zero ") + v.label).c_str(), v.result ? 1 : 0, a.is_zero() ? 1 : 0);
+    }
+
+    /* ---- Helios Point ---- */
+    std::cout << "  --- Helios Point ---" << std::endl;
+    for (size_t i = 0; i < tv::helios_point::from_bytes_count; i++)
+    {
+        auto &v = tv::helios_point::from_bytes_vectors[i];
+        auto r = HeliosPoint::from_bytes(v.input);
+        std::string name = std::string("tv: helios point from_bytes ") + v.label;
+        if (v.valid)
+        {
+            check_int((name + " valid").c_str(), 1, r.has_value() ? 1 : 0);
+            if (r)
+                check_bytes((name + " value").c_str(), v.result, r->to_bytes().data(), 32);
+        }
+        else
+        {
+            check_int((name + " invalid").c_str(), 0, r.has_value() ? 1 : 0);
+        }
+    }
+    for (size_t i = 0; i < tv::helios_point::scalar_mul_count; i++)
+    {
+        auto &v = tv::helios_point::scalar_mul_vectors[i];
+        auto s = HeliosScalar::from_bytes(v.scalar).value();
+        auto p = HeliosPoint::from_bytes(v.point).value();
+        auto r = p.scalar_mul(s);
+        check_bytes((std::string("tv: helios point scalar_mul ") + v.label).c_str(), v.result, r.to_bytes().data(), 32);
+    }
+    for (size_t i = 0; i < tv::helios_point::map_to_curve_single_count; i++)
+    {
+        auto &v = tv::helios_point::map_to_curve_single_vectors[i];
+        auto r = HeliosPoint::map_to_curve(v.u);
+        check_bytes(
+            (std::string("tv: helios point map_to_curve ") + v.label).c_str(), v.result, r.to_bytes().data(), 32);
+    }
+    for (size_t i = 0; i < tv::helios_point::map_to_curve_double_count; i++)
+    {
+        auto &v = tv::helios_point::map_to_curve_double_vectors[i];
+        auto r = HeliosPoint::map_to_curve(v.u0, v.u1);
+        check_bytes(
+            (std::string("tv: helios point map_to_curve2 ") + v.label).c_str(), v.result, r.to_bytes().data(), 32);
+    }
+    for (size_t i = 0; i < tv::helios_point::x_coordinate_count; i++)
+    {
+        auto &v = tv::helios_point::x_coordinate_vectors[i];
+        auto p = HeliosPoint::from_bytes(v.point).value();
+        auto r = p.x_coordinate_bytes();
+        check_bytes((std::string("tv: helios point x_coord ") + v.label).c_str(), v.x_bytes, r.data(), 32);
+    }
+
+    /* ---- Selene Point ---- */
+    std::cout << "  --- Selene Point ---" << std::endl;
+    for (size_t i = 0; i < tv::selene_point::from_bytes_count; i++)
+    {
+        auto &v = tv::selene_point::from_bytes_vectors[i];
+        auto r = SelenePoint::from_bytes(v.input);
+        std::string name = std::string("tv: selene point from_bytes ") + v.label;
+        if (v.valid)
+        {
+            check_int((name + " valid").c_str(), 1, r.has_value() ? 1 : 0);
+            if (r)
+                check_bytes((name + " value").c_str(), v.result, r->to_bytes().data(), 32);
+        }
+        else
+        {
+            check_int((name + " invalid").c_str(), 0, r.has_value() ? 1 : 0);
+        }
+    }
+    for (size_t i = 0; i < tv::selene_point::scalar_mul_count; i++)
+    {
+        auto &v = tv::selene_point::scalar_mul_vectors[i];
+        auto s = SeleneScalar::from_bytes(v.scalar).value();
+        auto p = SelenePoint::from_bytes(v.point).value();
+        auto r = p.scalar_mul(s);
+        check_bytes((std::string("tv: selene point scalar_mul ") + v.label).c_str(), v.result, r.to_bytes().data(), 32);
+    }
+    for (size_t i = 0; i < tv::selene_point::map_to_curve_single_count; i++)
+    {
+        auto &v = tv::selene_point::map_to_curve_single_vectors[i];
+        auto r = SelenePoint::map_to_curve(v.u);
+        check_bytes(
+            (std::string("tv: selene point map_to_curve ") + v.label).c_str(), v.result, r.to_bytes().data(), 32);
+    }
+    for (size_t i = 0; i < tv::selene_point::map_to_curve_double_count; i++)
+    {
+        auto &v = tv::selene_point::map_to_curve_double_vectors[i];
+        auto r = SelenePoint::map_to_curve(v.u0, v.u1);
+        check_bytes(
+            (std::string("tv: selene point map_to_curve2 ") + v.label).c_str(), v.result, r.to_bytes().data(), 32);
+    }
+    for (size_t i = 0; i < tv::selene_point::x_coordinate_count; i++)
+    {
+        auto &v = tv::selene_point::x_coordinate_vectors[i];
+        auto p = SelenePoint::from_bytes(v.point).value();
+        auto r = p.x_coordinate_bytes();
+        check_bytes((std::string("tv: selene point x_coord ") + v.label).c_str(), v.x_bytes, r.data(), 32);
+    }
+
+    /* ---- Wei25519 ---- */
+    std::cout << "  --- Wei25519 ---" << std::endl;
+    for (size_t i = 0; i < tv::wei25519::x_to_scalar_count; i++)
+    {
+        auto &v = tv::wei25519::x_to_scalar_vectors[i];
+        auto r = selene_scalar_from_wei25519_x(v.input);
+        std::string name = std::string("tv: wei25519 x_to_scalar ") + v.label;
+        if (v.valid)
+        {
+            check_int((name + " valid").c_str(), 1, r.has_value() ? 1 : 0);
+            if (r)
+                check_bytes((name + " value").c_str(), v.result, r->to_bytes().data(), 32);
+        }
+        else
+        {
+            check_int((name + " invalid").c_str(), 0, r.has_value() ? 1 : 0);
+        }
+    }
+}
+
 int main()
 {
     std::cout << "Helioselene Unit Tests" << std::endl;
@@ -5100,7 +6139,10 @@ int main()
     test_ecfft();
 #endif
     test_eval_divisor();
+    test_serialization_roundtrip();
+    test_vector_validation();
     test_dispatch();
+    test_cpp_api();
 
     std::cout << std::endl << "======================" << std::endl;
     std::cout << "Total:  " << tests_run << std::endl;

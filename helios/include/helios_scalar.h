@@ -24,6 +24,11 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+/**
+ * @file helios_scalar.h
+ * @brief Helios scalar operations: arithmetic mod q (the Helios group order / Selene base field prime).
+ */
+
 #ifndef HELIOSELENE_HELIOS_SCALAR_H
 #define HELIOSELENE_HELIOS_SCALAR_H
 
@@ -99,6 +104,11 @@ static inline void helios_scalar_zero(fq_fe out)
  *   out = lo + hi * 2^256 (mod q)
  *
  * Since q = 2^255 - gamma, we have 2^256 mod q = 2*gamma.
+ *
+ * Note: fq_frombytes strips bit 255 (used for y-parity in point encoding).
+ * For wide reduction, bit 255 of each half carries value, so we add back:
+ *   lo_bit255 * (2^255 mod q) = lo_bit255 * gamma
+ *   hi_bit255 * (2^511 mod q) = hi_bit255 * gamma * 2*gamma = hi_bit255 * 2*gamma^2
  */
 static inline void helios_scalar_reduce_wide(fq_fe out, const unsigned char wide[64])
 {
@@ -112,13 +122,33 @@ static inline void helios_scalar_reduce_wide(fq_fe out, const unsigned char wide
      */
 #if HELIOSELENE_PLATFORM_64BIT
     static const fq_fe TWO_TO_256_MOD_Q = {TWO_GAMMA_51[0], TWO_GAMMA_51[1], TWO_GAMMA_51[2], 0, 0};
+    static const fq_fe GAMMA_FE = {GAMMA_51[0], GAMMA_51[1], GAMMA_51[2], 0, 0};
 #else
     static const fq_fe TWO_TO_256_MOD_Q = {
         2 * GAMMA_25[0], 2 * GAMMA_25[1], 2 * GAMMA_25[2], 2 * GAMMA_25[3], 2 * GAMMA_25[4], 0, 0, 0, 0, 0};
+    static const fq_fe GAMMA_FE = {GAMMA_25[0], GAMMA_25[1], GAMMA_25[2], GAMMA_25[3], GAMMA_25[4], 0, 0, 0, 0, 0};
 #endif
 
     fq_mul(hi_shifted, hi, TWO_TO_256_MOD_Q);
     fq_add(out, lo, hi_shifted);
+
+    /* Correct for bit 255 stripped by fq_frombytes from each half. */
+    uint64_t lo_b = (wide[31] >> 7) & 1;
+    uint64_t hi_b = (wide[63] >> 7) & 1;
+
+    if (lo_b)
+    {
+        /* Add gamma (= 2^255 mod q) */
+        fq_add(out, out, GAMMA_FE);
+    }
+
+    if (hi_b)
+    {
+        /* Add 2*gamma^2 (= 2^511 mod q = gamma * 2*gamma mod q) */
+        fq_fe gamma_sq;
+        fq_mul(gamma_sq, GAMMA_FE, TWO_TO_256_MOD_Q);
+        fq_add(out, out, gamma_sq);
+    }
 }
 
 /*

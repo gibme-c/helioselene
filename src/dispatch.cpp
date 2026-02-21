@@ -24,6 +24,15 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+/**
+ * @file dispatch.cpp
+ * @brief Runtime dispatch table implementation: CPUID-based init and per-slot autotune.
+ *
+ * Manages 6 function pointer slots for {helios,selene} x {scalarmult, scalarmult_vartime,
+ * msm_vartime}. init() uses CPUID heuristic (IFMA > AVX2 > x64). autotune() benchmarks
+ * each available backend and picks the fastest per-slot.
+ */
+
 #include "helioselene_dispatch.h"
 
 #if HELIOSELENE_SIMD

@@ -24,6 +24,11 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+/**
+ * @file fp_utils.h
+ * @brief Utility functions for F_p: is_zero, is_negative (parity check), equality test.
+ */
+
 #ifndef HELIOSELENE_FP_UTILS_H
 #define HELIOSELENE_FP_UTILS_H
 

@@ -24,6 +24,14 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+/**
+ * @file fp.h
+ * @brief Field element type for F_p where p = 2^255 - 19.
+ *
+ * On 64-bit platforms: fp_fe is uint64_t[5] in radix-2^51 representation.
+ * On 32-bit platforms: fp_fe is int32_t[10] in radix-2^25.5 (alternating 26/25-bit limbs).
+ */
+
 #ifndef HELIOSELENE_FP_H
 #define HELIOSELENE_FP_H
 

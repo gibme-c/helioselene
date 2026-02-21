@@ -49,6 +49,7 @@
 #include "fp_ops.h"
 #include "helios.h"
 #include "helios_ops.h"
+#include "helioselene_secure_erase.h"
 #include "x64/avx2/fp10_avx2.h"
 #include "x64/helios_add.h"
 #include "x64/helios_dbl.h"
@@ -59,21 +60,6 @@ typedef struct
 {
     fp10 X, Y, Z;
 } helios_jacobian_10;
-
-/* ---- fp10 helpers ---- */
-
-static inline void fp10_set0(fp10 h)
-{
-    h[0] = h[1] = h[2] = h[3] = h[4] = 0;
-    h[5] = h[6] = h[7] = h[8] = h[9] = 0;
-}
-
-static inline void fp10_set1(fp10 h)
-{
-    h[0] = 1;
-    h[1] = h[2] = h[3] = h[4] = 0;
-    h[5] = h[6] = h[7] = h[8] = h[9] = 0;
-}
 
 /* ---- wNAF encoding ---- */
 
@@ -153,6 +139,7 @@ static int wnaf_encode(int8_t naf[257], const unsigned char scalar[32])
         pos += 5; /* wNAF guarantees next w-1 digits are 0 */
     }
 
+    helioselene_secure_erase(bits, sizeof(bits));
     return highest;
 }
 
@@ -317,6 +304,10 @@ void helios_scalarmult_vartime_ifma(helios_jacobian *r, const unsigned char scal
 
     if (top == 0)
     {
+        helioselene_secure_erase(naf, sizeof(naf));
+        helioselene_secure_erase(table_jac, sizeof(table_jac));
+        helioselene_secure_erase(table10, sizeof(table10));
+        helioselene_secure_erase(&p2, sizeof(p2));
         helios_identity(r);
         return;
     }
@@ -328,6 +319,10 @@ void helios_scalarmult_vartime_ifma(helios_jacobian *r, const unsigned char scal
 
     if (start < 0)
     {
+        helioselene_secure_erase(naf, sizeof(naf));
+        helioselene_secure_erase(table_jac, sizeof(table_jac));
+        helioselene_secure_erase(table10, sizeof(table10));
+        helioselene_secure_erase(&p2, sizeof(p2));
         helios_identity(r);
         return;
     }
@@ -370,4 +365,9 @@ void helios_scalarmult_vartime_ifma(helios_jacobian *r, const unsigned char scal
     fp10_to_fp51(r->X, rX);
     fp10_to_fp51(r->Y, rY);
     fp10_to_fp51(r->Z, rZ);
+
+    helioselene_secure_erase(naf, sizeof(naf));
+    helioselene_secure_erase(table_jac, sizeof(table_jac));
+    helioselene_secure_erase(table10, sizeof(table10));
+    helioselene_secure_erase(&p2, sizeof(p2));
 }

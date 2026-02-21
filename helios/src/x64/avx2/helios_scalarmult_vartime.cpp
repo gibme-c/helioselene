@@ -47,6 +47,7 @@
 #include "fp_ops.h"
 #include "helios.h"
 #include "helios_ops.h"
+#include "helioselene_secure_erase.h"
 #include "x64/avx2/fp10_avx2.h"
 #include "x64/helios_add.h"
 #include "x64/helios_dbl.h"
@@ -251,6 +252,7 @@ static int wnaf_encode(int8_t naf[257], const unsigned char scalar[32])
         pos += 5; /* wNAF guarantees next w-1 digits are 0 */
     }
 
+    helioselene_secure_erase(bits, sizeof(bits));
     return highest;
 }
 
@@ -285,6 +287,10 @@ void helios_scalarmult_vartime_avx2(helios_jacobian *r, const unsigned char scal
 
     if (top == 0)
     {
+        helioselene_secure_erase(naf, sizeof(naf));
+        helioselene_secure_erase(table_jac, sizeof(table_jac));
+        helioselene_secure_erase(table10, sizeof(table10));
+        helioselene_secure_erase(&p2, sizeof(p2));
         helios_identity(r);
         return;
     }
@@ -296,6 +302,10 @@ void helios_scalarmult_vartime_avx2(helios_jacobian *r, const unsigned char scal
 
     if (start < 0)
     {
+        helioselene_secure_erase(naf, sizeof(naf));
+        helioselene_secure_erase(table_jac, sizeof(table_jac));
+        helioselene_secure_erase(table10, sizeof(table10));
+        helioselene_secure_erase(&p2, sizeof(p2));
         helios_identity(r);
         return;
     }
@@ -338,4 +348,9 @@ void helios_scalarmult_vartime_avx2(helios_jacobian *r, const unsigned char scal
     fp10_to_fp51(r->X, accX);
     fp10_to_fp51(r->Y, accY);
     fp10_to_fp51(r->Z, accZ);
+
+    helioselene_secure_erase(naf, sizeof(naf));
+    helioselene_secure_erase(table_jac, sizeof(table_jac));
+    helioselene_secure_erase(table10, sizeof(table10));
+    helioselene_secure_erase(&p2, sizeof(p2));
 }

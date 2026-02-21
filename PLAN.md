@@ -13,7 +13,7 @@ The existing Rust `helioselene` crate (kayabaNerve / Lederstrumpf's optimized su
 
 ## 2. Curve Parameters (Canonical Reference)
 
-All parameters sourced from the Veridise security assessment and tevador's original construction. CM discriminant D = −7857907.
+All parameters sourced from the [Veridise security assessment](https://moneroresearch.info/index.php?action=attachments_ATTACHMENTS_CORE&method=downloadAttachment&id=271&resourceId=279&filename=776be5a7b6e6f22097a9491852ae2b731af49e16) and [tevador's original construction](https://gist.github.com/tevador/4524c2092178df08996487d4e272b096). CM discriminant D = −7857907.
 
 ### 2.1 Helios
 
@@ -54,10 +54,11 @@ This means Wei25519 (the Weierstrass form of Ed25519) shares its base field with
 
 - **q ≡ 3 (mod 4)**: Enables Tonelli-Shanks fast path for square roots in F_q (just exponentiation by (q+1)/4).
 - **p ≡ 5 (mod 8)**: Square roots in F_p use the Atkin method (standard for Ed25519 field).
-- **Crandall prime structure**: q = 2^255 − γ where γ ≈ 2^127. Crandall's reduction algorithm applies, but because γ is 127 bits (not small like ed25519's 19), the reduction requires a multi-limb wide multiply rather than a simple per-limb fold-back. See §4.2 for the full reduction algorithm.
+- **Crandall prime structure**: q = 2^255 − γ where γ ≈ 2^127. [Crandall's reduction algorithm](https://link.springer.com/book/10.1007/0-387-28979-8) applies, but because γ is 127 bits (not small like ed25519's 19), the reduction requires a multi-limb wide multiply rather than a simple per-limb fold-back. See §4.2 for the full reduction algorithm.
 - **a = −3 for both curves**: Enables the optimized Jacobian doubling formula (saves one field multiplication per doubling vs general short Weierstrass).
 - **b is a non-square**: No point has x-coordinate 0 on either curve, which prevents certain power-analysis attack vectors.
 - **Twist security is weak**: ~99 bits (Selene twist) and ~107 bits (Helios twist). Curve membership checks are **mandatory** on all received points. This must be enforced at the API level.
+- **Parameter isolation**: All curve-specific constants (b, generator coordinates, isogeny coefficients for SSWU) are isolated in dedicated headers so they can be swapped without touching arithmetic code. The [Veridise assessment](https://moneroresearch.info/index.php?action=attachments_ATTACHMENTS_CORE&method=downloadAttachment&id=271&resourceId=279&filename=776be5a7b6e6f22097a9491852ae2b731af49e16) recommends re-searching with twist security as a criterion (e.g., D = −31617403 or D = −31750123 give 200+ bit twist security), but that's a Monero-level decision. If parameters change, it's a header swap and base point table regeneration — the field primes (p, q) stay the same, so all field arithmetic and SIMD paths are unaffected.
 
 ---
 
@@ -119,7 +120,7 @@ This library is **not** a greenfield build. The `gibme-c/ed25519` library (devel
 - **F_q Crandall reduction**: The two-round reduction algorithm specific to q = 2^255 − γ where γ ≈ 2^127. This is the most significant novel field arithmetic work — the wide γ constant means the reduction is structurally different from ed25519's per-limb ×19 fold (see §4.2).
 - **Jacobian point formulas**: The `a = −3` doubling optimization (3M + 5S), mixed Jacobian+affine addition (7M + 4S), general Jacobian addition (11M + 5S). These replace the Edwards unified addition. Note: GLV endomorphism does not apply to these curves (CM discriminant D = −7857907 does not yield an efficient endomorphism).
 - **Wei25519 bridge (receive-side only)**: Helioselene accepts a raw 32-byte Wei25519 x-coordinate and returns a Selene scalar. The Ed25519 → Wei25519 coordinate transform is the caller's responsibility — helioselene has no dependency on any ed25519 library. This is a trivial function (~5 lines: deserialize bytes as F_p element, validate range, return as SeleneScalar).
-- **Hash-to-curve (SSWU)**: RFC 9380 mapping for short Weierstrass curves. Ed25519 uses Elligator, which is a different mapping.
+- **Hash-to-curve (SSWU)**: [RFC 9380](https://www.rfc-editor.org/rfc/rfc9380.html) mapping for short Weierstrass curves. Ed25519 uses Elligator, which is a different mapping.
 - **Dual-curve API**: The ed25519 library operates over a single curve. Helioselene exposes two curves with cross-curve scalar extraction, which requires careful API design to prevent mixing types.
 
 ---
@@ -141,9 +142,9 @@ This is the most studied 255-bit prime in existence. **The F_p implementation ca
 - **AVX-512 IFMA single-op**: Packs one field element's 5 limbs across 5 lanes of a `__m512i`, broadcasts each limb of the second operand, uses `_mm512_alignr_epi64` for shifted views, accumulates via `vpmadd52lo`/`vpmadd52hi` IFMA instructions. Lo/hi split at bit 52, recombined with ×2 shift (since radix is 2^51, not 2^52). Reference: `x64/ifma/fe_ifma.h` (`fe_mul_ifma_core`). Normalizing vs non-normalizing variants (`_nn` suffix) skip input carry propagation when limb bounds are known ≤52 bits.
 - **AVX-512 IFMA 8-way batch**: `fe51x8` struct — 5 × `__m512i` holding 8 independent field elements in radix-2^51. Full 5×5 schoolbook across 25 IFMA pairs into 9 lo/hi accumulators. The ×19 wrap uses shift-and-add (`19x = 16x + 2x + x`) to avoid `_mm512_mullo_epi64` which requires AVX-512DQ. Reference: `x64/ifma/fe51x8_ifma.h` (`fe51x8_mul`). Register budget: 28 of 32 ZMM registers.
 
-**Inversion**: Fermat exponentiation via addition chain (`x64/fe_invert.cpp`, `x64/fe_pow22523.cpp`). The chain macros (`x64/fe51_chain.h`, `x64/ifma/fe_ifma_chain.h`) provide normalizing and non-normalizing variants for chained squarings. Bernstein-Yang constant-time GCD is an alternative for secret-dependent paths if needed.
+**Inversion**: Fermat exponentiation via addition chain (`x64/fe_invert.cpp`, `x64/fe_pow22523.cpp`). The chain macros (`x64/fe51_chain.h`, `x64/ifma/fe_ifma_chain.h`) provide normalizing and non-normalizing variants for chained squarings. [Bernstein-Yang constant-time GCD](https://eprint.iacr.org/2019/266) is an alternative for secret-dependent paths if needed.
 
-**Square root**: Atkin's algorithm for p ≡ 5 (mod 8). Compute candidate r = a^((p+3)/8), then conditionally multiply by sqrt(−1) if r² ≠ a. Reference: `x64/fe_divpowm1.cpp`.
+**Square root**: [Atkin's algorithm](https://www.ams.org/journals/mcom/1992-59-199/S0025-5718-1992-1134730-7/) for p ≡ 5 (mod 8). Compute candidate r = a^((p+3)/8), then conditionally multiply by sqrt(−1) if r² ≠ a. Reference: `x64/fe_divpowm1.cpp`.
 
 ### 4.2 F_q: The Crandall Field (2^255 − γ)
 
@@ -164,7 +165,7 @@ In ed25519, after the 5×5 schoolbook you have 9 partial sums h0..h8, and the up
 5. **Second reduction round**: If the result exceeds 255 bits, split again and repeat with the much smaller overflow (at most ~128 bits × 2γ). This second round always fits.
 6. **Final conditional subtraction**: If result ≥ q, subtract q.
 
-The θ optimization (γ − 1 divisible by 2^10, so 2γ = 2 + 2^11 × θ where θ is 119 bits / 3 limbs) reduces the wide multiply: `hi × 2γ = 2*hi + (hi << 11) × θ`, where `hi × θ` is a 5-limb × 3-limb multiply. Note: this decomposition is described here for completeness but is a performance optimization implemented in Phase 5 (§13). The base implementation uses direct GAMMA_51 multiply, which is correct.
+The θ optimization (γ − 1 divisible by 2^10, so 2γ = 2 + 2^11 × θ where θ is 119 bits / 3 limbs) reduces the wide multiply: `hi × 2γ = 2*hi + (hi << 11) × θ`, where `hi × θ` is a 5-limb × 3-limb multiply. Note: this decomposition is described here for completeness but is infeasible in practice — γ−1 has a 2-adic valuation of only 5, not 10, so the savings are negligible (see Phase 5 Out of Scope). The base implementation uses direct GAMMA_51 multiply, which is correct and efficient.
 
 **Squaring**: Same reduction approach. The schoolbook squaring saves ~40% of multiplies via symmetry (same as ed25519's `fe51_sq_inline`), but the reduction tail uses the full Crandall method above.
 
@@ -246,9 +247,9 @@ The API should make it impossible to use an unvalidated external point in a secr
 - Interleaved double-and-add.
 - ~30% faster than constant-time for single scalar mul.
 
-### 5.4 Multi-Scalar Multiplication (Pippenger / Bucket Method)
+### 5.4 Multi-Scalar Multiplication ([Pippenger](https://cr.yp.to/papers/pippenger.pdf) / Bucket Method)
 
-This is the single most critical operation for Bulletproofs and curve tree hashing. The FCMP++ competition showed that multiexp dominates total runtime. **The entire MSM orchestration layer is proven in `gibme-c/ed25519` and transfers directly** — only the inner point-addition calls change.
+This is the single most critical operation for Bulletproofs and curve tree hashing. The [FCMP++ competition](https://www.getmonero.org/2025/08/27/fcmp++-contest-final.html) demonstrates that multiexp dominates total runtime. **The entire MSM orchestration layer is proven in `gibme-c/ed25519` and transfers directly** — only the inner point-addition calls change.
 
 **Algorithm selection** (from ed25519's `ge_multiscalar_mul_vartime.h`):
 - **Straus (interleaved)** for n ≤ 32: signed 4-bit fixed-window with per-point precomputed tables, 252 shared doublings + ~n×32 additions. The 8-way IFMA Straus variant (`ifma/ge_multiscalar_mul_vartime.cpp`) processes groups of 8 points in parallel using `fe51x8` field arithmetic.
@@ -264,13 +265,13 @@ This is the single most critical operation for Bulletproofs and curve tree hashi
 
 **Adaptation for Jacobian coordinates**: The ed25519 Pippenger uses `ge_p3_to_cached` → `ge_add` → `ge_p1p1_to_p3` for bucket accumulation. Helioselene replaces this with Jacobian `point_to_cached` → `jacobian_add` → `result_to_jacobian`, same flow, different formulas. The IFMA variants use `ge_add_ifma` / `ge_p3_to_cached_ifma` etc. which inline the IFMA field arithmetic — the same pattern applies for helioselene Jacobian operations with IFMA.
 
-**Batch affine conversion**: When accumulating bucket sums, use Montgomery's batch inversion trick to convert multiple Jacobian→affine simultaneously. One inversion + 3(n−1) multiplications instead of n inversions.
+**Batch affine conversion**: When accumulating bucket sums, use [Montgomery's batch inversion trick](https://cr.yp.to/bib/1987/montgomery.pdf) to convert multiple Jacobian→affine simultaneously. One inversion + 3(n−1) multiplications instead of n inversions.
 
 **SIMD acceleration of Pippenger**: The bucket accumulation phase is embarrassingly parallel across buckets. The ed25519 library demonstrates this at three tiers: x64 scalar (baseline), AVX2 4-way (`avx2/ge_multiscalar_mul_vartime.cpp`), and IFMA 8-way (`ifma/ge_multiscalar_mul_vartime.cpp`). Each tier uses its corresponding batch field arithmetic (`fe10x4` for AVX2, `fe51x8` for IFMA) to process multiple independent point operations simultaneously.
 
 ### 5.5 Hash-to-Curve (Map-to-Curve Only)
 
-For Helios/Selene, we need a mapping from field elements to curve points for generators and for the divisor challenge points. The FCMP++ spec indicates using RFC 9380 (Hashing to Elliptic Curves) with Simplified SWU mapping.
+For Helios/Selene, we need a mapping from field elements to curve points for generators and for the divisor challenge points. The [FCMP++ spec](https://gist.github.com/kayabaNerve/0e1f7719e5797c826b87249f21ab6f86) indicates using [RFC 9380](https://www.rfc-editor.org/rfc/rfc9380.html) (Hashing to Elliptic Curves) with Simplified SWU mapping.
 
 **Division of responsibility**: Helioselene provides only the **map-to-curve** step, not the full hash-to-curve pipeline. The caller is responsible for hashing their input to field elements (via `expand_message_xmd` with SHA-512, BLAKE2b, or whatever hash they use). This mirrors the ed25519 library's `ge_fromfe_frombytes_vartime` — accept serialized field element bytes, return a curve point.
 
@@ -311,7 +312,7 @@ The Ed25519 prime-order subgroup of order ℓ shares its order with the Helios g
 **Implementation requirements**:
 - Birational map constants: The Wei25519 curve constants (a, b in y² = x³ + ax + b) are derived from Ed25519 parameters and stored as compile-time constants in helioselene. The actual Ed25519 → Wei25519 coordinate transform is the **caller's responsibility** — helioselene doesn't need to know about Ed25519 point types.
 - x-coordinate ingestion: Helioselene exposes a function like `selene_scalar_from_bytes(const uint8_t[32])` that accepts a 32-byte little-endian field element (the Wei25519 affine x-coordinate) and returns a Selene scalar. The caller's ed25519 library handles the point decompression, cofactor clearing, and birational map — then passes the resulting x-coordinate to helioselene.
-- **No ed25519 dependency**: Helioselene is a standalone library. The `ge_p3` structure from ed25519 is not referenced — the API boundary is raw bytes. This keeps helioselene decoupled and lets downstream consumers use any Ed25519 implementation (libsodium, gibme-c/ed25519, dalek via FFI, etc.).
+- **No ed25519 dependency**: Helioselene is a standalone library with no build-time or link-time dependency on any ed25519 implementation. The `ge_p3` structure from ed25519 is not referenced — the API boundary is raw bytes. The downstream caller (FCMP++ layer, Monero, etc.) owns the Ed25519 → Wei25519 coordinate transform using whatever ed25519 implementation they already have. `gibme-c/ed25519` (development branch) is the **reference architecture** we study for patterns, not a dependency. This keeps helioselene decoupled and lets downstream consumers use any Ed25519 implementation (libsodium, gibme-c/ed25519, dalek via FFI, etc.).
 
 **Tree structure** (for downstream Curve Trees):
 ```
@@ -365,7 +366,7 @@ The divisor computation (proving that a set of points sums to zero via the divis
 
 The module provides:
 - Polynomial arithmetic over F_p and F_q: multiplication, division, evaluation, interpolation.
-- Polynomial multiplication strategy: schoolbook for small degree (n ≤ 64), Karatsuba for moderate degree (64 < n ≤ 1024). NTT/FFT polynomial multiplication for large degree (n > 1024) is implemented in Phase 5 (§13). Phases 1–4 provide schoolbook and Karatsuba.
+- Polynomial multiplication strategy: schoolbook for small degree (n ≤ 64), Karatsuba for moderate degree (64 < n ≤ 1024). NTT/FFT for large degree (n > 1024) is infeasible for these fields (see Phase 5 Out of Scope). Karatsuba is the best practical algorithm.
 - Point evaluation of divisors along challenge lines.
 - SIMD-accelerated polynomial operations: the field element vectors used for polynomial coefficients naturally benefit from the same AVX2/IFMA batch arithmetic used elsewhere in the library (`fe10x4` / `fe51x8` for 4-way/8-way parallel coefficient operations).
 
@@ -407,7 +408,7 @@ Fe evaluate_divisor(const Divisor<auto, Fe>& d, const Fe& x, const Fe& y);
 } // namespace helioselene::poly
 ```
 
-The ec-divisors competition showed that FFT-based polynomial multiplication yielded a 95%+ improvement (Fabrizio's submission). This module must deliver comparable performance.
+The [ec-divisors competition](https://www.getmonero.org/2025/08/27/fcmp++-contest-final.html) shows that FFT-based polynomial multiplication yields a 95%+ improvement ([Fabrizio's submission](https://github.com/j-berman/fcmp-plus-plus-optimization-competition)). However, NTT is infeasible for both fields: q−1 has 2-adicity s=1, p−1 has s=2 — neither supports roots of unity of sufficient order (see Phase 5 Out of Scope). Karatsuba (O(n^1.585), threshold=32) is the best practical algorithm. NTT-friendly helper primes with CRT would add enormous complexity for marginal benefit at FCMP++ polynomial degrees.
 
 ---
 
@@ -427,6 +428,8 @@ Mirrors the ed25519 platform matrix, which has been validated across MSVC, GCC, 
 | x86_64 + AVX-512 IFMA (batch) | 5×51-bit limbs | `vpmadd52lo/hi` 8-way | `x64/ifma/fe51x8_ifma.h` | 8 independent field ops per instruction. |
 
 ARM64 NEON SIMD paths are out of scope for initial implementation. The scalar 64-bit path is already fast on ARM64 due to native `__int128` support and wide multiply instructions (`umulh`). NEON field arithmetic could be a future optimization but ARM64 lacks an equivalent to IFMA's fused multiply-accumulate for 52-bit integers.
+
+32-bit WASM follows the generic ref10 32-bit path via Emscripten. No special WASM-specific optimizations. The ref10 `int32_t[10]` representation works natively in WASM's 32-bit integer arithmetic.
 
 ### 9.2 Runtime Dispatch
 
@@ -467,7 +470,7 @@ struct helioselene_dispatch_table {
 
 ### 10.1 Memory Safety
 
-- No custom allocator. Stack allocation for field elements, point types, and scalar mul intermediates. `std::vector` for MSM heap allocations (bucket arrays, digit encodings) — these hold variable-time public data and don't need secure allocation.
+- No custom allocator, no RAII wrappers, no mlock, no arena. Same approach as ed25519: stack allocation for the hot path (field elements, point types, scalar mul intermediates), `std::vector` for MSM heap allocations (bucket arrays, digit encodings) — these hold variable-time public data and don't need secure allocation.
 - `helioselene_secure_erase()` utility (replicating ed25519's platform-abstracted `SecureZeroMemory` / `memset_s` / `explicit_bzero` / volatile function pointer chain) exposed for callers to manage their own secret lifecycle.
 - Constant-time scalar multiplication paths call `secure_erase` on stack locals (precomputed tables, intermediate scalars) before return as defense-in-depth.
 - No dynamic allocation in the field arithmetic hot path (all stack-allocated limb arrays).
@@ -581,29 +584,6 @@ Key design decisions:
 - **EC-divisor polynomial arithmetic is included** as a first-class module within the library (see §8.3). No external FFT/NTT dependency.
 - No Boost. No STL allocators for secret data. Minimal `<algorithm>` use.
 
-**Compile flags** (mirroring ed25519's proven configuration):
-```cmake
-# Global flags — matches ed25519 exactly
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17 -Wall -Wextra -Wuninitialized -fstack-protector-strong")
-
-# CRITICAL: Suppress auto-vectorization to protect constant-time guarantees
-if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-tree-vectorize")
-elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-vectorize -fno-slp-vectorize")
-endif()
-
-# Per-TU SIMD flags — same pattern as ed25519
-foreach(IFMA_SRC ${HELIOSELENE_IFMA_SRC})
-    set_source_files_properties(${IFMA_SRC} PROPERTIES COMPILE_OPTIONS "-mavx512f;-mavx512ifma")
-endforeach()
-foreach(AVX2_SRC ${HELIOSELENE_AVX2_SRC})
-    set_source_files_properties(${AVX2_SRC} PROPERTIES COMPILE_OPTIONS "-mavx2")
-endforeach()
-```
-
-Note: ed25519 uses `-O3` for release builds. This is safe because auto-vectorization is explicitly disabled via the flags above. The SIMD paths are hand-written and explicitly enabled per-TU, not compiler-generated. We follow the same approach rather than the more conservative `-O2`.
-
 ---
 
 ## 13. Phased Rollout
@@ -631,7 +611,7 @@ Note: ed25519 uses `-O3` for release builds. This is safe because auto-vectoriza
 
 - MSM: Clone ed25519's `ge_multiscalar_mul_vartime.cpp` (x64 baseline). Replace point operations with Jacobian equivalents. The signed-digit encoding, Straus/Pippenger selection, window-size heuristic, and bucket accumulation + running-sum structure transfer directly.
 - Pedersen vector commitments (multi-scalar mul with fixed generators).
-- Map-to-curve (SSWU per RFC 9380): accepts pre-hashed field elements, maps to curve points. Caller handles the hash function externally.
+- Map-to-curve (SSWU per [RFC 9380](https://www.rfc-editor.org/rfc/rfc9380.html)): accepts pre-hashed field elements, maps to curve points. Caller handles the hash function externally.
 - EC-divisor polynomial arithmetic module: schoolbook, Karatsuba, and NTT/FFT polynomial multiplication over F_p and F_q. Polynomial division, evaluation, interpolation. Verify F_q 2-adicity for NTT applicability.
 - Benchmark against Rust reference: target ≥ parity, ideally 20%+ faster.
 
@@ -647,85 +627,106 @@ Note: ed25519 uses `-O3` for release builds. This is safe because auto-vectoriza
 
 ### Phase 5: Algorithmic Optimizations (Weeks 15–18)
 
-Performance-critical algorithmic work not covered by SIMD vectorization. These optimizations are essential for FCMP++ to be viable on a cryptocurrency blockchain where proof generation and verification latency directly impacts transaction throughput and user experience. Phase 5 focuses on algorithmic optimizations. The public C++ API wrapping the internal C-style dispatch layer is Phase 6.
+Performance-critical algorithmic work not covered by SIMD vectorization. These optimizations are essential for FCMP++ to be viable on a cryptocurrency blockchain where proof generation and verification latency directly impacts transaction throughput and user experience. The public C++ API wrapping the internal C-style dispatch layer is Phase 6.
 
-- **Crandall theta optimization**: Decompose 2γ = 2 + 2^11 × θ (where θ = (γ−1)/2^10, 119 bits) in fq51_crandall_reduce to replace the 5×3 limb multiply by a shift-by-11 plus a smaller 5×3 multiply by θ. Constants TWO_GAMMA_51 are already defined in fq51.h. Apply to x64 scalar path (fq51_inline.h). SIMD paths may also benefit.
-- **Fq inversion addition chain**: Replace the generic bit-scan loop in fq_invert (src/x64/fq_invert.cpp, src/portable/fq_invert.cpp) with an optimized addition chain for q-2, matching the structure of fp_invert's 11-step chain. Target ~3-4x speedup for Fq field inversion. Derive the optimal chain for the specific bit pattern of q-2.
-- **Fixed-base CT scalarmult with w=5**: For known/cached base points (Pedersen generators), implement a w=5 fixed-window CT scalarmult with 16-entry precomputed affine tables cached at initialization. The larger table is amortized across multiple calls, saving ~13 mixed additions per scalarmult vs the variable-base w=4 path. Variable-base CT scalarmult retains w=4 (break-even analysis shows no benefit from w=5 when the table is rebuilt each call).
-- **Polynomial multiplication: Karatsuba** for moderate degree (n ≈ 64–1024). The schoolbook O(n²) path becomes a bottleneck for EC-divisor computation at the point counts used in curve tree layers. Karatsuba's O(n^1.585) crossover should be empirically tuned — likely around degree 32–64.
-- **Polynomial multiplication: NTT/FFT** for large degree (n > 1024). Verify F_q 2-adicity (q−1 divisibility by powers of 2) to determine whether radix-2 NTT is viable or whether Bluestein's algorithm / mixed-radix / Schönhage–Strassen is needed. The ec-divisors competition showed 95%+ improvement from FFT-based polynomial multiplication (Fabrizio's submission). This is not optional for production FCMP++.
-- **Polynomial auto-selection**: `fp_poly_mul` / `fq_poly_mul` should automatically select schoolbook, Karatsuba, or NTT based on input degree. Thresholds determined by benchmarking.
-- **Batch field inversion (Montgomery's trick)**: Amortize field inversions across multiple points — one inversion + 3(n−1) multiplications instead of n inversions. Critical for batch Jacobian→affine conversion in Pippenger bucket accumulation, curve tree layer hashing, and divisor evaluation.
-- **Precomputed generator tables**: For the fixed generators used in Pedersen commitments and curve tree hashing, precompute and cache wNAF lookup tables at initialization. Converts each scalar-mul-by-generator from full double-and-add into a series of additions against precomputed affine points.
-- **Fixed-base MSM specialization**: When all points are known at compile/init time (Pedersen generators), exploit precomputation for ~2x speedup over the generic variable-base Pippenger. The ed25519 library demonstrates this with `ge_precomp_base` tables.
-- **Scalar reduction**: Barrett reduction for scalars mod group order (mod q for Helios scalars, mod p for Selene scalars). Currently scalars are used as raw 256-bit values — proper modular scalar arithmetic is needed for protocols that perform scalar operations (Bulletproofs inner-product argument, Fiat-Shamir challenge computation).
-- **Multi-threaded Pippenger**: For large MSMs (n > 4096, typical in curve tree construction), partition the scalar-point pairs across threads for parallel bucket accumulation. The bucket phase is embarrassingly parallel; only the final running-sum combination requires synchronization.
-- **Endomorphism investigation**: While the CM discriminant D = −7857907 doesn't yield a cheap GLV endomorphism, investigate whether any structural property of these specific curves enables scalar decomposition or other non-obvious speedups.
+- **Fq inversion addition chain**: Replace the generic bit-scan loop in fq_invert (`src/x64/fq_invert.cpp`, `src/portable/fq_invert.cpp`) with an optimized addition chain for q-2, matching the structure of fp_invert's 11-step chain. Use a 4-bit fixed window for the lower 128 irregular bits and a doubling chain for the upper 127 all-ones bits. Target 254 sq + 50 mul (down from ~254 sq + 202 mul in the naive bit-scan approach).
+- **Scalar muladd/sq**: Implement `helios_scalar_muladd`, `helios_scalar_sq` and Selene equivalents. These compose existing field ops (fq_mul+fq_add, fp_mul+fp_add) since Helios scalars live in Fq and Selene scalars live in Fp (curve cycle property). Barrett reduction is unnecessary — the existing `_reduce_wide` handles 64-byte inputs, and scalar arithmetic is just field arithmetic.
+- **Batch field inversion (Montgomery's trick)**: Extract Montgomery's trick from batch_affine into standalone `fp_batch_invert.h` and `fq_batch_invert.h`. Refactor batch_affine headers to use these utilities. Amortize field inversions across multiple points — one inversion + 3(n−1) multiplications instead of n inversions. Critical for batch Jacobian→affine conversion in Pippenger bucket accumulation, curve tree layer hashing, and divisor evaluation.
+- **Fixed-base CT scalarmult with w=5**: For known/cached base points (Pedersen generators), implement header-only w=5 fixed-window CT scalarmult using 52 signed 5-bit windows with 16-entry precomputed affine tables cached at initialization. Save ~12 mixed additions per scalarmult vs the variable-base w=4 path, amortizing table computation across multiple calls. Variable-base CT scalarmult retains w=4 (break-even analysis shows no benefit from w=5 when the table is rebuilt each call).
+- **Precomputed generator tables**: Store static byte data in `.inl` files for both base generators, with `helios_precomp.h`/`selene_precomp.h` loaders. Achieve zero runtime precomputation for the base generator.
+- **Fixed-base MSM specialization**: Implement interleaved w=5 MSM that shares 255 doublings across all n points, saving (n-1)×255 doublings vs individual fixed-base scalarmults. When all points are known at compile/init time (Pedersen generators), exploit precomputation for ~2x speedup over the generic variable-base Pippenger.
+- **Karatsuba polynomial multiplication**: Implement Karatsuba for moderate degree (threshold=32) in `src/poly.cpp`. The schoolbook O(n²) path becomes a bottleneck for EC-divisor computation at the point counts used in curve tree layers.
+- **Polynomial auto-selection**: `fp_poly_mul` / `fq_poly_mul` automatically select schoolbook (<32 coeffs) vs Karatsuba (>=32) based on input degree.
 - Benchmark all optimizations against the Rust `helioselene` crate: target ≥ parity on scalar paths, 2–3x advantage with SIMD+algorithmic combined.
 
-**Phase 5 implementation notes (completed):**
+#### Out of Scope
 
-Items implemented:
-- **Fq inversion addition chain**: Optimized for both x64 and portable backends. Uses 4-bit fixed window for the lower 128 irregular bits and a doubling chain for the upper 127 all-ones bits. Total: 254 sq + 50 mul (down from ~254 sq + 202 mul in the naive bit-scan approach).
-- **Scalar muladd/sq**: Added `helios_scalar_muladd`, `helios_scalar_sq` and Selene equivalents. These compose existing field ops (fq_mul+fq_add, fp_mul+fp_add) since Helios scalars live in Fq and Selene scalars live in Fp (curve cycle property). Barrett reduction is unnecessary — the existing `_reduce_wide` handles 64-byte inputs, and scalar arithmetic is just field arithmetic.
-- **Batch field inversion**: Extracted Montgomery's trick from batch_affine into standalone `fp_batch_invert.h` and `fq_batch_invert.h`. Refactored batch_affine headers to use these utilities.
-- **Fixed-base CT scalarmult (w=5)**: Header-only implementations using 52 signed 5-bit windows with 16-entry precomputed affine tables. Saves ~12 mixed additions per scalarmult vs w=4, and amortizes table computation across multiple calls.
-- **Precomputed generator tables**: Static byte data in `.inl` files for both base generators, with `helios_precomp.h`/`selene_precomp.h` loaders. Zero runtime precomputation for the base generator.
-- **Fixed-base MSM**: Interleaved w=5 MSM that shares 255 doublings across all n points, saving (n-1)*255 doublings vs individual fixed-base scalarmults.
-- **Karatsuba polynomial multiplication**: Already implemented (threshold=32) in `src/poly.cpp` from Phase 4.
-- **Polynomial auto-selection**: Already implemented — `fp_poly_mul`/`fq_poly_mul` dispatch schoolbook (<32 coeffs) vs Karatsuba (>=32).
+The following items are excluded from Phase 5 scope due to infeasibility or insufficient benefit:
 
-Items skipped with justification:
-- **Crandall theta optimization** (Item 2): The plan assumed γ−1 is divisible by 2^10, enabling decomposition 2γ = 2 + 2^11 × θ where θ = (γ−1)/2^10. Verification showed γ−1 mod 1024 = 96, giving a 2-adic valuation of only 5 (not 10). The decomposition 2γ = 2 + 2^5 × θ' where θ' = (γ−1)/2^4 doesn't provide meaningful savings since θ' is still ~123 bits (only 4 bits smaller than γ). The current direct `hi × TWO_GAMMA_51` multiply is already efficient.
-- **NTT/FFT for polynomial multiplication** (Item 5): Computed that q−1 has 2-adicity s=1 (only one factor of 2) and p−1 has s=2. Standard radix-2 NTT requires s >= log2(N) where N is the transform size. Bluestein's algorithm also requires roots of unity of sufficient order, which neither field provides. NTT-friendly helper primes with CRT would add enormous complexity for marginal gain over Karatsuba at the polynomial degrees used in FCMP++ (typically hundreds to low thousands). Karatsuba at O(n^1.585) remains the best practical algorithm for these fields.
-- **Endomorphism investigation** (Item 10): Computed the CM discriminant: t (Helios trace) = p+1-q is 127 bits, and the squarefree part of t²−4p has |D| = 245 bits with f = 83. GLV-style endomorphisms require D = −3 (cube root of unity) or D = −4 (sqrt(−1)), or at minimum a very small |D|. With |D| at 245 bits, no efficient endomorphism exists for these curves. The plan's cited D = −7857907 appears to be the CM discriminant of the isogeny class, not the squarefree discriminant — in either case, it's far too large for GLV.
+- **Crandall theta optimization**: Assumes γ−1 is divisible by 2^10, enabling decomposition 2γ = 2 + 2^11 × θ where θ = (γ−1)/2^10. In practice, γ−1 mod 1024 = 96, giving a 2-adic valuation of only 5 (not 10). The decomposition 2γ = 2 + 2^5 × θ' where θ' = (γ−1)/2^4 does not provide meaningful savings since θ' is still ~123 bits (only 4 bits smaller than γ). The direct `hi × TWO_GAMMA_51` multiply is already efficient.
+- **NTT/FFT for polynomial multiplication**: q−1 has 2-adicity s=1 (only one factor of 2) and p−1 has s=2. Standard radix-2 NTT requires s >= log2(N) where N is the transform size. Bluestein's algorithm also requires roots of unity of sufficient order, which neither field provides. NTT-friendly helper primes with CRT would add enormous complexity for marginal gain over Karatsuba at the polynomial degrees used in FCMP++ (typically hundreds to low thousands). Karatsuba at O(n^1.585) remains the best practical algorithm for these fields.
+- **GLV endomorphism**: The Helios trace t = p+1−q is 127 bits, and the squarefree part of t²−4p has |D| = 245 bits with f = 83. GLV-style endomorphisms require D = −3 (cube root of unity) or D = −4 (sqrt(−1)), or at minimum a very small |D|. With |D| at 245 bits, no efficient endomorphism exists for these curves. The cited D = −7857907 is the CM discriminant of the isogeny class, not the squarefree discriminant — in either case, far too large for GLV.
+- **Multi-threaded Pippenger**: Deferred to future work (see §Future Improvements). Threading adds platform complexity for variable-time paths only.
 
-### Phase 6: Public API, Hardening & Audit Prep (Weeks 19–22)
+### Phase 6: Public API, Security Hardening & Documentation (Weeks 19–22)
 
-- Implement the public C++ API (§11): HeliosPoint, SelenePoint, HeliosScalar, SeleneScalar classes with `std::optional` returns from deserialization, RAII, and type safety. This wraps the internal C-style dispatch layer.
-- `helioselene_secure_erase()` integration in constant-time scalar multiplication paths.
-- Comprehensive fuzzing campaign (AFL/libfuzzer on deserialization, validation, arithmetic).
-- Side-channel testing: constant-time validation under valgrind with secret-marked memory.
+Public C++ API wrapping the internal C-style dispatch layer, comprehensive security hardening pass, and documentation.
+
+#### 6.1 Public C++ API
+
+- Implement the public C++ API (§11) across 4 header/source pairs: `helioselene_scalar.h`/`api_scalar.cpp`, `helioselene_point.h`/`api_point.cpp`, `helioselene_polynomial.h`/`api_polynomial.cpp`, `helioselene_divisor.h`/`api_divisor.cpp`. HeliosPoint, SelenePoint, HeliosScalar, SeleneScalar, FpPolynomial, FqPolynomial, HeliosDivisor, SeleneDivisor classes with `std::optional` returns from deserialization, RAII, and type safety.
+- Reorganize headers: `helioselene.h` becomes the public C++ API entry point (includes all API classes + primitives). `helioselene_primitives.h` provides direct access to the low-level C-style primitives.
+- Expand `helioselene_primitives.h` to expose fixed-base scalarmult (`helios_scalarmult_fixed.h`, `selene_scalarmult_fixed.h`), fixed-base MSM (`helios_msm_fixed.h`, `selene_msm_fixed.h`), precomputed generator tables (`helios_precomp.h`, `selene_precomp.h`), and batch field inversion (`fp_batch_invert.h`, `fq_batch_invert.h`) for downstream FCMP++ consumers.
+- Add API-level tests to `tests.cpp` covering all public API classes.
+
+#### 6.2 Constant-Time Fixes (Critical)
+
+- Replace branching `if (val > 8)` / `if (val > 16)` in `scalar_recode_signed4` (w=4) and `recode_signed5` (w=5) with branchless arithmetic (`carry = (val + 8) >> 4` / `carry = (val + 16) >> 5`). All 10 files (8 w=4 across 4 backends × 2 curves, 2 w=5 fixed-base headers). The branching version leaks scalar bits through timing in the CT scalar multiplication path.
+- Add `ct_barrier_u64` to AVX2 `fp10_cmov` and `fq10_cmov` before mask generation (`fp/include/x64/avx2/fp10_avx2.h`, `fq/include/x64/avx2/fq10_avx2.h`). Without this, the compiler can optimize away the constant-time mask based on the known value of `b`.
+
+#### 6.3 Build Hardening
+
+- Add `/sdl` (Security Development Lifecycle) to MSVC compiler flags.
+- Add `-Wformat-security` to GCC/Clang warning flags.
+- Add `-fstack-clash-protection` with `check_cxx_compiler_flag` for GCC/Clang, excluding AppleClang (it accepts the flag at configure time but warns "argument unused" on every TU).
+- Add ELF linker hardening (`-Wl,-z,relro -Wl,-z,now -Wl,-z,noexecstack`) for non-Apple/non-MinGW platforms.
+- Add `ENABLE_ASAN` and `ENABLE_UBSAN` CMake options with `-fsanitize=address` / `-fsanitize=undefined` flags for development/CI sanitizer builds.
+
+#### 6.4 Public API Input Validation
+
+- Add null pointer and `n == 0` guards to all public API methods accepting raw pointers across `api_point.cpp`, `api_polynomial.cpp`, `api_divisor.cpp`. Return identity/zero/empty for degenerate inputs (defensive, no crash, noexcept-friendly).
+
+#### 6.5 Polynomial Edge Cases
+
+- Fix `FpPolynomial`/`FqPolynomial` ostream operators: `coeffs.size() - 1` underflows to `SIZE_MAX` for empty polynomials. Guard with `coeffs.empty()` check.
+- Add zero-divisor check in `fp_poly_divmod` / `fq_poly_divmod` to prevent undefined behavior from inverting zero. Return zero quotient and copy dividend to remainder when divisor is the zero polynomial.
+
+#### 6.6 Secure Erase (Defense-in-Depth)
+
+- Integrate `helioselene_secure_erase()` in all CT scalar multiplication paths (fixed-window w=4/w=5, fixed-base MSM) for precomputed tables and intermediate scalars.
+- Add `helioselene_secure_erase(bits, sizeof(bits))` in all 8 vartime `wnaf_encode` functions to erase the scalar working copy before return.
+- Add `helioselene_secure_erase(neg_y, sizeof(neg_y))` in all 4 `cneg` / `affine_cneg` functions (called 64× per CT scalarmult from table lookup).
+
+#### 6.7 Cross-Platform Compatibility
+
+- Replace `std::vector<fp_fe>` / `std::vector<fq_fe>` in `api_polynomial.cpp` with heap-allocated arrays (`new`/`delete[]`). C arrays (`uint64_t[5]`) are not valid `std::vector` element types on AppleClang's libc++.
+
+#### 6.8 Documentation & Test Vectors ✅
+
 - API finalization and documentation.
 - Test vector generation for downstream consumers.
-- Cross-validation: compare all outputs against Rust `helioselene` for large random samples.
-- Package for independent security audit.
+  - C++ generator tool (`tools/gen_test_vectors.cpp`) outputs canonical JSON (~200 vectors across all API operations)
+  - SageMath script (`tools/test_vectors.sage`) independently validates all vectors
+  - Python converter (`tools/json_to_header.py`) generates C++ header for `#include`
+  - Generated artifacts: `test_vectors/helioselene_test_vectors.json`, `include/helioselene_test_vectors.h`
+  - Test vectors integrated into C++ test suite (161 additional tests)
+  - Bug fix: `reduce_wide` bit-255 loss in both `selene_scalar_reduce_wide` and `helios_scalar_reduce_wide`
 
 ---
 
-## 14. Open Questions & Decision Points
-
-1. **Curve parameters**: **RESOLVED (architecturally)** — The library isolates all curve-specific constants (b, generator coordinates, isogeny coefficients for SSWU) in dedicated headers so they can be swapped without touching arithmetic code. The Veridise assessment recommends re-searching with twist security as a criterion (e.g., D = −31617403 or D = −31750123 give 200+ bit twist security), but that's a Monero-level decision. If parameters change, it's a header swap and base point table regeneration — the field primes (p, q) stay the same, so all field arithmetic and SIMD paths are unaffected.
-
-2. **Ed25519 library choice**: **RESOLVED** — Helioselene has no build-time or link-time dependency on any ed25519 library. The Wei25519 bridge accepts raw bytes at the API boundary (a 32-byte x-coordinate). The downstream caller (FCMP++ layer, Monero, etc.) owns the Ed25519 → Wei25519 coordinate transform using whatever ed25519 implementation they already have. `gibme-c/ed25519` (development branch) is the **reference architecture** we study for patterns, not a dependency.
-
-3. **Allocator model**: **RESOLVED** — Same approach as ed25519: no custom allocator. Stack allocation for the hot path (field elements, point types, scalar mul intermediates), `std::vector` for MSM heap allocations (bucket arrays, digit encodings). `helioselene_secure_erase()` exposed as a utility for callers to manage their own secret lifecycle. No RAII wrappers, no mlock, no arena. Constant-time scalar multiplication paths will `secure_erase` stack locals before return as a defense-in-depth measure.
-
-4. **FFT for ec-divisors**: **RESOLVED** — EC-divisor polynomial arithmetic is a first-class module within helioselene with no external dependency. The Fq field's 2-adicity has been verified: q−1 has s=1 (one factor of 2), p−1 has s=2. NTT is infeasible for both fields — neither supports roots of unity of sufficient order. Karatsuba (O(n^1.585), threshold=32) is the best practical algorithm. NTT-friendly helper primes with CRT would add enormous complexity for marginal benefit at FCMP++ polynomial degrees.
-
-5. **WASM target**: **RESOLVED** — 32-bit WASM follows the generic ref10 32-bit path via Emscripten. No special WASM-specific optimizations. The ref10 `int32_t[10]` representation works natively in WASM's 32-bit integer arithmetic.
-
----
-
-## 15. Maintenance Notes
+## 14. Maintenance Notes
 
 - **Shared F_p code**: Since ed25519 and helioselene both operate over F_p with identical arithmetic, there will be two copies of the same field implementation. This is intentional (helioselene is standalone), but the implementations should be periodically cross-validated to ensure they stay in sync for correctness.
 
 ---
 
-## 16. Reference Materials
+## 15. Reference Materials
 
 - **`gibme-c/ed25519` (development branch)** — Reference architecture for platform detection, SIMD dispatch, field arithmetic, MSM, constant-time primitives, and build system. https://github.com/gibme-c/ed25519/tree/development
-- Veridise Security Assessment for Helios–Selene (Bassa & Sepanski, Aug 2025)
-- FCMP++ Specification (kayabaNerve) — circuit, gadgets, tree structure
-- FCMP++ Optimization Competition results (Lederstrumpf's winning helioselene submission)
-- Monero PR #9436 (j-berman) — C++/Rust FFI integration reference
-- Handbook of Elliptic and Hyperelliptic Curve Cryptography (Cohen et al.) — Chapters 13–14 for implementation formulas
-- Guide to ECC (Hankerson, Menezes, Vanstone) — Chapters 3–4 for coordinate systems and scalar mul
-- djb's curve25519 paper and donna implementations — F_p arithmetic reference
-- Bernstein-Yang constant-time GCD (https://eprint.iacr.org/2019/266) — field inversion
-- Pippenger's algorithm as described in Daniel J. Bernstein's "Pippenger's exponentiation algorithm"
-- RFC 9380: Hashing to Elliptic Curves — hash-to-point specification
+- [Veridise Security Assessment for Helios–Selene](https://moneroresearch.info/index.php?action=attachments_ATTACHMENTS_CORE&method=downloadAttachment&id=271&resourceId=279&filename=776be5a7b6e6f22097a9491852ae2b731af49e16) (Bassa & Sepanski, Aug 2025)
+- [Helios/Selene curve construction](https://gist.github.com/tevador/4524c2092178df08996487d4e272b096) (tevador) — original curve parameter derivation
+- [FCMP++ Specification](https://gist.github.com/kayabaNerve/0e1f7719e5797c826b87249f21ab6f86) (kayabaNerve) — circuit, gadgets, tree structure
+- [FCMP++ Optimization Competition results](https://www.getmonero.org/2025/08/27/fcmp++-contest-final.html) ([competition repo](https://github.com/j-berman/fcmp-plus-plus-optimization-competition)) — Lederstrumpf's winning helioselene submission, Fabrizio's ec-divisors submission
+- [Monero PR #9436](https://github.com/monero-project/monero/pull/9436) (j-berman) — C++/Rust FFI integration reference
+- [Handbook of Elliptic and Hyperelliptic Curve Cryptography](https://www.hyperelliptic.org/HEHCC/) (Cohen et al.) — Chapters 13–14 for implementation formulas
+- [Guide to ECC](https://link.springer.com/book/10.1007/b97644) (Hankerson, Menezes, Vanstone) — Chapters 3–4 for coordinate systems and scalar mul
+- [Curve25519: new Diffie-Hellman speed records](https://cr.yp.to/ecdh/curve25519-20060209.pdf) (Bernstein, 2006) — F_p arithmetic reference
+- [Fast constant-time gcd computation and modular inversion](https://eprint.iacr.org/2019/266) (Bernstein & Yang, 2019) — field inversion
+- [Pippenger's exponentiation algorithm](https://cr.yp.to/papers/pippenger.pdf) (Bernstein, 2002) — multi-scalar multiplication
+- [RFC 9380: Hashing to Elliptic Curves](https://www.rfc-editor.org/rfc/rfc9380.html) — hash-to-point specification (SSWU mapping)
+- [ECFFT Part I: Fast Polynomial Algorithms over all Finite Fields](https://arxiv.org/abs/2107.08473) (Ben-Sasson, Carmon, Kopparty, Levit, 2021) — evaluation-domain polynomial arithmetic
+- [Crandall reduction](https://link.springer.com/book/10.1007/0-387-28979-8) — fast modular reduction for primes 2^n − c (Crandall & Pomerance, *Prime Numbers: A Computational Perspective*, Ch. 9)
+- [Montgomery's batch inversion trick](https://cr.yp.to/bib/1987/montgomery.pdf) (Montgomery, 1987, §10.3.1) — simultaneous inversion via 3(n−1) multiplications
 
 ---
 

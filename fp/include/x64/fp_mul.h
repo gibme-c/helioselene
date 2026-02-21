@@ -24,6 +24,11 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+/**
+ * @file fp_mul.h
+ * @brief x64 (radix-2^51) implementation of F_p multiplication.
+ */
+
 #ifndef HELIOSELENE_X64_FP_MUL_H
 #define HELIOSELENE_X64_FP_MUL_H
 #include "fp.h"
