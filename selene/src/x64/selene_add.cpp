@@ -31,8 +31,10 @@
 
 /*
  * General addition: Jacobian + Jacobian -> Jacobian (over F_q)
- * Same formula as helios_add but over F_q.
- * Cost: 11M + 5S
+ * EFD: add-2007-bl. Cost: 11M + 5S
+ *
+ * Raw incomplete formula — does not handle p == q, p == -q, or identity inputs.
+ * Edge cases are handled by the inline wrapper in selene_add.h.
  */
 
 #if defined(FQ51_HAVE_ADX_MUL)

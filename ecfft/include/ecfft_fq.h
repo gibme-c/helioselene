@@ -37,6 +37,10 @@
 
 #ifdef HELIOSELENE_ECFFT
 
+// clang-format off
+#include <cstddef>
+// clang-format on
+
 #include "ecfft_fq_data.inl"
 #include "fq_batch_invert.h"
 #include "fq_frombytes.h"

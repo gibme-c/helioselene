@@ -293,8 +293,10 @@ static void
                 if (zero_lanes)
                 {
                     __m256i zmask = _mm256_set_epi64x(
-                        (zero_lanes & 8) ? -1LL : 0LL, (zero_lanes & 4) ? -1LL : 0LL,
-                        (zero_lanes & 2) ? -1LL : 0LL, (zero_lanes & 1) ? -1LL : 0LL);
+                        (zero_lanes & 8) ? -1LL : 0LL,
+                        (zero_lanes & 4) ? -1LL : 0LL,
+                        (zero_lanes & 2) ? -1LL : 0LL,
+                        (zero_lanes & 1) ? -1LL : 0LL);
                     selene_cmov_4x(&accum[g], &saved, zmask);
                 }
             }
@@ -302,8 +304,10 @@ static void
             if (first_time)
             {
                 __m256i fmask = _mm256_set_epi64x(
-                    (first_time & 8) ? -1LL : 0LL, (first_time & 4) ? -1LL : 0LL,
-                    (first_time & 2) ? -1LL : 0LL, (first_time & 1) ? -1LL : 0LL);
+                    (first_time & 8) ? -1LL : 0LL,
+                    (first_time & 4) ? -1LL : 0LL,
+                    (first_time & 2) ? -1LL : 0LL,
+                    (first_time & 1) ? -1LL : 0LL);
                 selene_cmov_4x(&accum[g], &selected, fmask);
             }
 

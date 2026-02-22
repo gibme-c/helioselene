@@ -59,6 +59,7 @@
 #include "helios_constants.h"
 #include "helios_dbl.h"
 #include "helios_ops.h"
+#include "helioselene_secure_erase.h"
 #include "selene_add.h"
 #include "selene_batch_affine.h"
 #include "selene_constants.h"
@@ -939,15 +940,12 @@ void helios_scalar_mul_divisor(helios_divisor *d, const unsigned char *scalar, c
     helios_jacobian P;
     helios_from_affine(&P, point);
 
-    /* Find highest set bit */
+    /* Constant-time highest-bit scan: no early exit, no secret-dependent branch */
     int highest_bit = -1;
-    for (int i = 255; i >= 0; i--)
+    for (int i = 0; i < 256; i++)
     {
-        if ((scalar[i / 8] >> (i % 8)) & 1)
-        {
-            highest_bit = i;
-            break;
-        }
+        int bit = (scalar[i / 8] >> (i % 8)) & 1;
+        highest_bit = highest_bit ^ ((highest_bit ^ i) & (-bit));
     }
 
     if (highest_bit < 0)
@@ -957,40 +955,18 @@ void helios_scalar_mul_divisor(helios_divisor *d, const unsigned char *scalar, c
         fp_0(d->a.coeffs[0].v);
         d->b.coeffs.resize(1);
         fp_0(d->b.coeffs[0].v);
+        helioselene_secure_erase(&P, sizeof(P));
         return;
     }
 
-    if (highest_bit == 0)
-    {
-        /* scalar is 1: divisor for a single point */
-        helios_affine pts[1];
-        helios_to_affine(&pts[0], &P);
-        helios_compute_divisor(d, pts, 1);
-        return;
-    }
-
-    /* Double-and-add: collect all the "add" points and "double" points
-     * that contribute to the final scalar multiplication.
-     *
-     * For scalar multiplication s * P, the witness divisor D should
-     * vanish at s*P with the right properties for the proof system.
-     *
-     * The set of intermediate points from the ladder:
-     * Starting with accumulator A = P (for the highest bit = 1):
-     *   For each subsequent bit b (from highest_bit-1 down to 0):
-     *     A = 2*A  (doubling)
-     *     if b == 1: A = A + P  (addition)
-     *
-     * We collect all the P's that get added (one for each set bit below
-     * the highest). The divisor is built over all these point contributions.
-     */
-
-    /* Collect points: P appears once for each set bit in the scalar */
+    /* Collect points: P appears once for each set bit in the scalar.
+     * Always scan all 256 bits (the output divisor degree reveals
+     * the Hamming weight regardless, so the if-branch is not a leak). */
     std::vector<helios_affine> add_points;
     helios_affine pt_affine;
     helios_to_affine(&pt_affine, &P);
 
-    for (int i = highest_bit; i >= 0; i--)
+    for (int i = 255; i >= 0; i--)
     {
         if ((scalar[i / 8] >> (i % 8)) & 1)
         {
@@ -1002,6 +978,9 @@ void helios_scalar_mul_divisor(helios_divisor *d, const unsigned char *scalar, c
     if (n == 1)
     {
         helios_compute_divisor(d, add_points.data(), 1);
+        helioselene_secure_erase(&P, sizeof(P));
+        helioselene_secure_erase(&pt_affine, sizeof(pt_affine));
+        helioselene_secure_erase(add_points.data(), n * sizeof(helios_affine));
         return;
     }
 
@@ -1016,6 +995,11 @@ void helios_scalar_mul_divisor(helios_divisor *d, const unsigned char *scalar, c
 
     /* Convert to coefficient domain */
     helios_eval_divisor_to_divisor(d, &result);
+
+    /* Erase scalar-derived intermediates */
+    helioselene_secure_erase(&P, sizeof(P));
+    helioselene_secure_erase(&pt_affine, sizeof(pt_affine));
+    helioselene_secure_erase(add_points.data(), n * sizeof(helios_affine));
 }
 
 /* ================================================================
@@ -1119,14 +1103,12 @@ void selene_scalar_mul_divisor(selene_divisor *d, const unsigned char *scalar, c
     selene_jacobian P;
     selene_from_affine(&P, point);
 
+    /* Constant-time highest-bit scan: no early exit, no secret-dependent branch */
     int highest_bit = -1;
-    for (int i = 255; i >= 0; i--)
+    for (int i = 0; i < 256; i++)
     {
-        if ((scalar[i / 8] >> (i % 8)) & 1)
-        {
-            highest_bit = i;
-            break;
-        }
+        int bit = (scalar[i / 8] >> (i % 8)) & 1;
+        highest_bit = highest_bit ^ ((highest_bit ^ i) & (-bit));
     }
 
     if (highest_bit < 0)
@@ -1135,22 +1117,18 @@ void selene_scalar_mul_divisor(selene_divisor *d, const unsigned char *scalar, c
         fq_0(d->a.coeffs[0].v);
         d->b.coeffs.resize(1);
         fq_0(d->b.coeffs[0].v);
+        helioselene_secure_erase(&P, sizeof(P));
         return;
     }
 
-    if (highest_bit == 0)
-    {
-        selene_affine pts[1];
-        selene_to_affine(&pts[0], &P);
-        selene_compute_divisor(d, pts, 1);
-        return;
-    }
-
+    /* Collect points: P appears once for each set bit in the scalar.
+     * Always scan all 256 bits (the output divisor degree reveals
+     * the Hamming weight regardless, so the if-branch is not a leak). */
     std::vector<selene_affine> add_points;
     selene_affine pt_affine;
     selene_to_affine(&pt_affine, &P);
 
-    for (int i = highest_bit; i >= 0; i--)
+    for (int i = 255; i >= 0; i--)
     {
         if ((scalar[i / 8] >> (i % 8)) & 1)
         {
@@ -1162,6 +1140,9 @@ void selene_scalar_mul_divisor(selene_divisor *d, const unsigned char *scalar, c
     if (n == 1)
     {
         selene_compute_divisor(d, add_points.data(), 1);
+        helioselene_secure_erase(&P, sizeof(P));
+        helioselene_secure_erase(&pt_affine, sizeof(pt_affine));
+        helioselene_secure_erase(add_points.data(), n * sizeof(selene_affine));
         return;
     }
 
@@ -1173,4 +1154,9 @@ void selene_scalar_mul_divisor(selene_divisor *d, const unsigned char *scalar, c
     selene_eval_divisor_tree_reduce(&result, divs.data(), add_points.data(), n);
 
     selene_eval_divisor_to_divisor(d, &result);
+
+    /* Erase scalar-derived intermediates */
+    helioselene_secure_erase(&P, sizeof(P));
+    helioselene_secure_erase(&pt_affine, sizeof(pt_affine));
+    helioselene_secure_erase(add_points.data(), n * sizeof(selene_affine));
 }

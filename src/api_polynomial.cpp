@@ -37,11 +37,17 @@
 #include "fq_utils.h"
 #include "helioselene_polynomial.h"
 
+#include <climits>
+#include <cstdint>
 #include <cstring>
 #include <vector>
 
 namespace helioselene
 {
+
+    /* Upper bound on polynomial size: 1M coefficients (~40MB). Prevents
+     * unbounded allocations from causing memory exhaustion. */
+    static constexpr size_t MAX_POLY_SIZE = 1u << 20;
 
     /* ---- helpers ---- */
 
@@ -193,7 +199,7 @@ namespace helioselene
 
     FpPolynomial FpPolynomial::from_coefficients(const uint8_t *coeff_bytes, size_t n)
     {
-        if (n == 0 || !coeff_bytes)
+        if (n == 0 || !coeff_bytes || n > MAX_POLY_SIZE || n > SIZE_MAX / 32)
             return FpPolynomial();
 
         FpPolynomial p;
@@ -205,7 +211,7 @@ namespace helioselene
 
     FpPolynomial FpPolynomial::from_roots(const uint8_t *root_bytes, size_t n)
     {
-        if (n == 0 || !root_bytes)
+        if (n == 0 || !root_bytes || n > MAX_POLY_SIZE || n > SIZE_MAX / 32)
             return FpPolynomial();
 
         fp_fe *roots = new fp_fe[n];
@@ -261,7 +267,7 @@ namespace helioselene
 
     FpPolynomial FpPolynomial::interpolate(const uint8_t *x_bytes, const uint8_t *y_bytes, size_t n)
     {
-        if (n == 0 || !x_bytes || !y_bytes)
+        if (n == 0 || !x_bytes || !y_bytes || n > MAX_POLY_SIZE || n > SIZE_MAX / 32)
             return FpPolynomial();
 
         fp_fe *xs = new fp_fe[n];
@@ -290,7 +296,7 @@ namespace helioselene
 
     FqPolynomial FqPolynomial::from_coefficients(const uint8_t *coeff_bytes, size_t n)
     {
-        if (n == 0 || !coeff_bytes)
+        if (n == 0 || !coeff_bytes || n > MAX_POLY_SIZE || n > SIZE_MAX / 32)
             return FqPolynomial();
 
         FqPolynomial p;
@@ -302,7 +308,7 @@ namespace helioselene
 
     FqPolynomial FqPolynomial::from_roots(const uint8_t *root_bytes, size_t n)
     {
-        if (n == 0 || !root_bytes)
+        if (n == 0 || !root_bytes || n > MAX_POLY_SIZE || n > SIZE_MAX / 32)
             return FqPolynomial();
 
         fq_fe *roots = new fq_fe[n];
@@ -358,7 +364,7 @@ namespace helioselene
 
     FqPolynomial FqPolynomial::interpolate(const uint8_t *x_bytes, const uint8_t *y_bytes, size_t n)
     {
-        if (n == 0 || !x_bytes || !y_bytes)
+        if (n == 0 || !x_bytes || !y_bytes || n > MAX_POLY_SIZE || n > SIZE_MAX / 32)
             return FqPolynomial();
 
         fq_fe *xs = new fq_fe[n];

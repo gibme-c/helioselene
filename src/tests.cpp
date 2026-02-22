@@ -5991,13 +5991,165 @@ static void test_vector_validation()
             check_int((name + " invalid").c_str(), 0, r.has_value() ? 1 : 0);
         }
     }
-    for (size_t i = 0; i < tv::helios_point::scalar_mul_count; i++)
     {
-        auto &v = tv::helios_point::scalar_mul_vectors[i];
-        auto s = HeliosScalar::from_bytes(v.scalar).value();
-        auto p = HeliosPoint::from_bytes(v.point).value();
-        auto r = p.scalar_mul(s);
-        check_bytes((std::string("tv: helios point scalar_mul ") + v.label).c_str(), v.result, r.to_bytes().data(), 32);
+        auto hp_from = [](const uint8_t bytes[32]) -> HeliosPoint
+        {
+            auto r = HeliosPoint::from_bytes(bytes);
+            return r ? *r : HeliosPoint::identity();
+        };
+        for (size_t i = 0; i < tv::helios_point::add_count; i++)
+        {
+            auto &v = tv::helios_point::add_vectors[i];
+            auto a = hp_from(v.a);
+            auto b = hp_from(v.b);
+            auto r = a + b;
+            check_bytes((std::string("tv: helios point add ") + v.label).c_str(), v.result, r.to_bytes().data(), 32);
+        }
+    }
+    {
+        auto hp_from = [](const uint8_t bytes[32]) -> HeliosPoint
+        {
+            auto r = HeliosPoint::from_bytes(bytes);
+            return r ? *r : HeliosPoint::identity();
+        };
+        for (size_t i = 0; i < tv::helios_point::dbl_count; i++)
+        {
+            auto &v = tv::helios_point::dbl_vectors[i];
+            auto a = hp_from(v.a);
+            auto r = a.dbl();
+            check_bytes((std::string("tv: helios point dbl ") + v.label).c_str(), v.result, r.to_bytes().data(), 32);
+        }
+        for (size_t i = 0; i < tv::helios_point::negate_count; i++)
+        {
+            auto &v = tv::helios_point::negate_vectors[i];
+            auto a = hp_from(v.a);
+            auto r = -a;
+            check_bytes((std::string("tv: helios point neg ") + v.label).c_str(), v.result, r.to_bytes().data(), 32);
+        }
+    }
+    {
+        auto hp_from = [](const uint8_t bytes[32]) -> HeliosPoint
+        {
+            auto r = HeliosPoint::from_bytes(bytes);
+            return r ? *r : HeliosPoint::identity();
+        };
+        for (size_t i = 0; i < tv::helios_point::scalar_mul_count; i++)
+        {
+            auto &v = tv::helios_point::scalar_mul_vectors[i];
+            auto s = HeliosScalar::from_bytes(v.scalar).value();
+            auto p = hp_from(v.point);
+            auto r = p.scalar_mul(s);
+            check_bytes(
+                (std::string("tv: helios point scalar_mul ") + v.label).c_str(), v.result, r.to_bytes().data(), 32);
+        }
+    }
+    /* MSM */
+    {
+        auto test_msm = [](const char *label,
+                           size_t n,
+                           const uint8_t scalars[][32],
+                           const uint8_t points[][32],
+                           const uint8_t expected[32])
+        {
+            std::vector<HeliosScalar> sv;
+            std::vector<HeliosPoint> pv;
+            for (size_t i = 0; i < n; i++)
+            {
+                sv.push_back(HeliosScalar::from_bytes(scalars[i]).value());
+                pv.push_back(HeliosPoint::from_bytes(points[i]).value());
+            }
+            auto r = HeliosPoint::multi_scalar_mul(sv.data(), pv.data(), n);
+            check_bytes(label, expected, r.to_bytes().data(), 32);
+        };
+        test_msm(
+            "tv: helios msm n_1",
+            1,
+            tv::helios_point::msm_n_1_scalars,
+            tv::helios_point::msm_n_1_points,
+            tv::helios_point::msm_n_1_result);
+        test_msm(
+            "tv: helios msm n_2",
+            2,
+            tv::helios_point::msm_n_2_scalars,
+            tv::helios_point::msm_n_2_points,
+            tv::helios_point::msm_n_2_result);
+        test_msm(
+            "tv: helios msm n_4",
+            4,
+            tv::helios_point::msm_n_4_scalars,
+            tv::helios_point::msm_n_4_points,
+            tv::helios_point::msm_n_4_result);
+        test_msm(
+            "tv: helios msm n_16",
+            16,
+            tv::helios_point::msm_n_16_scalars,
+            tv::helios_point::msm_n_16_points,
+            tv::helios_point::msm_n_16_result);
+        test_msm(
+            "tv: helios msm n_32_straus",
+            32,
+            tv::helios_point::msm_n_32_straus_scalars,
+            tv::helios_point::msm_n_32_straus_points,
+            tv::helios_point::msm_n_32_straus_result);
+        test_msm(
+            "tv: helios msm n_33_pippenger",
+            33,
+            tv::helios_point::msm_n_33_pippenger_scalars,
+            tv::helios_point::msm_n_33_pippenger_points,
+            tv::helios_point::msm_n_33_pippenger_result);
+        test_msm(
+            "tv: helios msm n_64_pippenger",
+            64,
+            tv::helios_point::msm_n_64_pippenger_scalars,
+            tv::helios_point::msm_n_64_pippenger_points,
+            tv::helios_point::msm_n_64_pippenger_result);
+    }
+    /* Pedersen */
+    {
+        auto test_ped = [](const char *label,
+                           const uint8_t blinding[32],
+                           const uint8_t H[32],
+                           size_t n,
+                           const uint8_t values[][32],
+                           const uint8_t generators[][32],
+                           const uint8_t expected[32])
+        {
+            auto s_blind = HeliosScalar::from_bytes(blinding).value();
+            auto p_H = HeliosPoint::from_bytes(H).value();
+            std::vector<HeliosScalar> vals;
+            std::vector<HeliosPoint> gens;
+            for (size_t i = 0; i < n; i++)
+            {
+                vals.push_back(HeliosScalar::from_bytes(values[i]).value());
+                gens.push_back(HeliosPoint::from_bytes(generators[i]).value());
+            }
+            auto r = HeliosPoint::pedersen_commit(s_blind, p_H, vals.data(), gens.data(), n);
+            check_bytes(label, expected, r.to_bytes().data(), 32);
+        };
+        test_ped(
+            "tv: helios pedersen n_1",
+            tv::helios_point::pedersen_n_1_blinding,
+            tv::helios_point::pedersen_n_1_H,
+            1,
+            tv::helios_point::pedersen_n_1_values,
+            tv::helios_point::pedersen_n_1_generators,
+            tv::helios_point::pedersen_n_1_result);
+        test_ped(
+            "tv: helios pedersen blinding_zero",
+            tv::helios_point::pedersen_blinding_zero_blinding,
+            tv::helios_point::pedersen_blinding_zero_H,
+            1,
+            tv::helios_point::pedersen_blinding_zero_values,
+            tv::helios_point::pedersen_blinding_zero_generators,
+            tv::helios_point::pedersen_blinding_zero_result);
+        test_ped(
+            "tv: helios pedersen n_4",
+            tv::helios_point::pedersen_n_4_blinding,
+            tv::helios_point::pedersen_n_4_H,
+            4,
+            tv::helios_point::pedersen_n_4_values,
+            tv::helios_point::pedersen_n_4_generators,
+            tv::helios_point::pedersen_n_4_result);
     }
     for (size_t i = 0; i < tv::helios_point::map_to_curve_single_count; i++)
     {
@@ -6039,13 +6191,165 @@ static void test_vector_validation()
             check_int((name + " invalid").c_str(), 0, r.has_value() ? 1 : 0);
         }
     }
-    for (size_t i = 0; i < tv::selene_point::scalar_mul_count; i++)
     {
-        auto &v = tv::selene_point::scalar_mul_vectors[i];
-        auto s = SeleneScalar::from_bytes(v.scalar).value();
-        auto p = SelenePoint::from_bytes(v.point).value();
-        auto r = p.scalar_mul(s);
-        check_bytes((std::string("tv: selene point scalar_mul ") + v.label).c_str(), v.result, r.to_bytes().data(), 32);
+        auto sp_from = [](const uint8_t bytes[32]) -> SelenePoint
+        {
+            auto r = SelenePoint::from_bytes(bytes);
+            return r ? *r : SelenePoint::identity();
+        };
+        for (size_t i = 0; i < tv::selene_point::add_count; i++)
+        {
+            auto &v = tv::selene_point::add_vectors[i];
+            auto a = sp_from(v.a);
+            auto b = sp_from(v.b);
+            auto r = a + b;
+            check_bytes((std::string("tv: selene point add ") + v.label).c_str(), v.result, r.to_bytes().data(), 32);
+        }
+    }
+    {
+        auto sp_from = [](const uint8_t bytes[32]) -> SelenePoint
+        {
+            auto r = SelenePoint::from_bytes(bytes);
+            return r ? *r : SelenePoint::identity();
+        };
+        for (size_t i = 0; i < tv::selene_point::dbl_count; i++)
+        {
+            auto &v = tv::selene_point::dbl_vectors[i];
+            auto a = sp_from(v.a);
+            auto r = a.dbl();
+            check_bytes((std::string("tv: selene point dbl ") + v.label).c_str(), v.result, r.to_bytes().data(), 32);
+        }
+        for (size_t i = 0; i < tv::selene_point::negate_count; i++)
+        {
+            auto &v = tv::selene_point::negate_vectors[i];
+            auto a = sp_from(v.a);
+            auto r = -a;
+            check_bytes((std::string("tv: selene point neg ") + v.label).c_str(), v.result, r.to_bytes().data(), 32);
+        }
+    }
+    {
+        auto sp_from = [](const uint8_t bytes[32]) -> SelenePoint
+        {
+            auto r = SelenePoint::from_bytes(bytes);
+            return r ? *r : SelenePoint::identity();
+        };
+        for (size_t i = 0; i < tv::selene_point::scalar_mul_count; i++)
+        {
+            auto &v = tv::selene_point::scalar_mul_vectors[i];
+            auto s = SeleneScalar::from_bytes(v.scalar).value();
+            auto p = sp_from(v.point);
+            auto r = p.scalar_mul(s);
+            check_bytes(
+                (std::string("tv: selene point scalar_mul ") + v.label).c_str(), v.result, r.to_bytes().data(), 32);
+        }
+    }
+    /* MSM */
+    {
+        auto test_msm = [](const char *label,
+                           size_t n,
+                           const uint8_t scalars[][32],
+                           const uint8_t points[][32],
+                           const uint8_t expected[32])
+        {
+            std::vector<SeleneScalar> sv;
+            std::vector<SelenePoint> pv;
+            for (size_t i = 0; i < n; i++)
+            {
+                sv.push_back(SeleneScalar::from_bytes(scalars[i]).value());
+                pv.push_back(SelenePoint::from_bytes(points[i]).value());
+            }
+            auto r = SelenePoint::multi_scalar_mul(sv.data(), pv.data(), n);
+            check_bytes(label, expected, r.to_bytes().data(), 32);
+        };
+        test_msm(
+            "tv: selene msm n_1",
+            1,
+            tv::selene_point::msm_n_1_scalars,
+            tv::selene_point::msm_n_1_points,
+            tv::selene_point::msm_n_1_result);
+        test_msm(
+            "tv: selene msm n_2",
+            2,
+            tv::selene_point::msm_n_2_scalars,
+            tv::selene_point::msm_n_2_points,
+            tv::selene_point::msm_n_2_result);
+        test_msm(
+            "tv: selene msm n_4",
+            4,
+            tv::selene_point::msm_n_4_scalars,
+            tv::selene_point::msm_n_4_points,
+            tv::selene_point::msm_n_4_result);
+        test_msm(
+            "tv: selene msm n_16",
+            16,
+            tv::selene_point::msm_n_16_scalars,
+            tv::selene_point::msm_n_16_points,
+            tv::selene_point::msm_n_16_result);
+        test_msm(
+            "tv: selene msm n_32_straus",
+            32,
+            tv::selene_point::msm_n_32_straus_scalars,
+            tv::selene_point::msm_n_32_straus_points,
+            tv::selene_point::msm_n_32_straus_result);
+        test_msm(
+            "tv: selene msm n_33_pippenger",
+            33,
+            tv::selene_point::msm_n_33_pippenger_scalars,
+            tv::selene_point::msm_n_33_pippenger_points,
+            tv::selene_point::msm_n_33_pippenger_result);
+        test_msm(
+            "tv: selene msm n_64_pippenger",
+            64,
+            tv::selene_point::msm_n_64_pippenger_scalars,
+            tv::selene_point::msm_n_64_pippenger_points,
+            tv::selene_point::msm_n_64_pippenger_result);
+    }
+    /* Pedersen */
+    {
+        auto test_ped = [](const char *label,
+                           const uint8_t blinding[32],
+                           const uint8_t H[32],
+                           size_t n,
+                           const uint8_t values[][32],
+                           const uint8_t generators[][32],
+                           const uint8_t expected[32])
+        {
+            auto s_blind = SeleneScalar::from_bytes(blinding).value();
+            auto p_H = SelenePoint::from_bytes(H).value();
+            std::vector<SeleneScalar> vals;
+            std::vector<SelenePoint> gens;
+            for (size_t i = 0; i < n; i++)
+            {
+                vals.push_back(SeleneScalar::from_bytes(values[i]).value());
+                gens.push_back(SelenePoint::from_bytes(generators[i]).value());
+            }
+            auto r = SelenePoint::pedersen_commit(s_blind, p_H, vals.data(), gens.data(), n);
+            check_bytes(label, expected, r.to_bytes().data(), 32);
+        };
+        test_ped(
+            "tv: selene pedersen n_1",
+            tv::selene_point::pedersen_n_1_blinding,
+            tv::selene_point::pedersen_n_1_H,
+            1,
+            tv::selene_point::pedersen_n_1_values,
+            tv::selene_point::pedersen_n_1_generators,
+            tv::selene_point::pedersen_n_1_result);
+        test_ped(
+            "tv: selene pedersen blinding_zero",
+            tv::selene_point::pedersen_blinding_zero_blinding,
+            tv::selene_point::pedersen_blinding_zero_H,
+            1,
+            tv::selene_point::pedersen_blinding_zero_values,
+            tv::selene_point::pedersen_blinding_zero_generators,
+            tv::selene_point::pedersen_blinding_zero_result);
+        test_ped(
+            "tv: selene pedersen n_4",
+            tv::selene_point::pedersen_n_4_blinding,
+            tv::selene_point::pedersen_n_4_H,
+            4,
+            tv::selene_point::pedersen_n_4_values,
+            tv::selene_point::pedersen_n_4_generators,
+            tv::selene_point::pedersen_n_4_result);
     }
     for (size_t i = 0; i < tv::selene_point::map_to_curve_single_count; i++)
     {
@@ -6069,6 +6373,1092 @@ static void test_vector_validation()
         check_bytes((std::string("tv: selene point x_coord ") + v.label).c_str(), v.x_bytes, r.data(), 32);
     }
 
+    /* ---- Batch Invert ---- */
+    std::cout << "  --- Batch Invert ---" << std::endl;
+    {
+        /* fp n=1 */
+        {
+            uint8_t result[32];
+            std::memcpy(result, tv::batch_invert::fp_n_1_inputs[0], 32);
+            fp_fe fe;
+            fp_frombytes(fe, result);
+            fp_invert(fe, fe);
+            fp_tobytes(result, fe);
+            check_bytes("tv: batch invert fp n_1", tv::batch_invert::fp_n_1_results[0], result, 32);
+        }
+        /* fp n=4 */
+        {
+            fp_fe fes[4];
+            for (int i = 0; i < 4; i++)
+                fp_frombytes(fes[i], tv::batch_invert::fp_n_4_inputs[i]);
+            fp_batch_invert(fes, fes, 4);
+            for (int i = 0; i < 4; i++)
+            {
+                uint8_t result[32];
+                fp_tobytes(result, fes[i]);
+                check_bytes(
+                    (std::string("tv: batch invert fp n_4 [") + std::to_string(i) + "]").c_str(),
+                    tv::batch_invert::fp_n_4_results[i],
+                    result,
+                    32);
+            }
+        }
+        /* fq n=1 */
+        {
+            uint8_t result[32];
+            std::memcpy(result, tv::batch_invert::fq_n_1_inputs[0], 32);
+            fq_fe fe;
+            fq_frombytes(fe, result);
+            fq_invert(fe, fe);
+            fq_tobytes(result, fe);
+            check_bytes("tv: batch invert fq n_1", tv::batch_invert::fq_n_1_results[0], result, 32);
+        }
+        /* fq n=4 */
+        {
+            fq_fe fes[4];
+            for (int i = 0; i < 4; i++)
+                fq_frombytes(fes[i], tv::batch_invert::fq_n_4_inputs[i]);
+            fq_batch_invert(fes, fes, 4);
+            for (int i = 0; i < 4; i++)
+            {
+                uint8_t result[32];
+                fq_tobytes(result, fes[i]);
+                check_bytes(
+                    (std::string("tv: batch invert fq n_4 [") + std::to_string(i) + "]").c_str(),
+                    tv::batch_invert::fq_n_4_results[i],
+                    result,
+                    32);
+            }
+        }
+    }
+
+    /* ---- Fp Polynomial ---- */
+    std::cout << "  --- Fp Polynomial ---" << std::endl;
+    {
+        namespace fp = tv::fp_polynomial;
+
+        // from_roots: one root
+        {
+            auto p = FpPolynomial::from_roots(fp::from_roots_one_root_roots[0], 1);
+            size_t n = sizeof(fp::from_roots_one_root_coefficients) / sizeof(fp::from_roots_one_root_coefficients[0]);
+            check_int("tv: fp poly from_roots one_root degree", (int)(n - 1), (int)p.degree());
+            auto rebuilt = FpPolynomial::from_coefficients(fp::from_roots_one_root_coefficients[0], n);
+            for (size_t i = 0; i < n; i++)
+            {
+                uint8_t c[32];
+                fp_tobytes(c, p.raw().coeffs[i].v);
+                check_bytes(
+                    (std::string("tv: fp poly from_roots one_root coeff[") + std::to_string(i) + "]").c_str(),
+                    fp::from_roots_one_root_coefficients[i],
+                    c,
+                    32);
+            }
+        }
+        // from_roots: two roots
+        {
+            auto p = FpPolynomial::from_roots(fp::from_roots_two_roots_roots[0], 2);
+            size_t n = sizeof(fp::from_roots_two_roots_coefficients) / sizeof(fp::from_roots_two_roots_coefficients[0]);
+            check_int("tv: fp poly from_roots two_roots degree", (int)(n - 1), (int)p.degree());
+            for (size_t i = 0; i < n; i++)
+            {
+                uint8_t c[32];
+                fp_tobytes(c, p.raw().coeffs[i].v);
+                check_bytes(
+                    (std::string("tv: fp poly from_roots two_roots coeff[") + std::to_string(i) + "]").c_str(),
+                    fp::from_roots_two_roots_coefficients[i],
+                    c,
+                    32);
+            }
+        }
+        // from_roots: four roots
+        {
+            auto p = FpPolynomial::from_roots(fp::from_roots_four_roots_roots[0], 4);
+            size_t n =
+                sizeof(fp::from_roots_four_roots_coefficients) / sizeof(fp::from_roots_four_roots_coefficients[0]);
+            check_int("tv: fp poly from_roots four_roots degree", (int)(n - 1), (int)p.degree());
+            for (size_t i = 0; i < n; i++)
+            {
+                uint8_t c[32];
+                fp_tobytes(c, p.raw().coeffs[i].v);
+                check_bytes(
+                    (std::string("tv: fp poly from_roots four_roots coeff[") + std::to_string(i) + "]").c_str(),
+                    fp::from_roots_four_roots_coefficients[i],
+                    c,
+                    32);
+            }
+        }
+
+        // evaluate: constant at 7
+        {
+            auto p = FpPolynomial::from_coefficients(fp::eval_constant_at_7_coefficients[0], 1);
+            auto r = p.evaluate(fp::eval_constant_at_7_x);
+            check_bytes("tv: fp poly eval constant_at_7", fp::eval_constant_at_7_result, r.data(), 32);
+        }
+        // evaluate: linear at 0
+        {
+            auto p = FpPolynomial::from_coefficients(fp::eval_linear_at_0_coefficients[0], 2);
+            auto r = p.evaluate(fp::eval_linear_at_0_x);
+            check_bytes("tv: fp poly eval linear_at_0", fp::eval_linear_at_0_result, r.data(), 32);
+        }
+        // evaluate: linear at test_a
+        {
+            auto p = FpPolynomial::from_coefficients(fp::eval_linear_at_test_a_coefficients[0], 2);
+            auto r = p.evaluate(fp::eval_linear_at_test_a_x);
+            check_bytes("tv: fp poly eval linear_at_test_a", fp::eval_linear_at_test_a_result, r.data(), 32);
+        }
+        // evaluate: quadratic at 7
+        {
+            auto p = FpPolynomial::from_coefficients(fp::eval_quadratic_at_7_coefficients[0], 3);
+            auto r = p.evaluate(fp::eval_quadratic_at_7_x);
+            check_bytes("tv: fp poly eval quadratic_at_7", fp::eval_quadratic_at_7_result, r.data(), 32);
+        }
+
+        // mul: deg1 * deg1
+        {
+            size_t na = sizeof(fp::mul_deg1_times_deg1_a) / sizeof(fp::mul_deg1_times_deg1_a[0]);
+            size_t nb = sizeof(fp::mul_deg1_times_deg1_b) / sizeof(fp::mul_deg1_times_deg1_b[0]);
+            size_t nr = sizeof(fp::mul_deg1_times_deg1_result) / sizeof(fp::mul_deg1_times_deg1_result[0]);
+            auto a = FpPolynomial::from_coefficients(fp::mul_deg1_times_deg1_a[0], na);
+            auto b = FpPolynomial::from_coefficients(fp::mul_deg1_times_deg1_b[0], nb);
+            auto r = a * b;
+            check_int("tv: fp poly mul deg1*deg1 degree", (int)(nr - 1), (int)r.degree());
+            for (size_t i = 0; i < nr; i++)
+            {
+                uint8_t c[32];
+                fp_tobytes(c, r.raw().coeffs[i].v);
+                check_bytes(
+                    (std::string("tv: fp poly mul deg1*deg1 coeff[") + std::to_string(i) + "]").c_str(),
+                    fp::mul_deg1_times_deg1_result[i],
+                    c,
+                    32);
+            }
+        }
+        // mul: deg5 * deg5
+        {
+            size_t na = sizeof(fp::mul_deg5_times_deg5_a) / sizeof(fp::mul_deg5_times_deg5_a[0]);
+            size_t nb = sizeof(fp::mul_deg5_times_deg5_b) / sizeof(fp::mul_deg5_times_deg5_b[0]);
+            size_t nr = sizeof(fp::mul_deg5_times_deg5_result) / sizeof(fp::mul_deg5_times_deg5_result[0]);
+            auto a = FpPolynomial::from_coefficients(fp::mul_deg5_times_deg5_a[0], na);
+            auto b = FpPolynomial::from_coefficients(fp::mul_deg5_times_deg5_b[0], nb);
+            auto r = a * b;
+            check_int("tv: fp poly mul deg5*deg5 degree", (int)(nr - 1), (int)r.degree());
+            for (size_t i = 0; i < nr; i++)
+            {
+                uint8_t c[32];
+                fp_tobytes(c, r.raw().coeffs[i].v);
+                check_bytes(
+                    (std::string("tv: fp poly mul deg5*deg5 coeff[") + std::to_string(i) + "]").c_str(),
+                    fp::mul_deg5_times_deg5_result[i],
+                    c,
+                    32);
+            }
+        }
+        // mul: deg15 * deg15
+        {
+            size_t na = sizeof(fp::mul_deg15_times_deg15_a) / sizeof(fp::mul_deg15_times_deg15_a[0]);
+            size_t nb = sizeof(fp::mul_deg15_times_deg15_b) / sizeof(fp::mul_deg15_times_deg15_b[0]);
+            size_t nr = sizeof(fp::mul_deg15_times_deg15_result) / sizeof(fp::mul_deg15_times_deg15_result[0]);
+            auto a = FpPolynomial::from_coefficients(fp::mul_deg15_times_deg15_a[0], na);
+            auto b = FpPolynomial::from_coefficients(fp::mul_deg15_times_deg15_b[0], nb);
+            auto r = a * b;
+            check_int("tv: fp poly mul deg15*deg15 degree", (int)(nr - 1), (int)r.degree());
+            for (size_t i = 0; i < nr; i++)
+            {
+                uint8_t c[32];
+                fp_tobytes(c, r.raw().coeffs[i].v);
+                check_bytes(
+                    (std::string("tv: fp poly mul deg15*deg15 coeff[") + std::to_string(i) + "]").c_str(),
+                    fp::mul_deg15_times_deg15_result[i],
+                    c,
+                    32);
+            }
+        }
+        // mul: deg16 * deg16 (karatsuba)
+        {
+            size_t na =
+                sizeof(fp::mul_deg16_times_deg16_karatsuba_a) / sizeof(fp::mul_deg16_times_deg16_karatsuba_a[0]);
+            size_t nb =
+                sizeof(fp::mul_deg16_times_deg16_karatsuba_b) / sizeof(fp::mul_deg16_times_deg16_karatsuba_b[0]);
+            size_t nr = sizeof(fp::mul_deg16_times_deg16_karatsuba_result)
+                        / sizeof(fp::mul_deg16_times_deg16_karatsuba_result[0]);
+            auto a = FpPolynomial::from_coefficients(fp::mul_deg16_times_deg16_karatsuba_a[0], na);
+            auto b = FpPolynomial::from_coefficients(fp::mul_deg16_times_deg16_karatsuba_b[0], nb);
+            auto r = a * b;
+            check_int("tv: fp poly mul deg16*deg16 karatsuba degree", (int)(nr - 1), (int)r.degree());
+            for (size_t i = 0; i < nr; i++)
+            {
+                uint8_t c[32];
+                fp_tobytes(c, r.raw().coeffs[i].v);
+                check_bytes(
+                    (std::string("tv: fp poly mul deg16*deg16 karatsuba coeff[") + std::to_string(i) + "]").c_str(),
+                    fp::mul_deg16_times_deg16_karatsuba_result[i],
+                    c,
+                    32);
+            }
+        }
+
+        // add: same degree
+        {
+            size_t na = sizeof(fp::add_same_degree_a) / sizeof(fp::add_same_degree_a[0]);
+            size_t nb = sizeof(fp::add_same_degree_b) / sizeof(fp::add_same_degree_b[0]);
+            size_t nr = sizeof(fp::add_same_degree_result) / sizeof(fp::add_same_degree_result[0]);
+            auto a = FpPolynomial::from_coefficients(fp::add_same_degree_a[0], na);
+            auto b = FpPolynomial::from_coefficients(fp::add_same_degree_b[0], nb);
+            auto r = a + b;
+            for (size_t i = 0; i < nr; i++)
+            {
+                uint8_t c[32];
+                fp_tobytes(c, r.raw().coeffs[i].v);
+                check_bytes(
+                    (std::string("tv: fp poly add same_deg coeff[") + std::to_string(i) + "]").c_str(),
+                    fp::add_same_degree_result[i],
+                    c,
+                    32);
+            }
+        }
+        // add: different degree
+        {
+            size_t na = sizeof(fp::add_different_degree_a) / sizeof(fp::add_different_degree_a[0]);
+            size_t nb = sizeof(fp::add_different_degree_b) / sizeof(fp::add_different_degree_b[0]);
+            size_t nr = sizeof(fp::add_different_degree_result) / sizeof(fp::add_different_degree_result[0]);
+            auto a = FpPolynomial::from_coefficients(fp::add_different_degree_a[0], na);
+            auto b = FpPolynomial::from_coefficients(fp::add_different_degree_b[0], nb);
+            auto r = a + b;
+            for (size_t i = 0; i < nr; i++)
+            {
+                uint8_t c[32];
+                fp_tobytes(c, r.raw().coeffs[i].v);
+                check_bytes(
+                    (std::string("tv: fp poly add diff_deg coeff[") + std::to_string(i) + "]").c_str(),
+                    fp::add_different_degree_result[i],
+                    c,
+                    32);
+            }
+        }
+
+        // sub: same degree
+        {
+            size_t na = sizeof(fp::sub_same_degree_a) / sizeof(fp::sub_same_degree_a[0]);
+            size_t nb = sizeof(fp::sub_same_degree_b) / sizeof(fp::sub_same_degree_b[0]);
+            size_t nr = sizeof(fp::sub_same_degree_result) / sizeof(fp::sub_same_degree_result[0]);
+            auto a = FpPolynomial::from_coefficients(fp::sub_same_degree_a[0], na);
+            auto b = FpPolynomial::from_coefficients(fp::sub_same_degree_b[0], nb);
+            auto r = a - b;
+            for (size_t i = 0; i < nr; i++)
+            {
+                uint8_t c[32];
+                fp_tobytes(c, r.raw().coeffs[i].v);
+                check_bytes(
+                    (std::string("tv: fp poly sub same_deg coeff[") + std::to_string(i) + "]").c_str(),
+                    fp::sub_same_degree_result[i],
+                    c,
+                    32);
+            }
+        }
+        // sub: different degree
+        {
+            size_t na = sizeof(fp::sub_different_degree_a) / sizeof(fp::sub_different_degree_a[0]);
+            size_t nb = sizeof(fp::sub_different_degree_b) / sizeof(fp::sub_different_degree_b[0]);
+            size_t nr = sizeof(fp::sub_different_degree_result) / sizeof(fp::sub_different_degree_result[0]);
+            auto a = FpPolynomial::from_coefficients(fp::sub_different_degree_a[0], na);
+            auto b = FpPolynomial::from_coefficients(fp::sub_different_degree_b[0], nb);
+            auto r = a - b;
+            for (size_t i = 0; i < nr; i++)
+            {
+                uint8_t c[32];
+                fp_tobytes(c, r.raw().coeffs[i].v);
+                check_bytes(
+                    (std::string("tv: fp poly sub diff_deg coeff[") + std::to_string(i) + "]").c_str(),
+                    fp::sub_different_degree_result[i],
+                    c,
+                    32);
+            }
+        }
+
+        // divmod: exact division
+        {
+            size_t nn = sizeof(fp::divmod_exact_division_numerator) / sizeof(fp::divmod_exact_division_numerator[0]);
+            size_t nd =
+                sizeof(fp::divmod_exact_division_denominator) / sizeof(fp::divmod_exact_division_denominator[0]);
+            size_t nq = sizeof(fp::divmod_exact_division_quotient) / sizeof(fp::divmod_exact_division_quotient[0]);
+            size_t nrem = sizeof(fp::divmod_exact_division_remainder) / sizeof(fp::divmod_exact_division_remainder[0]);
+            auto num = FpPolynomial::from_coefficients(fp::divmod_exact_division_numerator[0], nn);
+            auto den = FpPolynomial::from_coefficients(fp::divmod_exact_division_denominator[0], nd);
+            auto [q, rem] = num.divmod(den);
+            for (size_t i = 0; i < nq; i++)
+            {
+                uint8_t c[32];
+                fp_tobytes(c, q.raw().coeffs[i].v);
+                check_bytes(
+                    (std::string("tv: fp poly divmod exact q[") + std::to_string(i) + "]").c_str(),
+                    fp::divmod_exact_division_quotient[i],
+                    c,
+                    32);
+            }
+            for (size_t i = 0; i < nrem; i++)
+            {
+                uint8_t c[32];
+                fp_tobytes(c, rem.raw().coeffs[i].v);
+                check_bytes(
+                    (std::string("tv: fp poly divmod exact r[") + std::to_string(i) + "]").c_str(),
+                    fp::divmod_exact_division_remainder[i],
+                    c,
+                    32);
+            }
+        }
+        // divmod: nonzero remainder
+        {
+            size_t nn =
+                sizeof(fp::divmod_nonzero_remainder_numerator) / sizeof(fp::divmod_nonzero_remainder_numerator[0]);
+            size_t nd =
+                sizeof(fp::divmod_nonzero_remainder_denominator) / sizeof(fp::divmod_nonzero_remainder_denominator[0]);
+            size_t nq =
+                sizeof(fp::divmod_nonzero_remainder_quotient) / sizeof(fp::divmod_nonzero_remainder_quotient[0]);
+            size_t nrem =
+                sizeof(fp::divmod_nonzero_remainder_remainder) / sizeof(fp::divmod_nonzero_remainder_remainder[0]);
+            auto num = FpPolynomial::from_coefficients(fp::divmod_nonzero_remainder_numerator[0], nn);
+            auto den = FpPolynomial::from_coefficients(fp::divmod_nonzero_remainder_denominator[0], nd);
+            auto [q, rem] = num.divmod(den);
+            for (size_t i = 0; i < nq; i++)
+            {
+                uint8_t c[32];
+                fp_tobytes(c, q.raw().coeffs[i].v);
+                check_bytes(
+                    (std::string("tv: fp poly divmod nonzero_rem q[") + std::to_string(i) + "]").c_str(),
+                    fp::divmod_nonzero_remainder_quotient[i],
+                    c,
+                    32);
+            }
+            for (size_t i = 0; i < nrem; i++)
+            {
+                uint8_t c[32];
+                fp_tobytes(c, rem.raw().coeffs[i].v);
+                check_bytes(
+                    (std::string("tv: fp poly divmod nonzero_rem r[") + std::to_string(i) + "]").c_str(),
+                    fp::divmod_nonzero_remainder_remainder[i],
+                    c,
+                    32);
+            }
+        }
+        // divmod: divide by linear
+        {
+            size_t nn =
+                sizeof(fp::divmod_divide_by_linear_numerator) / sizeof(fp::divmod_divide_by_linear_numerator[0]);
+            size_t nd =
+                sizeof(fp::divmod_divide_by_linear_denominator) / sizeof(fp::divmod_divide_by_linear_denominator[0]);
+            size_t nq = sizeof(fp::divmod_divide_by_linear_quotient) / sizeof(fp::divmod_divide_by_linear_quotient[0]);
+            size_t nrem =
+                sizeof(fp::divmod_divide_by_linear_remainder) / sizeof(fp::divmod_divide_by_linear_remainder[0]);
+            auto num = FpPolynomial::from_coefficients(fp::divmod_divide_by_linear_numerator[0], nn);
+            auto den = FpPolynomial::from_coefficients(fp::divmod_divide_by_linear_denominator[0], nd);
+            auto [q, rem] = num.divmod(den);
+            for (size_t i = 0; i < nq; i++)
+            {
+                uint8_t c[32];
+                fp_tobytes(c, q.raw().coeffs[i].v);
+                check_bytes(
+                    (std::string("tv: fp poly divmod by_linear q[") + std::to_string(i) + "]").c_str(),
+                    fp::divmod_divide_by_linear_quotient[i],
+                    c,
+                    32);
+            }
+            for (size_t i = 0; i < nrem; i++)
+            {
+                uint8_t c[32];
+                fp_tobytes(c, rem.raw().coeffs[i].v);
+                check_bytes(
+                    (std::string("tv: fp poly divmod by_linear r[") + std::to_string(i) + "]").c_str(),
+                    fp::divmod_divide_by_linear_remainder[i],
+                    c,
+                    32);
+            }
+        }
+
+        // interpolate: three points
+        {
+            size_t nc = sizeof(fp::interp_three_points_coefficients) / sizeof(fp::interp_three_points_coefficients[0]);
+            auto p = FpPolynomial::interpolate(fp::interp_three_points_xs[0], fp::interp_three_points_ys[0], 3);
+            check_int("tv: fp poly interp three_points degree", (int)(nc - 1), (int)p.degree());
+            for (size_t i = 0; i < nc; i++)
+            {
+                uint8_t c[32];
+                fp_tobytes(c, p.raw().coeffs[i].v);
+                check_bytes(
+                    (std::string("tv: fp poly interp three_points coeff[") + std::to_string(i) + "]").c_str(),
+                    fp::interp_three_points_coefficients[i],
+                    c,
+                    32);
+            }
+        }
+        // interpolate: four points
+        {
+            size_t nc = sizeof(fp::interp_four_points_coefficients) / sizeof(fp::interp_four_points_coefficients[0]);
+            auto p = FpPolynomial::interpolate(fp::interp_four_points_xs[0], fp::interp_four_points_ys[0], 4);
+            check_int("tv: fp poly interp four_points degree", (int)(nc - 1), (int)p.degree());
+            for (size_t i = 0; i < nc; i++)
+            {
+                uint8_t c[32];
+                fp_tobytes(c, p.raw().coeffs[i].v);
+                check_bytes(
+                    (std::string("tv: fp poly interp four_points coeff[") + std::to_string(i) + "]").c_str(),
+                    fp::interp_four_points_coefficients[i],
+                    c,
+                    32);
+            }
+        }
+    }
+
+    /* ---- Fq Polynomial ---- */
+    std::cout << "  --- Fq Polynomial ---" << std::endl;
+    {
+        namespace fq = tv::fq_polynomial;
+
+        // from_roots: one root
+        {
+            auto p = FqPolynomial::from_roots(fq::from_roots_one_root_roots[0], 1);
+            size_t n = sizeof(fq::from_roots_one_root_coefficients) / sizeof(fq::from_roots_one_root_coefficients[0]);
+            check_int("tv: fq poly from_roots one_root degree", (int)(n - 1), (int)p.degree());
+            for (size_t i = 0; i < n; i++)
+            {
+                uint8_t c[32];
+                fq_tobytes(c, p.raw().coeffs[i].v);
+                check_bytes(
+                    (std::string("tv: fq poly from_roots one_root coeff[") + std::to_string(i) + "]").c_str(),
+                    fq::from_roots_one_root_coefficients[i],
+                    c,
+                    32);
+            }
+        }
+        // from_roots: two roots
+        {
+            auto p = FqPolynomial::from_roots(fq::from_roots_two_roots_roots[0], 2);
+            size_t n = sizeof(fq::from_roots_two_roots_coefficients) / sizeof(fq::from_roots_two_roots_coefficients[0]);
+            check_int("tv: fq poly from_roots two_roots degree", (int)(n - 1), (int)p.degree());
+            for (size_t i = 0; i < n; i++)
+            {
+                uint8_t c[32];
+                fq_tobytes(c, p.raw().coeffs[i].v);
+                check_bytes(
+                    (std::string("tv: fq poly from_roots two_roots coeff[") + std::to_string(i) + "]").c_str(),
+                    fq::from_roots_two_roots_coefficients[i],
+                    c,
+                    32);
+            }
+        }
+        // from_roots: four roots
+        {
+            auto p = FqPolynomial::from_roots(fq::from_roots_four_roots_roots[0], 4);
+            size_t n =
+                sizeof(fq::from_roots_four_roots_coefficients) / sizeof(fq::from_roots_four_roots_coefficients[0]);
+            check_int("tv: fq poly from_roots four_roots degree", (int)(n - 1), (int)p.degree());
+            for (size_t i = 0; i < n; i++)
+            {
+                uint8_t c[32];
+                fq_tobytes(c, p.raw().coeffs[i].v);
+                check_bytes(
+                    (std::string("tv: fq poly from_roots four_roots coeff[") + std::to_string(i) + "]").c_str(),
+                    fq::from_roots_four_roots_coefficients[i],
+                    c,
+                    32);
+            }
+        }
+
+        // evaluate: constant at 7
+        {
+            auto p = FqPolynomial::from_coefficients(fq::eval_constant_at_7_coefficients[0], 1);
+            auto r = p.evaluate(fq::eval_constant_at_7_x);
+            check_bytes("tv: fq poly eval constant_at_7", fq::eval_constant_at_7_result, r.data(), 32);
+        }
+        // evaluate: linear at 0
+        {
+            auto p = FqPolynomial::from_coefficients(fq::eval_linear_at_0_coefficients[0], 2);
+            auto r = p.evaluate(fq::eval_linear_at_0_x);
+            check_bytes("tv: fq poly eval linear_at_0", fq::eval_linear_at_0_result, r.data(), 32);
+        }
+        // evaluate: linear at test_a
+        {
+            auto p = FqPolynomial::from_coefficients(fq::eval_linear_at_test_a_coefficients[0], 2);
+            auto r = p.evaluate(fq::eval_linear_at_test_a_x);
+            check_bytes("tv: fq poly eval linear_at_test_a", fq::eval_linear_at_test_a_result, r.data(), 32);
+        }
+        // evaluate: quadratic at 7
+        {
+            auto p = FqPolynomial::from_coefficients(fq::eval_quadratic_at_7_coefficients[0], 3);
+            auto r = p.evaluate(fq::eval_quadratic_at_7_x);
+            check_bytes("tv: fq poly eval quadratic_at_7", fq::eval_quadratic_at_7_result, r.data(), 32);
+        }
+
+        // mul: deg1 * deg1
+        {
+            size_t na = sizeof(fq::mul_deg1_times_deg1_a) / sizeof(fq::mul_deg1_times_deg1_a[0]);
+            size_t nb = sizeof(fq::mul_deg1_times_deg1_b) / sizeof(fq::mul_deg1_times_deg1_b[0]);
+            size_t nr = sizeof(fq::mul_deg1_times_deg1_result) / sizeof(fq::mul_deg1_times_deg1_result[0]);
+            auto a = FqPolynomial::from_coefficients(fq::mul_deg1_times_deg1_a[0], na);
+            auto b = FqPolynomial::from_coefficients(fq::mul_deg1_times_deg1_b[0], nb);
+            auto r = a * b;
+            check_int("tv: fq poly mul deg1*deg1 degree", (int)(nr - 1), (int)r.degree());
+            for (size_t i = 0; i < nr; i++)
+            {
+                uint8_t c[32];
+                fq_tobytes(c, r.raw().coeffs[i].v);
+                check_bytes(
+                    (std::string("tv: fq poly mul deg1*deg1 coeff[") + std::to_string(i) + "]").c_str(),
+                    fq::mul_deg1_times_deg1_result[i],
+                    c,
+                    32);
+            }
+        }
+        // mul: deg5 * deg5
+        {
+            size_t na = sizeof(fq::mul_deg5_times_deg5_a) / sizeof(fq::mul_deg5_times_deg5_a[0]);
+            size_t nb = sizeof(fq::mul_deg5_times_deg5_b) / sizeof(fq::mul_deg5_times_deg5_b[0]);
+            size_t nr = sizeof(fq::mul_deg5_times_deg5_result) / sizeof(fq::mul_deg5_times_deg5_result[0]);
+            auto a = FqPolynomial::from_coefficients(fq::mul_deg5_times_deg5_a[0], na);
+            auto b = FqPolynomial::from_coefficients(fq::mul_deg5_times_deg5_b[0], nb);
+            auto r = a * b;
+            check_int("tv: fq poly mul deg5*deg5 degree", (int)(nr - 1), (int)r.degree());
+            for (size_t i = 0; i < nr; i++)
+            {
+                uint8_t c[32];
+                fq_tobytes(c, r.raw().coeffs[i].v);
+                check_bytes(
+                    (std::string("tv: fq poly mul deg5*deg5 coeff[") + std::to_string(i) + "]").c_str(),
+                    fq::mul_deg5_times_deg5_result[i],
+                    c,
+                    32);
+            }
+        }
+        // mul: deg15 * deg15
+        {
+            size_t na = sizeof(fq::mul_deg15_times_deg15_a) / sizeof(fq::mul_deg15_times_deg15_a[0]);
+            size_t nb = sizeof(fq::mul_deg15_times_deg15_b) / sizeof(fq::mul_deg15_times_deg15_b[0]);
+            size_t nr = sizeof(fq::mul_deg15_times_deg15_result) / sizeof(fq::mul_deg15_times_deg15_result[0]);
+            auto a = FqPolynomial::from_coefficients(fq::mul_deg15_times_deg15_a[0], na);
+            auto b = FqPolynomial::from_coefficients(fq::mul_deg15_times_deg15_b[0], nb);
+            auto r = a * b;
+            check_int("tv: fq poly mul deg15*deg15 degree", (int)(nr - 1), (int)r.degree());
+            for (size_t i = 0; i < nr; i++)
+            {
+                uint8_t c[32];
+                fq_tobytes(c, r.raw().coeffs[i].v);
+                check_bytes(
+                    (std::string("tv: fq poly mul deg15*deg15 coeff[") + std::to_string(i) + "]").c_str(),
+                    fq::mul_deg15_times_deg15_result[i],
+                    c,
+                    32);
+            }
+        }
+        // mul: deg16 * deg16 (karatsuba)
+        {
+            size_t na =
+                sizeof(fq::mul_deg16_times_deg16_karatsuba_a) / sizeof(fq::mul_deg16_times_deg16_karatsuba_a[0]);
+            size_t nb =
+                sizeof(fq::mul_deg16_times_deg16_karatsuba_b) / sizeof(fq::mul_deg16_times_deg16_karatsuba_b[0]);
+            size_t nr = sizeof(fq::mul_deg16_times_deg16_karatsuba_result)
+                        / sizeof(fq::mul_deg16_times_deg16_karatsuba_result[0]);
+            auto a = FqPolynomial::from_coefficients(fq::mul_deg16_times_deg16_karatsuba_a[0], na);
+            auto b = FqPolynomial::from_coefficients(fq::mul_deg16_times_deg16_karatsuba_b[0], nb);
+            auto r = a * b;
+            check_int("tv: fq poly mul deg16*deg16 karatsuba degree", (int)(nr - 1), (int)r.degree());
+            for (size_t i = 0; i < nr; i++)
+            {
+                uint8_t c[32];
+                fq_tobytes(c, r.raw().coeffs[i].v);
+                check_bytes(
+                    (std::string("tv: fq poly mul deg16*deg16 karatsuba coeff[") + std::to_string(i) + "]").c_str(),
+                    fq::mul_deg16_times_deg16_karatsuba_result[i],
+                    c,
+                    32);
+            }
+        }
+
+        // add: same degree
+        {
+            size_t na = sizeof(fq::add_same_degree_a) / sizeof(fq::add_same_degree_a[0]);
+            size_t nb = sizeof(fq::add_same_degree_b) / sizeof(fq::add_same_degree_b[0]);
+            size_t nr = sizeof(fq::add_same_degree_result) / sizeof(fq::add_same_degree_result[0]);
+            auto a = FqPolynomial::from_coefficients(fq::add_same_degree_a[0], na);
+            auto b = FqPolynomial::from_coefficients(fq::add_same_degree_b[0], nb);
+            auto r = a + b;
+            for (size_t i = 0; i < nr; i++)
+            {
+                uint8_t c[32];
+                fq_tobytes(c, r.raw().coeffs[i].v);
+                check_bytes(
+                    (std::string("tv: fq poly add same_deg coeff[") + std::to_string(i) + "]").c_str(),
+                    fq::add_same_degree_result[i],
+                    c,
+                    32);
+            }
+        }
+        // add: different degree
+        {
+            size_t na = sizeof(fq::add_different_degree_a) / sizeof(fq::add_different_degree_a[0]);
+            size_t nb = sizeof(fq::add_different_degree_b) / sizeof(fq::add_different_degree_b[0]);
+            size_t nr = sizeof(fq::add_different_degree_result) / sizeof(fq::add_different_degree_result[0]);
+            auto a = FqPolynomial::from_coefficients(fq::add_different_degree_a[0], na);
+            auto b = FqPolynomial::from_coefficients(fq::add_different_degree_b[0], nb);
+            auto r = a + b;
+            for (size_t i = 0; i < nr; i++)
+            {
+                uint8_t c[32];
+                fq_tobytes(c, r.raw().coeffs[i].v);
+                check_bytes(
+                    (std::string("tv: fq poly add diff_deg coeff[") + std::to_string(i) + "]").c_str(),
+                    fq::add_different_degree_result[i],
+                    c,
+                    32);
+            }
+        }
+
+        // sub: same degree
+        {
+            size_t na = sizeof(fq::sub_same_degree_a) / sizeof(fq::sub_same_degree_a[0]);
+            size_t nb = sizeof(fq::sub_same_degree_b) / sizeof(fq::sub_same_degree_b[0]);
+            size_t nr = sizeof(fq::sub_same_degree_result) / sizeof(fq::sub_same_degree_result[0]);
+            auto a = FqPolynomial::from_coefficients(fq::sub_same_degree_a[0], na);
+            auto b = FqPolynomial::from_coefficients(fq::sub_same_degree_b[0], nb);
+            auto r = a - b;
+            for (size_t i = 0; i < nr; i++)
+            {
+                uint8_t c[32];
+                fq_tobytes(c, r.raw().coeffs[i].v);
+                check_bytes(
+                    (std::string("tv: fq poly sub same_deg coeff[") + std::to_string(i) + "]").c_str(),
+                    fq::sub_same_degree_result[i],
+                    c,
+                    32);
+            }
+        }
+        // sub: different degree
+        {
+            size_t na = sizeof(fq::sub_different_degree_a) / sizeof(fq::sub_different_degree_a[0]);
+            size_t nb = sizeof(fq::sub_different_degree_b) / sizeof(fq::sub_different_degree_b[0]);
+            size_t nr = sizeof(fq::sub_different_degree_result) / sizeof(fq::sub_different_degree_result[0]);
+            auto a = FqPolynomial::from_coefficients(fq::sub_different_degree_a[0], na);
+            auto b = FqPolynomial::from_coefficients(fq::sub_different_degree_b[0], nb);
+            auto r = a - b;
+            for (size_t i = 0; i < nr; i++)
+            {
+                uint8_t c[32];
+                fq_tobytes(c, r.raw().coeffs[i].v);
+                check_bytes(
+                    (std::string("tv: fq poly sub diff_deg coeff[") + std::to_string(i) + "]").c_str(),
+                    fq::sub_different_degree_result[i],
+                    c,
+                    32);
+            }
+        }
+
+        // divmod: exact division
+        {
+            size_t nn = sizeof(fq::divmod_exact_division_numerator) / sizeof(fq::divmod_exact_division_numerator[0]);
+            size_t nd =
+                sizeof(fq::divmod_exact_division_denominator) / sizeof(fq::divmod_exact_division_denominator[0]);
+            size_t nq = sizeof(fq::divmod_exact_division_quotient) / sizeof(fq::divmod_exact_division_quotient[0]);
+            size_t nrem = sizeof(fq::divmod_exact_division_remainder) / sizeof(fq::divmod_exact_division_remainder[0]);
+            auto num = FqPolynomial::from_coefficients(fq::divmod_exact_division_numerator[0], nn);
+            auto den = FqPolynomial::from_coefficients(fq::divmod_exact_division_denominator[0], nd);
+            auto [q, rem] = num.divmod(den);
+            for (size_t i = 0; i < nq; i++)
+            {
+                uint8_t c[32];
+                fq_tobytes(c, q.raw().coeffs[i].v);
+                check_bytes(
+                    (std::string("tv: fq poly divmod exact q[") + std::to_string(i) + "]").c_str(),
+                    fq::divmod_exact_division_quotient[i],
+                    c,
+                    32);
+            }
+            for (size_t i = 0; i < nrem; i++)
+            {
+                uint8_t c[32];
+                fq_tobytes(c, rem.raw().coeffs[i].v);
+                check_bytes(
+                    (std::string("tv: fq poly divmod exact r[") + std::to_string(i) + "]").c_str(),
+                    fq::divmod_exact_division_remainder[i],
+                    c,
+                    32);
+            }
+        }
+        // divmod: nonzero remainder
+        {
+            size_t nn =
+                sizeof(fq::divmod_nonzero_remainder_numerator) / sizeof(fq::divmod_nonzero_remainder_numerator[0]);
+            size_t nd =
+                sizeof(fq::divmod_nonzero_remainder_denominator) / sizeof(fq::divmod_nonzero_remainder_denominator[0]);
+            size_t nq =
+                sizeof(fq::divmod_nonzero_remainder_quotient) / sizeof(fq::divmod_nonzero_remainder_quotient[0]);
+            size_t nrem =
+                sizeof(fq::divmod_nonzero_remainder_remainder) / sizeof(fq::divmod_nonzero_remainder_remainder[0]);
+            auto num = FqPolynomial::from_coefficients(fq::divmod_nonzero_remainder_numerator[0], nn);
+            auto den = FqPolynomial::from_coefficients(fq::divmod_nonzero_remainder_denominator[0], nd);
+            auto [q, rem] = num.divmod(den);
+            for (size_t i = 0; i < nq; i++)
+            {
+                uint8_t c[32];
+                fq_tobytes(c, q.raw().coeffs[i].v);
+                check_bytes(
+                    (std::string("tv: fq poly divmod nonzero_rem q[") + std::to_string(i) + "]").c_str(),
+                    fq::divmod_nonzero_remainder_quotient[i],
+                    c,
+                    32);
+            }
+            for (size_t i = 0; i < nrem; i++)
+            {
+                uint8_t c[32];
+                fq_tobytes(c, rem.raw().coeffs[i].v);
+                check_bytes(
+                    (std::string("tv: fq poly divmod nonzero_rem r[") + std::to_string(i) + "]").c_str(),
+                    fq::divmod_nonzero_remainder_remainder[i],
+                    c,
+                    32);
+            }
+        }
+        // divmod: divide by linear
+        {
+            size_t nn =
+                sizeof(fq::divmod_divide_by_linear_numerator) / sizeof(fq::divmod_divide_by_linear_numerator[0]);
+            size_t nd =
+                sizeof(fq::divmod_divide_by_linear_denominator) / sizeof(fq::divmod_divide_by_linear_denominator[0]);
+            size_t nq = sizeof(fq::divmod_divide_by_linear_quotient) / sizeof(fq::divmod_divide_by_linear_quotient[0]);
+            size_t nrem =
+                sizeof(fq::divmod_divide_by_linear_remainder) / sizeof(fq::divmod_divide_by_linear_remainder[0]);
+            auto num = FqPolynomial::from_coefficients(fq::divmod_divide_by_linear_numerator[0], nn);
+            auto den = FqPolynomial::from_coefficients(fq::divmod_divide_by_linear_denominator[0], nd);
+            auto [q, rem] = num.divmod(den);
+            for (size_t i = 0; i < nq; i++)
+            {
+                uint8_t c[32];
+                fq_tobytes(c, q.raw().coeffs[i].v);
+                check_bytes(
+                    (std::string("tv: fq poly divmod by_linear q[") + std::to_string(i) + "]").c_str(),
+                    fq::divmod_divide_by_linear_quotient[i],
+                    c,
+                    32);
+            }
+            for (size_t i = 0; i < nrem; i++)
+            {
+                uint8_t c[32];
+                fq_tobytes(c, rem.raw().coeffs[i].v);
+                check_bytes(
+                    (std::string("tv: fq poly divmod by_linear r[") + std::to_string(i) + "]").c_str(),
+                    fq::divmod_divide_by_linear_remainder[i],
+                    c,
+                    32);
+            }
+        }
+
+        // interpolate: three points
+        {
+            size_t nc = sizeof(fq::interp_three_points_coefficients) / sizeof(fq::interp_three_points_coefficients[0]);
+            auto p = FqPolynomial::interpolate(fq::interp_three_points_xs[0], fq::interp_three_points_ys[0], 3);
+            check_int("tv: fq poly interp three_points degree", (int)(nc - 1), (int)p.degree());
+            for (size_t i = 0; i < nc; i++)
+            {
+                uint8_t c[32];
+                fq_tobytes(c, p.raw().coeffs[i].v);
+                check_bytes(
+                    (std::string("tv: fq poly interp three_points coeff[") + std::to_string(i) + "]").c_str(),
+                    fq::interp_three_points_coefficients[i],
+                    c,
+                    32);
+            }
+        }
+        // interpolate: four points
+        {
+            size_t nc = sizeof(fq::interp_four_points_coefficients) / sizeof(fq::interp_four_points_coefficients[0]);
+            auto p = FqPolynomial::interpolate(fq::interp_four_points_xs[0], fq::interp_four_points_ys[0], 4);
+            check_int("tv: fq poly interp four_points degree", (int)(nc - 1), (int)p.degree());
+            for (size_t i = 0; i < nc; i++)
+            {
+                uint8_t c[32];
+                fq_tobytes(c, p.raw().coeffs[i].v);
+                check_bytes(
+                    (std::string("tv: fq poly interp four_points coeff[") + std::to_string(i) + "]").c_str(),
+                    fq::interp_four_points_coefficients[i],
+                    c,
+                    32);
+            }
+        }
+    }
+
+    /* ---- Helios Divisor ---- */
+    std::cout << "  --- Helios Divisor ---" << std::endl;
+    {
+        namespace hd = tv::helios_divisor;
+
+        // n=2
+        {
+            HeliosPoint pts[2];
+            for (int i = 0; i < 2; i++)
+                pts[i] = HeliosPoint::from_bytes(hd::n_2_points[i]).value();
+            auto d = HeliosDivisor::compute(pts, 2);
+            size_t na = sizeof(hd::n_2_a_coefficients) / sizeof(hd::n_2_a_coefficients[0]);
+            size_t nb = sizeof(hd::n_2_b_coefficients) / sizeof(hd::n_2_b_coefficients[0]);
+            for (size_t i = 0; i < na; i++)
+            {
+                uint8_t c[32];
+                fp_tobytes(c, d.a().raw().coeffs[i].v);
+                check_bytes(
+                    (std::string("tv: helios divisor n=2 a[") + std::to_string(i) + "]").c_str(),
+                    hd::n_2_a_coefficients[i],
+                    c,
+                    32);
+            }
+            for (size_t i = 0; i < nb; i++)
+            {
+                uint8_t c[32];
+                fp_tobytes(c, d.b().raw().coeffs[i].v);
+                check_bytes(
+                    (std::string("tv: helios divisor n=2 b[") + std::to_string(i) + "]").c_str(),
+                    hd::n_2_b_coefficients[i],
+                    c,
+                    32);
+            }
+            auto ev = d.evaluate(hd::n_2_eval_point_x, hd::n_2_eval_point_y);
+            check_bytes("tv: helios divisor n=2 eval", hd::n_2_eval_result, ev.data(), 32);
+        }
+        // n=4
+        {
+            HeliosPoint pts[4];
+            for (int i = 0; i < 4; i++)
+                pts[i] = HeliosPoint::from_bytes(hd::n_4_points[i]).value();
+            auto d = HeliosDivisor::compute(pts, 4);
+            size_t na = sizeof(hd::n_4_a_coefficients) / sizeof(hd::n_4_a_coefficients[0]);
+            size_t nb = sizeof(hd::n_4_b_coefficients) / sizeof(hd::n_4_b_coefficients[0]);
+            for (size_t i = 0; i < na; i++)
+            {
+                uint8_t c[32];
+                fp_tobytes(c, d.a().raw().coeffs[i].v);
+                check_bytes(
+                    (std::string("tv: helios divisor n=4 a[") + std::to_string(i) + "]").c_str(),
+                    hd::n_4_a_coefficients[i],
+                    c,
+                    32);
+            }
+            for (size_t i = 0; i < nb; i++)
+            {
+                uint8_t c[32];
+                fp_tobytes(c, d.b().raw().coeffs[i].v);
+                check_bytes(
+                    (std::string("tv: helios divisor n=4 b[") + std::to_string(i) + "]").c_str(),
+                    hd::n_4_b_coefficients[i],
+                    c,
+                    32);
+            }
+            auto ev = d.evaluate(hd::n_4_eval_point_x, hd::n_4_eval_point_y);
+            check_bytes("tv: helios divisor n=4 eval", hd::n_4_eval_result, ev.data(), 32);
+        }
+        // n=8
+        {
+            HeliosPoint pts[8];
+            for (int i = 0; i < 8; i++)
+                pts[i] = HeliosPoint::from_bytes(hd::n_8_points[i]).value();
+            auto d = HeliosDivisor::compute(pts, 8);
+            size_t na = sizeof(hd::n_8_a_coefficients) / sizeof(hd::n_8_a_coefficients[0]);
+            size_t nb = sizeof(hd::n_8_b_coefficients) / sizeof(hd::n_8_b_coefficients[0]);
+            for (size_t i = 0; i < na; i++)
+            {
+                uint8_t c[32];
+                fp_tobytes(c, d.a().raw().coeffs[i].v);
+                check_bytes(
+                    (std::string("tv: helios divisor n=8 a[") + std::to_string(i) + "]").c_str(),
+                    hd::n_8_a_coefficients[i],
+                    c,
+                    32);
+            }
+            for (size_t i = 0; i < nb; i++)
+            {
+                uint8_t c[32];
+                fp_tobytes(c, d.b().raw().coeffs[i].v);
+                check_bytes(
+                    (std::string("tv: helios divisor n=8 b[") + std::to_string(i) + "]").c_str(),
+                    hd::n_8_b_coefficients[i],
+                    c,
+                    32);
+            }
+            auto ev = d.evaluate(hd::n_8_eval_point_x, hd::n_8_eval_point_y);
+            check_bytes("tv: helios divisor n=8 eval", hd::n_8_eval_result, ev.data(), 32);
+        }
+    }
+
+    /* ---- Selene Divisor ---- */
+    std::cout << "  --- Selene Divisor ---" << std::endl;
+    {
+        namespace sd = tv::selene_divisor;
+
+        // n=2
+        {
+            SelenePoint pts[2];
+            for (int i = 0; i < 2; i++)
+                pts[i] = SelenePoint::from_bytes(sd::n_2_points[i]).value();
+            auto d = SeleneDivisor::compute(pts, 2);
+            size_t na = sizeof(sd::n_2_a_coefficients) / sizeof(sd::n_2_a_coefficients[0]);
+            size_t nb = sizeof(sd::n_2_b_coefficients) / sizeof(sd::n_2_b_coefficients[0]);
+            for (size_t i = 0; i < na; i++)
+            {
+                uint8_t c[32];
+                fq_tobytes(c, d.a().raw().coeffs[i].v);
+                check_bytes(
+                    (std::string("tv: selene divisor n=2 a[") + std::to_string(i) + "]").c_str(),
+                    sd::n_2_a_coefficients[i],
+                    c,
+                    32);
+            }
+            for (size_t i = 0; i < nb; i++)
+            {
+                uint8_t c[32];
+                fq_tobytes(c, d.b().raw().coeffs[i].v);
+                check_bytes(
+                    (std::string("tv: selene divisor n=2 b[") + std::to_string(i) + "]").c_str(),
+                    sd::n_2_b_coefficients[i],
+                    c,
+                    32);
+            }
+            auto ev = d.evaluate(sd::n_2_eval_point_x, sd::n_2_eval_point_y);
+            check_bytes("tv: selene divisor n=2 eval", sd::n_2_eval_result, ev.data(), 32);
+        }
+        // n=4
+        {
+            SelenePoint pts[4];
+            for (int i = 0; i < 4; i++)
+                pts[i] = SelenePoint::from_bytes(sd::n_4_points[i]).value();
+            auto d = SeleneDivisor::compute(pts, 4);
+            size_t na = sizeof(sd::n_4_a_coefficients) / sizeof(sd::n_4_a_coefficients[0]);
+            size_t nb = sizeof(sd::n_4_b_coefficients) / sizeof(sd::n_4_b_coefficients[0]);
+            for (size_t i = 0; i < na; i++)
+            {
+                uint8_t c[32];
+                fq_tobytes(c, d.a().raw().coeffs[i].v);
+                check_bytes(
+                    (std::string("tv: selene divisor n=4 a[") + std::to_string(i) + "]").c_str(),
+                    sd::n_4_a_coefficients[i],
+                    c,
+                    32);
+            }
+            for (size_t i = 0; i < nb; i++)
+            {
+                uint8_t c[32];
+                fq_tobytes(c, d.b().raw().coeffs[i].v);
+                check_bytes(
+                    (std::string("tv: selene divisor n=4 b[") + std::to_string(i) + "]").c_str(),
+                    sd::n_4_b_coefficients[i],
+                    c,
+                    32);
+            }
+            auto ev = d.evaluate(sd::n_4_eval_point_x, sd::n_4_eval_point_y);
+            check_bytes("tv: selene divisor n=4 eval", sd::n_4_eval_result, ev.data(), 32);
+        }
+        // n=8
+        {
+            SelenePoint pts[8];
+            for (int i = 0; i < 8; i++)
+                pts[i] = SelenePoint::from_bytes(sd::n_8_points[i]).value();
+            auto d = SeleneDivisor::compute(pts, 8);
+            size_t na = sizeof(sd::n_8_a_coefficients) / sizeof(sd::n_8_a_coefficients[0]);
+            size_t nb = sizeof(sd::n_8_b_coefficients) / sizeof(sd::n_8_b_coefficients[0]);
+            for (size_t i = 0; i < na; i++)
+            {
+                uint8_t c[32];
+                fq_tobytes(c, d.a().raw().coeffs[i].v);
+                check_bytes(
+                    (std::string("tv: selene divisor n=8 a[") + std::to_string(i) + "]").c_str(),
+                    sd::n_8_a_coefficients[i],
+                    c,
+                    32);
+            }
+            for (size_t i = 0; i < nb; i++)
+            {
+                uint8_t c[32];
+                fq_tobytes(c, d.b().raw().coeffs[i].v);
+                check_bytes(
+                    (std::string("tv: selene divisor n=8 b[") + std::to_string(i) + "]").c_str(),
+                    sd::n_8_b_coefficients[i],
+                    c,
+                    32);
+            }
+            auto ev = d.evaluate(sd::n_8_eval_point_x, sd::n_8_eval_point_y);
+            check_bytes("tv: selene divisor n=8 eval", sd::n_8_eval_result, ev.data(), 32);
+        }
+    }
+
+    /* ---- High-Degree Poly Mul ---- */
+    std::cout << "  --- High-Degree Poly Mul ---" << std::endl;
+    {
+        namespace hdp = tv::high_degree_poly_mul;
+
+        // Fp vectors
+        for (size_t vi = 0; vi < hdp::fp_count; vi++)
+        {
+            auto &v = hdp::fp_vectors[vi];
+            int n = v.n_coeffs;
+
+            // Build deterministic polynomials: a[i] = (i+1) mod p, b[i] = (i+n+1) mod p
+            std::vector<uint8_t> a_bytes(n * 32, 0), b_bytes(n * 32, 0);
+            for (int i = 0; i < n; i++)
+            {
+                uint32_t va = (uint32_t)(i + 1);
+                uint32_t vb = (uint32_t)(i + n + 1);
+                std::memcpy(&a_bytes[i * 32], &va, sizeof(va));
+                std::memcpy(&b_bytes[i * 32], &vb, sizeof(vb));
+            }
+            auto a = FpPolynomial::from_coefficients(a_bytes.data(), n);
+            auto b = FpPolynomial::from_coefficients(b_bytes.data(), n);
+            auto r = a * b;
+
+            std::string prefix = std::string("tv: highdeg fp ") + v.label;
+            check_int((prefix + " result_degree").c_str(), v.result_degree, (int)r.degree());
+
+            for (int ci = 0; ci < 3; ci++)
+            {
+                auto &chk = v.checks[ci];
+                // Verify a(x)
+                auto a_at_x = a.evaluate(chk.x);
+                check_bytes((prefix + " " + chk.point + " a(x)").c_str(), chk.a_of_x, a_at_x.data(), 32);
+                // Verify b(x)
+                auto b_at_x = b.evaluate(chk.x);
+                check_bytes((prefix + " " + chk.point + " b(x)").c_str(), chk.b_of_x, b_at_x.data(), 32);
+                // Verify result(x) = a(x)*b(x)
+                auto r_at_x = r.evaluate(chk.x);
+                check_bytes((prefix + " " + chk.point + " result(x)").c_str(), chk.result_of_x, r_at_x.data(), 32);
+            }
+        }
+
+        // Fq vectors
+        for (size_t vi = 0; vi < hdp::fq_count; vi++)
+        {
+            auto &v = hdp::fq_vectors[vi];
+            int n = v.n_coeffs;
+
+            std::vector<uint8_t> a_bytes(n * 32, 0), b_bytes(n * 32, 0);
+            for (int i = 0; i < n; i++)
+            {
+                uint32_t va = (uint32_t)(i + 1);
+                uint32_t vb = (uint32_t)(i + n + 1);
+                std::memcpy(&a_bytes[i * 32], &va, sizeof(va));
+                std::memcpy(&b_bytes[i * 32], &vb, sizeof(vb));
+            }
+            auto a = FqPolynomial::from_coefficients(a_bytes.data(), n);
+            auto b = FqPolynomial::from_coefficients(b_bytes.data(), n);
+            auto r = a * b;
+
+            std::string prefix = std::string("tv: highdeg fq ") + v.label;
+            check_int((prefix + " result_degree").c_str(), v.result_degree, (int)r.degree());
+
+            for (int ci = 0; ci < 3; ci++)
+            {
+                auto &chk = v.checks[ci];
+                auto a_at_x = a.evaluate(chk.x);
+                check_bytes((prefix + " " + chk.point + " a(x)").c_str(), chk.a_of_x, a_at_x.data(), 32);
+                auto b_at_x = b.evaluate(chk.x);
+                check_bytes((prefix + " " + chk.point + " b(x)").c_str(), chk.b_of_x, b_at_x.data(), 32);
+                auto r_at_x = r.evaluate(chk.x);
+                check_bytes((prefix + " " + chk.point + " result(x)").c_str(), chk.result_of_x, r_at_x.data(), 32);
+            }
+        }
+    }
+
     /* ---- Wei25519 ---- */
     std::cout << "  --- Wei25519 ---" << std::endl;
     for (size_t i = 0; i < tv::wei25519::x_to_scalar_count; i++)
@@ -6089,10 +7479,1114 @@ static void test_vector_validation()
     }
 }
 
-int main()
+static void test_vector_validation_c_primitives()
 {
+    namespace tv = helioselene_test_vectors;
+
+    std::cout << std::endl << "=== Test Vector Validation (C Primitives) ===" << std::endl;
+
+    /* Helper: load a helios_jacobian from 32-byte encoding, handling identity */
+    auto h_load = [](helios_jacobian *out, const uint8_t bytes[32]) -> bool
+    {
+        bool all_zero = true;
+        for (int i = 0; i < 32; i++)
+        {
+            if (bytes[i])
+            {
+                all_zero = false;
+                break;
+            }
+        }
+        if (all_zero)
+        {
+            helios_identity(out);
+            return true;
+        }
+        return helios_frombytes(out, bytes) == 0;
+    };
+
+    auto s_load = [](selene_jacobian *out, const uint8_t bytes[32]) -> bool
+    {
+        bool all_zero = true;
+        for (int i = 0; i < 32; i++)
+        {
+            if (bytes[i])
+            {
+                all_zero = false;
+                break;
+            }
+        }
+        if (all_zero)
+        {
+            selene_identity(out);
+            return true;
+        }
+        return selene_frombytes(out, bytes) == 0;
+    };
+
+    /* ==== Helios Scalar (C primitives) ==== */
+    std::cout << "  --- Helios Scalar (C) ---" << std::endl;
+    for (size_t i = 0; i < tv::helios_scalar::add_count; i++)
+    {
+        auto &v = tv::helios_scalar::add_vectors[i];
+        fq_fe a, b, r;
+        unsigned char out[32];
+        helios_scalar_from_bytes(a, v.a);
+        helios_scalar_from_bytes(b, v.b);
+        helios_scalar_add(r, a, b);
+        helios_scalar_to_bytes(out, r);
+        check_bytes((std::string("tv(C): helios scalar add ") + v.label).c_str(), v.result, out, 32);
+    }
+    for (size_t i = 0; i < tv::helios_scalar::sub_count; i++)
+    {
+        auto &v = tv::helios_scalar::sub_vectors[i];
+        fq_fe a, b, r;
+        unsigned char out[32];
+        helios_scalar_from_bytes(a, v.a);
+        helios_scalar_from_bytes(b, v.b);
+        helios_scalar_sub(r, a, b);
+        helios_scalar_to_bytes(out, r);
+        check_bytes((std::string("tv(C): helios scalar sub ") + v.label).c_str(), v.result, out, 32);
+    }
+    for (size_t i = 0; i < tv::helios_scalar::mul_count; i++)
+    {
+        auto &v = tv::helios_scalar::mul_vectors[i];
+        fq_fe a, b, r;
+        unsigned char out[32];
+        helios_scalar_from_bytes(a, v.a);
+        helios_scalar_from_bytes(b, v.b);
+        helios_scalar_mul(r, a, b);
+        helios_scalar_to_bytes(out, r);
+        check_bytes((std::string("tv(C): helios scalar mul ") + v.label).c_str(), v.result, out, 32);
+    }
+    for (size_t i = 0; i < tv::helios_scalar::sq_count; i++)
+    {
+        auto &v = tv::helios_scalar::sq_vectors[i];
+        fq_fe a, r;
+        unsigned char out[32];
+        helios_scalar_from_bytes(a, v.a);
+        helios_scalar_sq(r, a);
+        helios_scalar_to_bytes(out, r);
+        check_bytes((std::string("tv(C): helios scalar sq ") + v.label).c_str(), v.result, out, 32);
+    }
+    for (size_t i = 0; i < tv::helios_scalar::negate_count; i++)
+    {
+        auto &v = tv::helios_scalar::negate_vectors[i];
+        fq_fe a, r;
+        unsigned char out[32];
+        helios_scalar_from_bytes(a, v.a);
+        helios_scalar_neg(r, a);
+        helios_scalar_to_bytes(out, r);
+        check_bytes((std::string("tv(C): helios scalar neg ") + v.label).c_str(), v.result, out, 32);
+    }
+    for (size_t i = 0; i < tv::helios_scalar::invert_count; i++)
+    {
+        auto &v = tv::helios_scalar::invert_vectors[i];
+        if (!v.valid)
+            continue; /* C-level invert(0) is undefined */
+        fq_fe a, r;
+        unsigned char out[32];
+        helios_scalar_from_bytes(a, v.a);
+        helios_scalar_invert(r, a);
+        helios_scalar_to_bytes(out, r);
+        check_bytes((std::string("tv(C): helios scalar inv ") + v.label).c_str(), v.result, out, 32);
+    }
+    for (size_t i = 0; i < tv::helios_scalar::reduce_wide_count; i++)
+    {
+        auto &v = tv::helios_scalar::reduce_wide_vectors[i];
+        fq_fe r;
+        unsigned char out[32];
+        helios_scalar_reduce_wide(r, v.input);
+        helios_scalar_to_bytes(out, r);
+        check_bytes((std::string("tv(C): helios scalar reduce_wide ") + v.label).c_str(), v.result, out, 32);
+    }
+    for (size_t i = 0; i < tv::helios_scalar::muladd_count; i++)
+    {
+        auto &v = tv::helios_scalar::muladd_vectors[i];
+        fq_fe a, b, c, r;
+        unsigned char out[32];
+        helios_scalar_from_bytes(a, v.a);
+        helios_scalar_from_bytes(b, v.b);
+        helios_scalar_from_bytes(c, v.c);
+        helios_scalar_muladd(r, a, b, c);
+        helios_scalar_to_bytes(out, r);
+        check_bytes((std::string("tv(C): helios scalar muladd ") + v.label).c_str(), v.result, out, 32);
+    }
+    for (size_t i = 0; i < tv::helios_scalar::is_zero_count; i++)
+    {
+        auto &v = tv::helios_scalar::is_zero_vectors[i];
+        fq_fe a;
+        helios_scalar_from_bytes(a, v.a);
+        check_int(
+            (std::string("tv(C): helios scalar is_zero ") + v.label).c_str(),
+            v.result ? 1 : 0,
+            helios_scalar_is_zero(a));
+    }
+
+    /* ==== Selene Scalar (C primitives) ==== */
+    std::cout << "  --- Selene Scalar (C) ---" << std::endl;
+    for (size_t i = 0; i < tv::selene_scalar::add_count; i++)
+    {
+        auto &v = tv::selene_scalar::add_vectors[i];
+        fp_fe a, b, r;
+        unsigned char out[32];
+        selene_scalar_from_bytes(a, v.a);
+        selene_scalar_from_bytes(b, v.b);
+        selene_scalar_add(r, a, b);
+        selene_scalar_to_bytes(out, r);
+        check_bytes((std::string("tv(C): selene scalar add ") + v.label).c_str(), v.result, out, 32);
+    }
+    for (size_t i = 0; i < tv::selene_scalar::sub_count; i++)
+    {
+        auto &v = tv::selene_scalar::sub_vectors[i];
+        fp_fe a, b, r;
+        unsigned char out[32];
+        selene_scalar_from_bytes(a, v.a);
+        selene_scalar_from_bytes(b, v.b);
+        selene_scalar_sub(r, a, b);
+        selene_scalar_to_bytes(out, r);
+        check_bytes((std::string("tv(C): selene scalar sub ") + v.label).c_str(), v.result, out, 32);
+    }
+    for (size_t i = 0; i < tv::selene_scalar::mul_count; i++)
+    {
+        auto &v = tv::selene_scalar::mul_vectors[i];
+        fp_fe a, b, r;
+        unsigned char out[32];
+        selene_scalar_from_bytes(a, v.a);
+        selene_scalar_from_bytes(b, v.b);
+        selene_scalar_mul(r, a, b);
+        selene_scalar_to_bytes(out, r);
+        check_bytes((std::string("tv(C): selene scalar mul ") + v.label).c_str(), v.result, out, 32);
+    }
+    for (size_t i = 0; i < tv::selene_scalar::sq_count; i++)
+    {
+        auto &v = tv::selene_scalar::sq_vectors[i];
+        fp_fe a, r;
+        unsigned char out[32];
+        selene_scalar_from_bytes(a, v.a);
+        selene_scalar_sq(r, a);
+        selene_scalar_to_bytes(out, r);
+        check_bytes((std::string("tv(C): selene scalar sq ") + v.label).c_str(), v.result, out, 32);
+    }
+    for (size_t i = 0; i < tv::selene_scalar::negate_count; i++)
+    {
+        auto &v = tv::selene_scalar::negate_vectors[i];
+        fp_fe a, r;
+        unsigned char out[32];
+        selene_scalar_from_bytes(a, v.a);
+        selene_scalar_neg(r, a);
+        selene_scalar_to_bytes(out, r);
+        check_bytes((std::string("tv(C): selene scalar neg ") + v.label).c_str(), v.result, out, 32);
+    }
+    for (size_t i = 0; i < tv::selene_scalar::invert_count; i++)
+    {
+        auto &v = tv::selene_scalar::invert_vectors[i];
+        if (!v.valid)
+            continue;
+        fp_fe a, r;
+        unsigned char out[32];
+        selene_scalar_from_bytes(a, v.a);
+        selene_scalar_invert(r, a);
+        selene_scalar_to_bytes(out, r);
+        check_bytes((std::string("tv(C): selene scalar inv ") + v.label).c_str(), v.result, out, 32);
+    }
+    for (size_t i = 0; i < tv::selene_scalar::reduce_wide_count; i++)
+    {
+        auto &v = tv::selene_scalar::reduce_wide_vectors[i];
+        fp_fe r;
+        unsigned char out[32];
+        selene_scalar_reduce_wide(r, v.input);
+        selene_scalar_to_bytes(out, r);
+        check_bytes((std::string("tv(C): selene scalar reduce_wide ") + v.label).c_str(), v.result, out, 32);
+    }
+    for (size_t i = 0; i < tv::selene_scalar::muladd_count; i++)
+    {
+        auto &v = tv::selene_scalar::muladd_vectors[i];
+        fp_fe a, b, c, r;
+        unsigned char out[32];
+        selene_scalar_from_bytes(a, v.a);
+        selene_scalar_from_bytes(b, v.b);
+        selene_scalar_from_bytes(c, v.c);
+        selene_scalar_muladd(r, a, b, c);
+        selene_scalar_to_bytes(out, r);
+        check_bytes((std::string("tv(C): selene scalar muladd ") + v.label).c_str(), v.result, out, 32);
+    }
+    for (size_t i = 0; i < tv::selene_scalar::is_zero_count; i++)
+    {
+        auto &v = tv::selene_scalar::is_zero_vectors[i];
+        fp_fe a;
+        selene_scalar_from_bytes(a, v.a);
+        check_int(
+            (std::string("tv(C): selene scalar is_zero ") + v.label).c_str(),
+            v.result ? 1 : 0,
+            selene_scalar_is_zero(a));
+    }
+
+    /* ==== Helios Point (C primitives) ==== */
+    std::cout << "  --- Helios Point (C) ---" << std::endl;
+    for (size_t i = 0; i < tv::helios_point::from_bytes_count; i++)
+    {
+        auto &v = tv::helios_point::from_bytes_vectors[i];
+        helios_jacobian p;
+        int ok = helios_frombytes(&p, v.input);
+        std::string name = std::string("tv(C): helios point from_bytes ") + v.label;
+        if (v.valid)
+        {
+            check_int((name + " valid").c_str(), 0, ok);
+            if (ok == 0)
+            {
+                unsigned char out[32];
+                helios_tobytes(out, &p);
+                check_bytes((name + " value").c_str(), v.result, out, 32);
+            }
+        }
+        else
+        {
+            check_int((name + " invalid").c_str(), 1, (ok != 0) ? 1 : 0);
+        }
+    }
+    for (size_t i = 0; i < tv::helios_point::add_count; i++)
+    {
+        auto &v = tv::helios_point::add_vectors[i];
+        helios_jacobian a, b, r;
+        h_load(&a, v.a);
+        h_load(&b, v.b);
+        helios_add(&r, &a, &b);
+        unsigned char out[32];
+        helios_tobytes(out, &r);
+        check_bytes((std::string("tv(C): helios point add ") + v.label).c_str(), v.result, out, 32);
+    }
+    for (size_t i = 0; i < tv::helios_point::dbl_count; i++)
+    {
+        auto &v = tv::helios_point::dbl_vectors[i];
+        helios_jacobian a, r;
+        h_load(&a, v.a);
+        helios_dbl(&r, &a);
+        unsigned char out[32];
+        helios_tobytes(out, &r);
+        check_bytes((std::string("tv(C): helios point dbl ") + v.label).c_str(), v.result, out, 32);
+    }
+    for (size_t i = 0; i < tv::helios_point::negate_count; i++)
+    {
+        auto &v = tv::helios_point::negate_vectors[i];
+        helios_jacobian a, r;
+        h_load(&a, v.a);
+        helios_neg(&r, &a);
+        unsigned char out[32];
+        helios_tobytes(out, &r);
+        check_bytes((std::string("tv(C): helios point neg ") + v.label).c_str(), v.result, out, 32);
+    }
+    for (size_t i = 0; i < tv::helios_point::scalar_mul_count; i++)
+    {
+        auto &v = tv::helios_point::scalar_mul_vectors[i];
+        helios_jacobian p, r;
+        h_load(&p, v.point);
+        helios_scalarmult(&r, v.scalar, &p);
+        unsigned char out[32];
+        helios_tobytes(out, &r);
+        check_bytes((std::string("tv(C): helios point scalarmult ") + v.label).c_str(), v.result, out, 32);
+    }
+
+    /* MSM (helios) */
+    {
+        auto run_msm = [&](const char *name,
+                           const uint8_t(*scalars)[32],
+                           const uint8_t(*points)[32],
+                           const uint8_t expected[32],
+                           size_t n)
+        {
+            std::vector<helios_jacobian> pts(n);
+            for (size_t j = 0; j < n; j++)
+                h_load(&pts[j], points[j]);
+            helios_jacobian r;
+            helios_msm_vartime(&r, scalars[0], pts.data(), n);
+            unsigned char out[32];
+            helios_tobytes(out, &r);
+            check_bytes(name, expected, out, 32);
+        };
+        namespace hp = tv::helios_point;
+        run_msm("tv(C): helios msm n=1", hp::msm_n_1_scalars, hp::msm_n_1_points, hp::msm_n_1_result, 1);
+        run_msm("tv(C): helios msm n=2", hp::msm_n_2_scalars, hp::msm_n_2_points, hp::msm_n_2_result, 2);
+        run_msm("tv(C): helios msm n=4", hp::msm_n_4_scalars, hp::msm_n_4_points, hp::msm_n_4_result, 4);
+        run_msm("tv(C): helios msm n=16", hp::msm_n_16_scalars, hp::msm_n_16_points, hp::msm_n_16_result, 16);
+        run_msm(
+            "tv(C): helios msm n=32",
+            hp::msm_n_32_straus_scalars,
+            hp::msm_n_32_straus_points,
+            hp::msm_n_32_straus_result,
+            32);
+        run_msm(
+            "tv(C): helios msm n=33",
+            hp::msm_n_33_pippenger_scalars,
+            hp::msm_n_33_pippenger_points,
+            hp::msm_n_33_pippenger_result,
+            33);
+        run_msm(
+            "tv(C): helios msm n=64",
+            hp::msm_n_64_pippenger_scalars,
+            hp::msm_n_64_pippenger_points,
+            hp::msm_n_64_pippenger_result,
+            64);
+    }
+
+    /* Pedersen (helios) */
+    {
+        auto run_ped = [&](const char *name,
+                           const uint8_t blinding[32],
+                           const uint8_t H_bytes[32],
+                           const uint8_t(*values)[32],
+                           const uint8_t(*generators)[32],
+                           const uint8_t expected[32],
+                           size_t n)
+        {
+            helios_jacobian H_pt;
+            h_load(&H_pt, H_bytes);
+            std::vector<helios_jacobian> gens(n);
+            for (size_t j = 0; j < n; j++)
+                h_load(&gens[j], generators[j]);
+            helios_jacobian r;
+            helios_pedersen_commit(&r, blinding, &H_pt, values[0], gens.data(), n);
+            unsigned char out[32];
+            helios_tobytes(out, &r);
+            check_bytes(name, expected, out, 32);
+        };
+        namespace hp = tv::helios_point;
+        run_ped(
+            "tv(C): helios pedersen n=1",
+            hp::pedersen_n_1_blinding,
+            hp::pedersen_n_1_H,
+            hp::pedersen_n_1_values,
+            hp::pedersen_n_1_generators,
+            hp::pedersen_n_1_result,
+            1);
+        run_ped(
+            "tv(C): helios pedersen n=4",
+            hp::pedersen_n_4_blinding,
+            hp::pedersen_n_4_H,
+            hp::pedersen_n_4_values,
+            hp::pedersen_n_4_generators,
+            hp::pedersen_n_4_result,
+            4);
+        run_ped(
+            "tv(C): helios pedersen blind=0",
+            hp::pedersen_blinding_zero_blinding,
+            hp::pedersen_blinding_zero_H,
+            hp::pedersen_blinding_zero_values,
+            hp::pedersen_blinding_zero_generators,
+            hp::pedersen_blinding_zero_result,
+            1);
+    }
+
+    /* Map-to-curve (helios) */
+    for (size_t i = 0; i < tv::helios_point::map_to_curve_single_count; i++)
+    {
+        auto &v = tv::helios_point::map_to_curve_single_vectors[i];
+        helios_jacobian r;
+        helios_map_to_curve(&r, v.u);
+        unsigned char out[32];
+        helios_tobytes(out, &r);
+        check_bytes((std::string("tv(C): helios map_to_curve ") + v.label).c_str(), v.result, out, 32);
+    }
+    for (size_t i = 0; i < tv::helios_point::map_to_curve_double_count; i++)
+    {
+        auto &v = tv::helios_point::map_to_curve_double_vectors[i];
+        helios_jacobian r;
+        helios_map_to_curve2(&r, v.u0, v.u1);
+        unsigned char out[32];
+        helios_tobytes(out, &r);
+        check_bytes((std::string("tv(C): helios map_to_curve2 ") + v.label).c_str(), v.result, out, 32);
+    }
+
+    /* ==== Selene Point (C primitives) ==== */
+    std::cout << "  --- Selene Point (C) ---" << std::endl;
+    for (size_t i = 0; i < tv::selene_point::from_bytes_count; i++)
+    {
+        auto &v = tv::selene_point::from_bytes_vectors[i];
+        selene_jacobian p;
+        int ok = selene_frombytes(&p, v.input);
+        std::string name = std::string("tv(C): selene point from_bytes ") + v.label;
+        if (v.valid)
+        {
+            check_int((name + " valid").c_str(), 0, ok);
+            if (ok == 0)
+            {
+                unsigned char out[32];
+                selene_tobytes(out, &p);
+                check_bytes((name + " value").c_str(), v.result, out, 32);
+            }
+        }
+        else
+        {
+            check_int((name + " invalid").c_str(), 1, (ok != 0) ? 1 : 0);
+        }
+    }
+    for (size_t i = 0; i < tv::selene_point::add_count; i++)
+    {
+        auto &v = tv::selene_point::add_vectors[i];
+        selene_jacobian a, b, r;
+        s_load(&a, v.a);
+        s_load(&b, v.b);
+        selene_add(&r, &a, &b);
+        unsigned char out[32];
+        selene_tobytes(out, &r);
+        check_bytes((std::string("tv(C): selene point add ") + v.label).c_str(), v.result, out, 32);
+    }
+    for (size_t i = 0; i < tv::selene_point::dbl_count; i++)
+    {
+        auto &v = tv::selene_point::dbl_vectors[i];
+        selene_jacobian a, r;
+        s_load(&a, v.a);
+        selene_dbl(&r, &a);
+        unsigned char out[32];
+        selene_tobytes(out, &r);
+        check_bytes((std::string("tv(C): selene point dbl ") + v.label).c_str(), v.result, out, 32);
+    }
+    for (size_t i = 0; i < tv::selene_point::negate_count; i++)
+    {
+        auto &v = tv::selene_point::negate_vectors[i];
+        selene_jacobian a, r;
+        s_load(&a, v.a);
+        selene_neg(&r, &a);
+        unsigned char out[32];
+        selene_tobytes(out, &r);
+        check_bytes((std::string("tv(C): selene point neg ") + v.label).c_str(), v.result, out, 32);
+    }
+    for (size_t i = 0; i < tv::selene_point::scalar_mul_count; i++)
+    {
+        auto &v = tv::selene_point::scalar_mul_vectors[i];
+        selene_jacobian p, r;
+        s_load(&p, v.point);
+        selene_scalarmult(&r, v.scalar, &p);
+        unsigned char out[32];
+        selene_tobytes(out, &r);
+        check_bytes((std::string("tv(C): selene point scalarmult ") + v.label).c_str(), v.result, out, 32);
+    }
+
+    /* MSM (selene) */
+    {
+        auto run_msm = [&](const char *name,
+                           const uint8_t(*scalars)[32],
+                           const uint8_t(*points)[32],
+                           const uint8_t expected[32],
+                           size_t n)
+        {
+            std::vector<selene_jacobian> pts(n);
+            for (size_t j = 0; j < n; j++)
+                s_load(&pts[j], points[j]);
+            selene_jacobian r;
+            selene_msm_vartime(&r, scalars[0], pts.data(), n);
+            unsigned char out[32];
+            selene_tobytes(out, &r);
+            check_bytes(name, expected, out, 32);
+        };
+        namespace sp = tv::selene_point;
+        run_msm("tv(C): selene msm n=1", sp::msm_n_1_scalars, sp::msm_n_1_points, sp::msm_n_1_result, 1);
+        run_msm("tv(C): selene msm n=2", sp::msm_n_2_scalars, sp::msm_n_2_points, sp::msm_n_2_result, 2);
+        run_msm("tv(C): selene msm n=4", sp::msm_n_4_scalars, sp::msm_n_4_points, sp::msm_n_4_result, 4);
+        run_msm("tv(C): selene msm n=16", sp::msm_n_16_scalars, sp::msm_n_16_points, sp::msm_n_16_result, 16);
+        run_msm(
+            "tv(C): selene msm n=32",
+            sp::msm_n_32_straus_scalars,
+            sp::msm_n_32_straus_points,
+            sp::msm_n_32_straus_result,
+            32);
+        run_msm(
+            "tv(C): selene msm n=33",
+            sp::msm_n_33_pippenger_scalars,
+            sp::msm_n_33_pippenger_points,
+            sp::msm_n_33_pippenger_result,
+            33);
+        run_msm(
+            "tv(C): selene msm n=64",
+            sp::msm_n_64_pippenger_scalars,
+            sp::msm_n_64_pippenger_points,
+            sp::msm_n_64_pippenger_result,
+            64);
+    }
+
+    /* Pedersen (selene) */
+    {
+        auto run_ped = [&](const char *name,
+                           const uint8_t blinding[32],
+                           const uint8_t H_bytes[32],
+                           const uint8_t(*values)[32],
+                           const uint8_t(*generators)[32],
+                           const uint8_t expected[32],
+                           size_t n)
+        {
+            selene_jacobian H_pt;
+            s_load(&H_pt, H_bytes);
+            std::vector<selene_jacobian> gens(n);
+            for (size_t j = 0; j < n; j++)
+                s_load(&gens[j], generators[j]);
+            selene_jacobian r;
+            selene_pedersen_commit(&r, blinding, &H_pt, values[0], gens.data(), n);
+            unsigned char out[32];
+            selene_tobytes(out, &r);
+            check_bytes(name, expected, out, 32);
+        };
+        namespace sp = tv::selene_point;
+        run_ped(
+            "tv(C): selene pedersen n=1",
+            sp::pedersen_n_1_blinding,
+            sp::pedersen_n_1_H,
+            sp::pedersen_n_1_values,
+            sp::pedersen_n_1_generators,
+            sp::pedersen_n_1_result,
+            1);
+        run_ped(
+            "tv(C): selene pedersen n=4",
+            sp::pedersen_n_4_blinding,
+            sp::pedersen_n_4_H,
+            sp::pedersen_n_4_values,
+            sp::pedersen_n_4_generators,
+            sp::pedersen_n_4_result,
+            4);
+        run_ped(
+            "tv(C): selene pedersen blind=0",
+            sp::pedersen_blinding_zero_blinding,
+            sp::pedersen_blinding_zero_H,
+            sp::pedersen_blinding_zero_values,
+            sp::pedersen_blinding_zero_generators,
+            sp::pedersen_blinding_zero_result,
+            1);
+    }
+
+    /* Map-to-curve (selene) */
+    for (size_t i = 0; i < tv::selene_point::map_to_curve_single_count; i++)
+    {
+        auto &v = tv::selene_point::map_to_curve_single_vectors[i];
+        selene_jacobian r;
+        selene_map_to_curve(&r, v.u);
+        unsigned char out[32];
+        selene_tobytes(out, &r);
+        check_bytes((std::string("tv(C): selene map_to_curve ") + v.label).c_str(), v.result, out, 32);
+    }
+    for (size_t i = 0; i < tv::selene_point::map_to_curve_double_count; i++)
+    {
+        auto &v = tv::selene_point::map_to_curve_double_vectors[i];
+        selene_jacobian r;
+        selene_map_to_curve2(&r, v.u0, v.u1);
+        unsigned char out[32];
+        selene_tobytes(out, &r);
+        check_bytes((std::string("tv(C): selene map_to_curve2 ") + v.label).c_str(), v.result, out, 32);
+    }
+
+    /* ==== Fp Polynomial (C primitives) ==== */
+    std::cout << "  --- Fp Polynomial (C) ---" << std::endl;
+    {
+        namespace fp = tv::fp_polynomial;
+
+        /* Helper: build fp_poly from test vector coefficient bytes */
+        auto make_fp_poly = [](const uint8_t(*coeffs)[32], size_t n) -> fp_poly
+        {
+            fp_poly p;
+            p.coeffs.resize(n);
+            for (size_t i = 0; i < n; i++)
+                fp_frombytes(p.coeffs[i].v, coeffs[i]);
+            return p;
+        };
+
+        /* from_roots */
+        {
+            fp_fe roots[1];
+            fp_frombytes(roots[0], fp::from_roots_one_root_roots[0]);
+            fp_poly p;
+            fp_poly_from_roots(&p, roots, 1);
+            size_t n = sizeof(fp::from_roots_one_root_coefficients) / sizeof(fp::from_roots_one_root_coefficients[0]);
+            for (size_t i = 0; i < n && i < p.coeffs.size(); i++)
+            {
+                uint8_t c[32];
+                fp_tobytes(c, p.coeffs[i].v);
+                check_bytes(
+                    (std::string("tv(C): fp poly from_roots 1 coeff[") + std::to_string(i) + "]").c_str(),
+                    fp::from_roots_one_root_coefficients[i],
+                    c,
+                    32);
+            }
+        }
+        {
+            fp_fe roots[4];
+            for (int j = 0; j < 4; j++)
+                fp_frombytes(roots[j], fp::from_roots_four_roots_roots[j]);
+            fp_poly p;
+            fp_poly_from_roots(&p, roots, 4);
+            size_t n =
+                sizeof(fp::from_roots_four_roots_coefficients) / sizeof(fp::from_roots_four_roots_coefficients[0]);
+            for (size_t i = 0; i < n && i < p.coeffs.size(); i++)
+            {
+                uint8_t c[32];
+                fp_tobytes(c, p.coeffs[i].v);
+                check_bytes(
+                    (std::string("tv(C): fp poly from_roots 4 coeff[") + std::to_string(i) + "]").c_str(),
+                    fp::from_roots_four_roots_coefficients[i],
+                    c,
+                    32);
+            }
+        }
+
+        /* eval */
+        {
+            size_t nc = sizeof(fp::eval_quadratic_at_7_coefficients) / sizeof(fp::eval_quadratic_at_7_coefficients[0]);
+            auto p = make_fp_poly(fp::eval_quadratic_at_7_coefficients, nc);
+            fp_fe x, result;
+            fp_frombytes(x, fp::eval_quadratic_at_7_x);
+            fp_poly_eval(result, &p, x);
+            uint8_t out[32];
+            fp_tobytes(out, result);
+            check_bytes("tv(C): fp poly eval quadratic_at_7", fp::eval_quadratic_at_7_result, out, 32);
+        }
+
+        /* mul: deg1*deg1 */
+        {
+            size_t na = sizeof(fp::mul_deg1_times_deg1_a) / sizeof(fp::mul_deg1_times_deg1_a[0]);
+            size_t nb = sizeof(fp::mul_deg1_times_deg1_b) / sizeof(fp::mul_deg1_times_deg1_b[0]);
+            size_t nr = sizeof(fp::mul_deg1_times_deg1_result) / sizeof(fp::mul_deg1_times_deg1_result[0]);
+            auto a = make_fp_poly(fp::mul_deg1_times_deg1_a, na);
+            auto b = make_fp_poly(fp::mul_deg1_times_deg1_b, nb);
+            fp_poly r;
+            fp_poly_mul(&r, &a, &b);
+            for (size_t i = 0; i < nr && i < r.coeffs.size(); i++)
+            {
+                uint8_t c[32];
+                fp_tobytes(c, r.coeffs[i].v);
+                check_bytes(
+                    (std::string("tv(C): fp poly mul deg1*deg1 coeff[") + std::to_string(i) + "]").c_str(),
+                    fp::mul_deg1_times_deg1_result[i],
+                    c,
+                    32);
+            }
+        }
+
+        /* mul: deg16*deg16 (karatsuba) */
+        {
+            size_t na =
+                sizeof(fp::mul_deg16_times_deg16_karatsuba_a) / sizeof(fp::mul_deg16_times_deg16_karatsuba_a[0]);
+            size_t nb =
+                sizeof(fp::mul_deg16_times_deg16_karatsuba_b) / sizeof(fp::mul_deg16_times_deg16_karatsuba_b[0]);
+            size_t nr = sizeof(fp::mul_deg16_times_deg16_karatsuba_result)
+                        / sizeof(fp::mul_deg16_times_deg16_karatsuba_result[0]);
+            auto a = make_fp_poly(fp::mul_deg16_times_deg16_karatsuba_a, na);
+            auto b = make_fp_poly(fp::mul_deg16_times_deg16_karatsuba_b, nb);
+            fp_poly r;
+            fp_poly_mul(&r, &a, &b);
+            for (size_t i = 0; i < nr && i < r.coeffs.size(); i++)
+            {
+                uint8_t c[32];
+                fp_tobytes(c, r.coeffs[i].v);
+                check_bytes(
+                    (std::string("tv(C): fp poly mul deg16*deg16 coeff[") + std::to_string(i) + "]").c_str(),
+                    fp::mul_deg16_times_deg16_karatsuba_result[i],
+                    c,
+                    32);
+            }
+        }
+
+        /* divmod: exact division */
+        {
+            size_t nn = sizeof(fp::divmod_exact_division_numerator) / sizeof(fp::divmod_exact_division_numerator[0]);
+            size_t nd =
+                sizeof(fp::divmod_exact_division_denominator) / sizeof(fp::divmod_exact_division_denominator[0]);
+            size_t nq = sizeof(fp::divmod_exact_division_quotient) / sizeof(fp::divmod_exact_division_quotient[0]);
+            size_t nrem = sizeof(fp::divmod_exact_division_remainder) / sizeof(fp::divmod_exact_division_remainder[0]);
+            auto num = make_fp_poly(fp::divmod_exact_division_numerator, nn);
+            auto den = make_fp_poly(fp::divmod_exact_division_denominator, nd);
+            fp_poly q, rem;
+            fp_poly_divmod(&q, &rem, &num, &den);
+            for (size_t i = 0; i < nq && i < q.coeffs.size(); i++)
+            {
+                uint8_t c[32];
+                fp_tobytes(c, q.coeffs[i].v);
+                check_bytes(
+                    (std::string("tv(C): fp poly divmod exact q[") + std::to_string(i) + "]").c_str(),
+                    fp::divmod_exact_division_quotient[i],
+                    c,
+                    32);
+            }
+            for (size_t i = 0; i < nrem && i < rem.coeffs.size(); i++)
+            {
+                uint8_t c[32];
+                fp_tobytes(c, rem.coeffs[i].v);
+                check_bytes(
+                    (std::string("tv(C): fp poly divmod exact r[") + std::to_string(i) + "]").c_str(),
+                    fp::divmod_exact_division_remainder[i],
+                    c,
+                    32);
+            }
+        }
+
+        /* interpolate: three points */
+        {
+            fp_fe xs[3], ys[3];
+            for (int j = 0; j < 3; j++)
+            {
+                fp_frombytes(xs[j], fp::interp_three_points_xs[j]);
+                fp_frombytes(ys[j], fp::interp_three_points_ys[j]);
+            }
+            fp_poly p;
+            fp_poly_interpolate(&p, xs, ys, 3);
+            size_t nc = sizeof(fp::interp_three_points_coefficients) / sizeof(fp::interp_three_points_coefficients[0]);
+            for (size_t i = 0; i < nc && i < p.coeffs.size(); i++)
+            {
+                uint8_t c[32];
+                fp_tobytes(c, p.coeffs[i].v);
+                check_bytes(
+                    (std::string("tv(C): fp poly interp 3pt coeff[") + std::to_string(i) + "]").c_str(),
+                    fp::interp_three_points_coefficients[i],
+                    c,
+                    32);
+            }
+        }
+    }
+
+    /* ==== Fq Polynomial (C primitives) ==== */
+    std::cout << "  --- Fq Polynomial (C) ---" << std::endl;
+    {
+        namespace fqn = tv::fq_polynomial;
+
+        auto make_fq_poly = [](const uint8_t(*coeffs)[32], size_t n) -> fq_poly
+        {
+            fq_poly p;
+            p.coeffs.resize(n);
+            for (size_t i = 0; i < n; i++)
+                fq_frombytes(p.coeffs[i].v, coeffs[i]);
+            return p;
+        };
+
+        /* from_roots */
+        {
+            fq_fe roots[4];
+            for (int j = 0; j < 4; j++)
+                fq_frombytes(roots[j], fqn::from_roots_four_roots_roots[j]);
+            fq_poly p;
+            fq_poly_from_roots(&p, roots, 4);
+            size_t n =
+                sizeof(fqn::from_roots_four_roots_coefficients) / sizeof(fqn::from_roots_four_roots_coefficients[0]);
+            for (size_t i = 0; i < n && i < p.coeffs.size(); i++)
+            {
+                uint8_t c[32];
+                fq_tobytes(c, p.coeffs[i].v);
+                check_bytes(
+                    (std::string("tv(C): fq poly from_roots 4 coeff[") + std::to_string(i) + "]").c_str(),
+                    fqn::from_roots_four_roots_coefficients[i],
+                    c,
+                    32);
+            }
+        }
+
+        /* eval */
+        {
+            size_t nc =
+                sizeof(fqn::eval_quadratic_at_7_coefficients) / sizeof(fqn::eval_quadratic_at_7_coefficients[0]);
+            auto p = make_fq_poly(fqn::eval_quadratic_at_7_coefficients, nc);
+            fq_fe x, result;
+            fq_frombytes(x, fqn::eval_quadratic_at_7_x);
+            fq_poly_eval(result, &p, x);
+            uint8_t out[32];
+            fq_tobytes(out, result);
+            check_bytes("tv(C): fq poly eval quadratic_at_7", fqn::eval_quadratic_at_7_result, out, 32);
+        }
+
+        /* mul: deg16*deg16 (karatsuba) */
+        {
+            size_t na =
+                sizeof(fqn::mul_deg16_times_deg16_karatsuba_a) / sizeof(fqn::mul_deg16_times_deg16_karatsuba_a[0]);
+            size_t nb =
+                sizeof(fqn::mul_deg16_times_deg16_karatsuba_b) / sizeof(fqn::mul_deg16_times_deg16_karatsuba_b[0]);
+            size_t nr = sizeof(fqn::mul_deg16_times_deg16_karatsuba_result)
+                        / sizeof(fqn::mul_deg16_times_deg16_karatsuba_result[0]);
+            auto a = make_fq_poly(fqn::mul_deg16_times_deg16_karatsuba_a, na);
+            auto b = make_fq_poly(fqn::mul_deg16_times_deg16_karatsuba_b, nb);
+            fq_poly r;
+            fq_poly_mul(&r, &a, &b);
+            for (size_t i = 0; i < nr && i < r.coeffs.size(); i++)
+            {
+                uint8_t c[32];
+                fq_tobytes(c, r.coeffs[i].v);
+                check_bytes(
+                    (std::string("tv(C): fq poly mul deg16*deg16 coeff[") + std::to_string(i) + "]").c_str(),
+                    fqn::mul_deg16_times_deg16_karatsuba_result[i],
+                    c,
+                    32);
+            }
+        }
+
+        /* divmod: exact division */
+        {
+            size_t nn = sizeof(fqn::divmod_exact_division_numerator) / sizeof(fqn::divmod_exact_division_numerator[0]);
+            size_t nd =
+                sizeof(fqn::divmod_exact_division_denominator) / sizeof(fqn::divmod_exact_division_denominator[0]);
+            size_t nq = sizeof(fqn::divmod_exact_division_quotient) / sizeof(fqn::divmod_exact_division_quotient[0]);
+            size_t nrem =
+                sizeof(fqn::divmod_exact_division_remainder) / sizeof(fqn::divmod_exact_division_remainder[0]);
+            auto num = make_fq_poly(fqn::divmod_exact_division_numerator, nn);
+            auto den = make_fq_poly(fqn::divmod_exact_division_denominator, nd);
+            fq_poly q, rem;
+            fq_poly_divmod(&q, &rem, &num, &den);
+            for (size_t i = 0; i < nq && i < q.coeffs.size(); i++)
+            {
+                uint8_t c[32];
+                fq_tobytes(c, q.coeffs[i].v);
+                check_bytes(
+                    (std::string("tv(C): fq poly divmod exact q[") + std::to_string(i) + "]").c_str(),
+                    fqn::divmod_exact_division_quotient[i],
+                    c,
+                    32);
+            }
+            for (size_t i = 0; i < nrem && i < rem.coeffs.size(); i++)
+            {
+                uint8_t c[32];
+                fq_tobytes(c, rem.coeffs[i].v);
+                check_bytes(
+                    (std::string("tv(C): fq poly divmod exact r[") + std::to_string(i) + "]").c_str(),
+                    fqn::divmod_exact_division_remainder[i],
+                    c,
+                    32);
+            }
+        }
+
+        /* interpolate: three points */
+        {
+            fq_fe xs[3], ys[3];
+            for (int j = 0; j < 3; j++)
+            {
+                fq_frombytes(xs[j], fqn::interp_three_points_xs[j]);
+                fq_frombytes(ys[j], fqn::interp_three_points_ys[j]);
+            }
+            fq_poly p;
+            fq_poly_interpolate(&p, xs, ys, 3);
+            size_t nc =
+                sizeof(fqn::interp_three_points_coefficients) / sizeof(fqn::interp_three_points_coefficients[0]);
+            for (size_t i = 0; i < nc && i < p.coeffs.size(); i++)
+            {
+                uint8_t c[32];
+                fq_tobytes(c, p.coeffs[i].v);
+                check_bytes(
+                    (std::string("tv(C): fq poly interp 3pt coeff[") + std::to_string(i) + "]").c_str(),
+                    fqn::interp_three_points_coefficients[i],
+                    c,
+                    32);
+            }
+        }
+    }
+
+    /* ==== Helios Divisor (C primitives) ==== */
+    std::cout << "  --- Helios Divisor (C) ---" << std::endl;
+    {
+        namespace hd = tv::helios_divisor;
+
+        auto run_divisor = [&](const char *label,
+                               const uint8_t(*pt_bytes)[32],
+                               size_t n,
+                               const uint8_t(*a_coeffs)[32],
+                               size_t na,
+                               const uint8_t(*b_coeffs)[32],
+                               size_t nb,
+                               const uint8_t eval_x[32],
+                               const uint8_t eval_y[32],
+                               const uint8_t eval_expected[32])
+        {
+            /* Load affine points */
+            std::vector<helios_affine> pts(n);
+            for (size_t j = 0; j < n; j++)
+            {
+                helios_jacobian jac;
+                helios_frombytes(&jac, pt_bytes[j]);
+                helios_to_affine(&pts[j], &jac);
+            }
+            helios_divisor d;
+            helios_compute_divisor(&d, pts.data(), n);
+            for (size_t i = 0; i < na && i < d.a.coeffs.size(); i++)
+            {
+                uint8_t c[32];
+                fp_tobytes(c, d.a.coeffs[i].v);
+                check_bytes(
+                    (std::string("tv(C): helios div ") + label + " a[" + std::to_string(i) + "]").c_str(),
+                    a_coeffs[i],
+                    c,
+                    32);
+            }
+            for (size_t i = 0; i < nb && i < d.b.coeffs.size(); i++)
+            {
+                uint8_t c[32];
+                fp_tobytes(c, d.b.coeffs[i].v);
+                check_bytes(
+                    (std::string("tv(C): helios div ") + label + " b[" + std::to_string(i) + "]").c_str(),
+                    b_coeffs[i],
+                    c,
+                    32);
+            }
+            fp_fe ex, ey, ev;
+            fp_frombytes(ex, eval_x);
+            fp_frombytes(ey, eval_y);
+            helios_evaluate_divisor(ev, &d, ex, ey);
+            uint8_t out[32];
+            fp_tobytes(out, ev);
+            check_bytes((std::string("tv(C): helios div ") + label + " eval").c_str(), eval_expected, out, 32);
+        };
+
+        run_divisor(
+            "n=2",
+            hd::n_2_points,
+            2,
+            hd::n_2_a_coefficients,
+            sizeof(hd::n_2_a_coefficients) / sizeof(hd::n_2_a_coefficients[0]),
+            hd::n_2_b_coefficients,
+            sizeof(hd::n_2_b_coefficients) / sizeof(hd::n_2_b_coefficients[0]),
+            hd::n_2_eval_point_x,
+            hd::n_2_eval_point_y,
+            hd::n_2_eval_result);
+        run_divisor(
+            "n=4",
+            hd::n_4_points,
+            4,
+            hd::n_4_a_coefficients,
+            sizeof(hd::n_4_a_coefficients) / sizeof(hd::n_4_a_coefficients[0]),
+            hd::n_4_b_coefficients,
+            sizeof(hd::n_4_b_coefficients) / sizeof(hd::n_4_b_coefficients[0]),
+            hd::n_4_eval_point_x,
+            hd::n_4_eval_point_y,
+            hd::n_4_eval_result);
+        run_divisor(
+            "n=8",
+            hd::n_8_points,
+            8,
+            hd::n_8_a_coefficients,
+            sizeof(hd::n_8_a_coefficients) / sizeof(hd::n_8_a_coefficients[0]),
+            hd::n_8_b_coefficients,
+            sizeof(hd::n_8_b_coefficients) / sizeof(hd::n_8_b_coefficients[0]),
+            hd::n_8_eval_point_x,
+            hd::n_8_eval_point_y,
+            hd::n_8_eval_result);
+    }
+
+    /* ==== Selene Divisor (C primitives) ==== */
+    std::cout << "  --- Selene Divisor (C) ---" << std::endl;
+    {
+        namespace sd = tv::selene_divisor;
+
+        auto run_divisor = [&](const char *label,
+                               const uint8_t(*pt_bytes)[32],
+                               size_t n,
+                               const uint8_t(*a_coeffs)[32],
+                               size_t na,
+                               const uint8_t(*b_coeffs)[32],
+                               size_t nb,
+                               const uint8_t eval_x[32],
+                               const uint8_t eval_y[32],
+                               const uint8_t eval_expected[32])
+        {
+            std::vector<selene_affine> pts(n);
+            for (size_t j = 0; j < n; j++)
+            {
+                selene_jacobian jac;
+                selene_frombytes(&jac, pt_bytes[j]);
+                selene_to_affine(&pts[j], &jac);
+            }
+            selene_divisor d;
+            selene_compute_divisor(&d, pts.data(), n);
+            for (size_t i = 0; i < na && i < d.a.coeffs.size(); i++)
+            {
+                uint8_t c[32];
+                fq_tobytes(c, d.a.coeffs[i].v);
+                check_bytes(
+                    (std::string("tv(C): selene div ") + label + " a[" + std::to_string(i) + "]").c_str(),
+                    a_coeffs[i],
+                    c,
+                    32);
+            }
+            for (size_t i = 0; i < nb && i < d.b.coeffs.size(); i++)
+            {
+                uint8_t c[32];
+                fq_tobytes(c, d.b.coeffs[i].v);
+                check_bytes(
+                    (std::string("tv(C): selene div ") + label + " b[" + std::to_string(i) + "]").c_str(),
+                    b_coeffs[i],
+                    c,
+                    32);
+            }
+            fq_fe ex, ey, ev;
+            fq_frombytes(ex, eval_x);
+            fq_frombytes(ey, eval_y);
+            selene_evaluate_divisor(ev, &d, ex, ey);
+            uint8_t out[32];
+            fq_tobytes(out, ev);
+            check_bytes((std::string("tv(C): selene div ") + label + " eval").c_str(), eval_expected, out, 32);
+        };
+
+        run_divisor(
+            "n=2",
+            sd::n_2_points,
+            2,
+            sd::n_2_a_coefficients,
+            sizeof(sd::n_2_a_coefficients) / sizeof(sd::n_2_a_coefficients[0]),
+            sd::n_2_b_coefficients,
+            sizeof(sd::n_2_b_coefficients) / sizeof(sd::n_2_b_coefficients[0]),
+            sd::n_2_eval_point_x,
+            sd::n_2_eval_point_y,
+            sd::n_2_eval_result);
+        run_divisor(
+            "n=4",
+            sd::n_4_points,
+            4,
+            sd::n_4_a_coefficients,
+            sizeof(sd::n_4_a_coefficients) / sizeof(sd::n_4_a_coefficients[0]),
+            sd::n_4_b_coefficients,
+            sizeof(sd::n_4_b_coefficients) / sizeof(sd::n_4_b_coefficients[0]),
+            sd::n_4_eval_point_x,
+            sd::n_4_eval_point_y,
+            sd::n_4_eval_result);
+        run_divisor(
+            "n=8",
+            sd::n_8_points,
+            8,
+            sd::n_8_a_coefficients,
+            sizeof(sd::n_8_a_coefficients) / sizeof(sd::n_8_a_coefficients[0]),
+            sd::n_8_b_coefficients,
+            sizeof(sd::n_8_b_coefficients) / sizeof(sd::n_8_b_coefficients[0]),
+            sd::n_8_eval_point_x,
+            sd::n_8_eval_point_y,
+            sd::n_8_eval_result);
+    }
+}
+
+int main(int argc, char *argv[])
+{
+    const char *dispatch_label = "baseline (x64/portable)";
+    for (int i = 1; i < argc; i++)
+    {
+        if (std::strcmp(argv[i], "--autotune") == 0)
+        {
+            helioselene_autotune();
+            dispatch_label = "autotune";
+        }
+        else if (std::strcmp(argv[i], "--init") == 0)
+        {
+            helioselene_init();
+            dispatch_label = "init (CPUID heuristic)";
+        }
+        else
+        {
+            std::cerr << "Usage: " << argv[0] << " [--init | --autotune]" << std::endl;
+            return 1;
+        }
+    }
+
     std::cout << "Helioselene Unit Tests" << std::endl;
     std::cout << "======================" << std::endl;
+    std::cout << "Dispatch: " << dispatch_label << std::endl;
+#if HELIOSELENE_SIMD
+    std::cout << "CPU features:";
+    if (helioselene_has_avx2())
+        std::cout << " AVX2";
+    if (helioselene_has_avx512f())
+        std::cout << " AVX512F";
+    if (helioselene_has_avx512ifma())
+        std::cout << " AVX512IFMA";
+    if (!helioselene_cpu_features())
+        std::cout << " (none)";
+    std::cout << std::endl;
+#endif
 
     test_fp();
     test_fq();
@@ -6141,6 +8635,7 @@ int main()
     test_eval_divisor();
     test_serialization_roundtrip();
     test_vector_validation();
+    test_vector_validation_c_primitives();
     test_dispatch();
     test_cpp_api();
 

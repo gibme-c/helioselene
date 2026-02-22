@@ -109,11 +109,17 @@ static inline void selene_dbl_4x(selene_jacobian_4x *r, const selene_jacobian_4x
     fq10x4_mul(&alpha, &t0, &t1);
     fq10x4_add(&t0, &alpha, &alpha);
     fq10x4_add(&alpha, &t0, &alpha); // 3 * (X1 - delta)(X1 + delta)
+    fq10x4_carry_gamma(&alpha); // Normalize: limbs can reach 28 bits after 2 chained adds,
+                                // causing g*19 pre-products to exceed 32 bits in mul_epu32
 
     // X3 = alpha^2 - 8*beta
     fq10x4_sq(&r->X, &alpha);
     fq10x4_add(&t0, &beta, &beta); // 2*beta
     fq10x4_add(&t0, &t0, &t0); // 4*beta
+    fq10x4_carry_gamma(&t0); // Normalize: 2 chained adds produce 28-bit limbs, but fq10x4_sub's
+                             // 2q bias only covers up to 27-bit subtrahends. Without this carry,
+                             // (26-bit + 2q_bias) - 28-bit goes negative, wrapping in uint64_t,
+                             // and the unsigned carry shift (srli) produces garbage.
     fq10x4_sub(&r->X, &r->X, &t0); // alpha^2 - 4*beta
     fq10x4_sub(&r->X, &r->X, &t0); // alpha^2 - 8*beta
 
@@ -129,6 +135,7 @@ static inline void selene_dbl_4x(selene_jacobian_4x *r, const selene_jacobian_4x
     fq10x4_sq(&t0, &gamma); // gamma^2
     fq10x4_add(&t0, &t0, &t0); // 2*gamma^2
     fq10x4_add(&t0, &t0, &t0); // 4*gamma^2
+    fq10x4_carry_gamma(&t0); // Normalize: same 28-bit limb issue as 4*beta above
     fq10x4_sub(&r->Y, &t2, &t0); // - 4*gamma^2
     fq10x4_sub(&r->Y, &r->Y, &t0); // - 8*gamma^2
 }

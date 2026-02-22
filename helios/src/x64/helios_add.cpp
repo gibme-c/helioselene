@@ -34,8 +34,8 @@
  * EFD: add-2007-bl
  * Cost: 11M + 5S
  *
- * Does NOT handle: p == q (use dbl), p == -q, p == identity, q == identity.
- * Caller must handle these cases.
+ * Raw incomplete formula — does not handle p == q, p == -q, or identity inputs.
+ * Edge cases are handled by the inline wrapper in helios_add.h.
  *
  * Z1Z1 = Z1^2, Z2Z2 = Z2^2
  * U1 = X1*Z2Z2, U2 = X2*Z1Z1

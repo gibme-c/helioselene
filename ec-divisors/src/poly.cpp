@@ -154,19 +154,23 @@ static void fp_poly_normalize(fp_poly *p)
 }
 
 /*
- * Same as fp_poly_normalize but for F_q. After schoolbook accumulation,
- * fq_add's lazy reduction leaves limbs large. Normalize via fq_sub(x, x, 0).
+ * Normalize F_q polynomial coefficients to canonical (centered-carry) limb form.
+ *
+ * fq_sub(x, x, 0) leaves non-canonical limbs on the portable backend because
+ * the Crandall gamma fold only partially propagates carries.  Downstream
+ * consumers (Karatsuba, ECFFT) are representation-sensitive, so we round-trip
+ * through tobytes/frombytes which always produces the centered-carry form
+ * that fq_frombytes guarantees.
  */
 static void fq_poly_normalize(fq_poly *p)
 {
-    fq_fe zero;
-    fq_0(zero);
     for (size_t i = 0; i < p->coeffs.size(); i++)
     {
+        unsigned char buf[32];
         fq_fe tmp;
         fq_fe_load(tmp, &p->coeffs[i]);
-        fq_sub(tmp, tmp, zero);
-        fq_fe_store(&p->coeffs[i], tmp);
+        fq_tobytes(buf, tmp);
+        fq_frombytes(p->coeffs[i].v, buf);
     }
 }
 
@@ -495,10 +499,26 @@ void fp_poly_mul(fp_poly *r, const fp_poly *a, const fp_poly *b)
         {
             std::vector<fp_fe_storage> fa(na), fb(nb), fr(n_padded);
 
+            /* Canonicalize coefficients via tobytes/frombytes to ensure the
+             * centered-carry limb form that the ECFFT domain points use.
+             * Without this, the O(n^2) Horner evaluation in ecfft_fp_enter
+             * can accumulate representation-dependent rounding differences. */
             for (size_t i = 0; i < na; i++)
-                fp_fe_load(fa[i].v, &a->coeffs[i]);
+            {
+                unsigned char buf[32];
+                fp_fe tmp;
+                fp_fe_load(tmp, &a->coeffs[i]);
+                fp_tobytes(buf, tmp);
+                fp_frombytes(fa[i].v, buf);
+            }
             for (size_t i = 0; i < nb; i++)
-                fp_fe_load(fb[i].v, &b->coeffs[i]);
+            {
+                unsigned char buf[32];
+                fp_fe tmp;
+                fp_fe_load(tmp, &b->coeffs[i]);
+                fp_tobytes(buf, tmp);
+                fp_frombytes(fb[i].v, buf);
+            }
 
             size_t result_len = 0;
             ecfft_fp_poly_mul(&fr[0].v, &result_len, &fa[0].v, na, &fb[0].v, nb, ectx);
@@ -718,6 +738,7 @@ void fp_poly_interpolate(fp_poly *out, const fp_fe *xs, const fp_fe *ys, size_t 
         }
     }
 
+    fp_poly_normalize(out);
     fp_poly_strip(out);
 }
 
@@ -789,10 +810,26 @@ void fq_poly_mul(fq_poly *r, const fq_poly *a, const fq_poly *b)
         {
             std::vector<fq_fe_storage> fa(na), fb(nb), fr(n_padded);
 
+            /* Canonicalize coefficients via tobytes/frombytes to ensure the
+             * centered-carry limb form that the ECFFT domain points use.
+             * Without this, the O(n^2) Horner evaluation in ecfft_fq_enter
+             * can accumulate representation-dependent rounding differences. */
             for (size_t i = 0; i < na; i++)
-                fq_fe_load(fa[i].v, &a->coeffs[i]);
+            {
+                unsigned char buf[32];
+                fq_fe tmp;
+                fq_fe_load(tmp, &a->coeffs[i]);
+                fq_tobytes(buf, tmp);
+                fq_frombytes(fa[i].v, buf);
+            }
             for (size_t i = 0; i < nb; i++)
-                fq_fe_load(fb[i].v, &b->coeffs[i]);
+            {
+                unsigned char buf[32];
+                fq_fe tmp;
+                fq_fe_load(tmp, &b->coeffs[i]);
+                fq_tobytes(buf, tmp);
+                fq_frombytes(fb[i].v, buf);
+            }
 
             size_t result_len = 0;
             ecfft_fq_poly_mul(&fr[0].v, &result_len, &fa[0].v, na, &fb[0].v, nb, ectx);
@@ -996,5 +1033,6 @@ void fq_poly_interpolate(fq_poly *out, const fq_fe *xs, const fq_fe *ys, size_t 
         }
     }
 
+    fq_poly_normalize(out);
     fq_poly_strip(out);
 }

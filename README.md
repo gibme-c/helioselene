@@ -66,7 +66,8 @@ cmake --build build --config Release -j
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `BUILD_TESTS` | `OFF` | Build unit tests (`helioselene-tests`) and benchmark tool (`helioselene-benchmark`) |
+| `BUILD_TESTS` | `OFF` | Build unit tests (`helioselene-tests`, `helioselene-fuzz-tests`) |
+| `BUILD_BENCHMARKS` | `OFF` | Build benchmark executables (`helioselene-benchmark`, etc.) |
 | `BUILD_TOOLS` | `OFF` | Build auxiliary tools (ECFFT precomputation, test vector generator) |
 | `FORCE_PORTABLE` | `OFF` | Force the 32-bit portable implementation on 64-bit platforms (for testing/comparison) |
 | `ENABLE_AVX2` | `ON`* | Enable AVX2 SIMD backend with runtime dispatch |
@@ -327,15 +328,48 @@ Additional benchmark executables:
 
 ## Testing
 
-Unit tests use CTest with no external test framework (no Google Test, no Catch2 -- zero dependencies).
+Two test suites verify correctness, both using CTest with no external test framework (no Google Test, no Catch2 -- zero dependencies).
 
 ```bash
-cmake -S . -B build -DBUILD_TESTS=ON
+cmake -S . -B build -DBUILD_TESTS=ON -DENABLE_ECFFT=ON
 cmake --build build --config Release -j
+
+# Unit tests
 ./build/helioselene-tests
+
+# Fuzz tests (deterministic property-based)
+./build/helioselene-fuzz-tests --quiet
 ```
 
-545 tests across 50+ test groups covering: F_p/F_q arithmetic, square roots, point operations, scalar multiplication (variable-base and fixed-base), MSM (variable-base and fixed-base), precomputed generator tables, SSWU hash-to-curve, batch affine, batch field inversion, Pedersen commitments, scalar muladd/sq, polynomials (schoolbook, Karatsuba, interpolation, ECFFT), divisors, divisor evaluation, serialization, edge cases, Wei25519 bridge, point-to-scalar conversion, dispatch verification, the public C++ API (scalar/point/polynomial/divisor classes), and 161 Sage-validated test vector checks.
+### Unit Tests (`helioselene-tests`)
+
+1,679–1,707 tests (depending on config) across 50+ test groups covering: F_p/F_q arithmetic, square roots, point operations, scalar multiplication (variable-base and fixed-base), MSM (variable-base and fixed-base), precomputed generator tables, SSWU hash-to-curve, batch affine, batch field inversion, Pedersen commitments, scalar muladd/sq, polynomials (schoolbook, Karatsuba, interpolation, ECFFT), divisors, divisor evaluation, serialization, edge cases, Wei25519 bridge, point-to-scalar conversion, dispatch verification, the public C++ API (scalar/point/polynomial/divisor classes), and 161 Sage-validated test vector checks.
+
+### Fuzz Tests (`helioselene-fuzz-tests`)
+
+38,128 tests (no ECFFT) or 38,482 tests (with ECFFT) -- deterministic property-based tests using a seeded xoshiro256** PRNG. Covers 21 test categories:
+
+- **Scalar arithmetic** -- commutativity, associativity, distributivity, identity, inverse, muladd, inversion (~10,000 checks)
+- **Point arithmetic** -- commutativity, double consistency, associativity, identity (~2,000 checks)
+- **IPA/Bulletproof edge cases** -- zero-scalar mul, identity handling, negation, n=1 MSM (~120 checks)
+- **Serialization round-trip** -- points and scalars through to_bytes/from_bytes (~2,000 checks)
+- **Cross-curve cycle** -- Helios x-coord → Selene scalar → Selene point → Helios scalar chain (~1,000 checks)
+- **Scalar mul consistency** -- CT vs vartime agreement, linearity, composition (~1,500 checks)
+- **MSM** -- random inputs at sizes 2–64 covering Straus and Pippenger, sparse/zero/degenerate cases (~800 checks)
+- **Map-to-curve** -- single and two-element SSWU, determinism (~1,000 checks)
+- **Wei25519 bridge** -- valid conversions, rejection of invalid inputs (~500 checks)
+- **Pedersen commitments** -- correctness, homomorphism, zero-value/zero-blinding (~800 checks)
+- **Batch affine** -- individual vs batch conversion agreement (~400 checks)
+- **Polynomial arithmetic** -- eval consistency for mul/add/divmod/from_roots (~1,500 checks)
+- **Polynomial protocol sizes** -- Karatsuba-threshold and FCMP++-realistic degrees (~400 checks)
+- **Divisors** -- vanishing property, non-member rejection, degree checks (~600 checks)
+- **Divisor scalar mul** -- FCMP++ critical path, degree 254 verification (~200 checks)
+- **Operator+ regression** -- projective equality edge cases from a past bug (~2,000 checks)
+- **Verification equation** -- simplified IPA fold simulation (~500 checks)
+- **All-path cross-validation** -- compares all 6 scalar multiplication code paths (CT, vartime wNAF, MSM n=1, Pedersen, fixed-base CT, fixed-base MSM) against each other for both curves with edge, random, small, and high-bit scalars (~2,900 checks)
+- **ECFFT polynomial multiplication** (when ECFFT enabled) -- enter/exit round-trip, small/Karatsuba/large poly mul verification (~354 checks)
+
+Options: `--seed N` (override PRNG seed, default `0xDEADBEEFCAFE1234`), `--quiet` (suppress PASS lines).
 
 ### Test Vectors
 
@@ -354,16 +388,16 @@ sage tools/test_vectors.sage --validate test_vectors/helioselene_test_vectors.js
 
 ### Full Test Matrix
 
-CI runs 28 jobs across Linux (gcc-11, gcc-12, clang-14, clang-15), macOS (Homebrew clang, AppleClang), and Windows (MSVC, MinGW GCC). Each x86_64 compiler tests all four backend configurations; ARM64 compilers test portable and native:
+CI runs 30 jobs across Linux (gcc-11, gcc-12, clang-14, clang-15), macOS (Homebrew clang, AppleClang), and Windows (MSVC, MinGW GCC). Each x86_64 compiler tests all four backend configurations with ECFFT enabled; ARM64 compilers test portable and native. Both `helioselene-tests` and `helioselene-fuzz-tests` are run for every configuration under three dispatch modes: default (baseline), `--init` (CPUID heuristic), and `--autotune` (per-slot benchmarking).
 
-| Config | CMake flags | Tests |
-|--------|-------------|-------|
-| FORCE_PORTABLE | `-DFORCE_PORTABLE=1` | 539 |
-| x64 no SIMD | `-DENABLE_AVX2=OFF -DENABLE_AVX512=OFF` | 539 |
-| x64 + AVX2 | `-DENABLE_AVX512=OFF` | 545 |
-| x64 + AVX2 + IFMA | (default) | 545 |
+| Config | CMake flags | Unit Tests | Fuzz Tests |
+|--------|-------------|------------|------------|
+| FORCE_PORTABLE | `-DFORCE_PORTABLE=1` | 1,680–1,702 | 38,128–38,482 |
+| x64 no SIMD | `-DENABLE_AVX2=OFF -DENABLE_AVX512=OFF` | 1,679–1,701 | 38,128–38,482 |
+| x64 + AVX2 | `-DENABLE_AVX512=OFF` | 1,685–1,707 | 38,128–38,482 |
+| x64 + AVX2 + IFMA | (default) | 1,685–1,707 | 38,128–38,482 |
 
-SIMD configurations include 6 additional dispatch verification tests that confirm each runtime-selected backend produces correct known-answer test (KAT) outputs.
+Ranges reflect ECFFT off (lower) vs ECFFT on (higher). SIMD configurations include additional dispatch verification tests. ECFFT configurations include additional ECFFT-specific polynomial multiplication tests.
 
 ## License
 

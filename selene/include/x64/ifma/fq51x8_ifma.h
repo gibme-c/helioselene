@@ -187,25 +187,31 @@ static FQ51X8_FORCE_INLINE void fq51x8_carry(fq51x8 *h)
     h->v[3] = _mm512_and_si512(h->v[3], mask);
 }
 
-// -- Subtraction with 4q bias + carry --
-// To keep limbs non-negative, we add 4q before subtracting. The bias values
-// are 4 * Q_51[i] for each limb. The carry chain with gamma fold then
-// normalizes back to <=51-bit limbs.
+// -- Subtraction with 8q bias + carry --
+// To keep limbs non-negative, we add 8q before subtracting. The bias values
+// are EIGHT_Q_51[i] = 8 * Q_51[i] for each limb. The carry chain with gamma
+// fold then normalizes back to <=51-bit limbs.
 //
-// 4q bias values:
-//   limb 0: 4 * 0x6D2727927C79F = 0x1B49C9E49F1E7C
-//   limb 1: 4 * 0x596ECAD6B0DD6 = 0x165BB2B5AC3758
-//   limb 2: 4 * 0x7FFFFFEFDFDE0 = 0x1FFFFFFFB7F780
-//   limb 3: 4 * 0x7FFFFFFFFFFFF = 0x1FFFFFFFFFFFFC
-//   limb 4: 4 * 0x7FFFFFFFFFFFF = 0x1FFFFFFFFFFFFC
+// Fp uses 4p bias because all p limbs ≈ 2^51, so 4p limbs ≈ 2^53. For Fq,
+// the lower limbs of q are much smaller than 2^51 (gamma ≈ 2^127), so
+// 4*Q_51[0] ≈ 2^52.77 < 2^53 -- insufficient for 53-bit operands produced
+// by chained additions in dbl_8x. We need 8q to ensure all bias limbs exceed
+// 2^53. All 8q limbs fit in 54 bits, well within the 64-bit lane.
+//
+// 8q bias values:
+//   limb 0: 8 * 0x6D2727927C79F = 0x369393C93E3CF8
+//   limb 1: 8 * 0x596ECAD6B0DD6 = 0x2CB7656B586EB0
+//   limb 2: 8 * 0x7FFFFFEFDFDE0 = 0x3FFFFFF7EFEF00
+//   limb 3: 8 * 0x7FFFFFFFFFFFF = 0x3FFFFFFFFFFFF8
+//   limb 4: 8 * 0x7FFFFFFFFFFFF = 0x3FFFFFFFFFFFF8
 
 static FQ51X8_FORCE_INLINE void fq51x8_sub(fq51x8 *h, const fq51x8 *f, const fq51x8 *g)
 {
-    const __m512i bias0 = _mm512_set1_epi64((long long)(4 * Q_51[0]));
-    const __m512i bias1 = _mm512_set1_epi64((long long)(4 * Q_51[1]));
-    const __m512i bias2 = _mm512_set1_epi64((long long)(4 * Q_51[2]));
-    const __m512i bias3 = _mm512_set1_epi64((long long)(4 * Q_51[3]));
-    const __m512i bias4 = _mm512_set1_epi64((long long)(4 * Q_51[4]));
+    const __m512i bias0 = _mm512_set1_epi64((long long)EIGHT_Q_51[0]);
+    const __m512i bias1 = _mm512_set1_epi64((long long)EIGHT_Q_51[1]);
+    const __m512i bias2 = _mm512_set1_epi64((long long)EIGHT_Q_51[2]);
+    const __m512i bias3 = _mm512_set1_epi64((long long)EIGHT_Q_51[3]);
+    const __m512i bias4 = _mm512_set1_epi64((long long)EIGHT_Q_51[4]);
 
     h->v[0] = _mm512_add_epi64(_mm512_sub_epi64(f->v[0], g->v[0]), bias0);
     h->v[1] = _mm512_add_epi64(_mm512_sub_epi64(f->v[1], g->v[1]), bias1);
@@ -358,9 +364,15 @@ static FQ51X8_FORCE_INLINE void fq51x8_crandall_reduce(
     r6 = _mm512_add_epi64(r6, _mm512_slli_epi64(t, 1));
 
     // carry_out * gamma -> positions 4,5,6
-    // carry_out is tiny (<=5 bits), so hi parts are essentially zero
+    // carry_out can be ~5 bits. Products with g0 (49 bits) and g1 (50 bits)
+    // can exceed 52 bits, so we must capture hi parts for those terms.
+    // g2 is only 25 bits, so carry_out * g2 <= 30 bits -- hi is zero.
     r4 = _mm512_madd52lo_epu64(r4, carry_out, g0);
+    t = _mm512_madd52hi_epu64(zero, carry_out, g0);
+    r5 = _mm512_add_epi64(r5, _mm512_slli_epi64(t, 1));
     r5 = _mm512_madd52lo_epu64(r5, carry_out, g1);
+    t = _mm512_madd52hi_epu64(zero, carry_out, g1);
+    r6 = _mm512_add_epi64(r6, _mm512_slli_epi64(t, 1));
     r6 = _mm512_madd52lo_epu64(r6, carry_out, g2);
 
     // Carry-propagate r0..r4, with overflow into r5
@@ -380,7 +392,15 @@ static FQ51X8_FORCE_INLINE void fq51x8_crandall_reduce(
     r5 = _mm512_add_epi64(r5, c);
     r4 = _mm512_and_si512(r4, mask);
 
-    // Second mini-fold: r5 and r6 are small but nonzero, fold them back
+    // Carry-normalize r5 into r6 before second fold.
+    // After the first fold + carry chain, r5 can be ~53 bits. IFMA madd52
+    // instructions only use the low 52 bits of their operands (a[51:0]),
+    // so bits 52+ would be silently dropped, corrupting the result.
+    c = _mm512_srli_epi64(r5, 51);
+    r6 = _mm512_add_epi64(r6, c);
+    r5 = _mm512_and_si512(r5, mask);
+
+    // Second mini-fold: r5 and r6 are now <=51 bits, fold them back
     // r5 * gamma -> positions 0,1,2
     r0 = _mm512_madd52lo_epu64(r0, r5, g0);
     t = _mm512_madd52hi_epu64(zero, r5, g0);
@@ -392,9 +412,17 @@ static FQ51X8_FORCE_INLINE void fq51x8_crandall_reduce(
     t = _mm512_madd52hi_epu64(zero, r5, g2);
     r3 = _mm512_add_epi64(r3, _mm512_slli_epi64(t, 1));
 
-    // r6 * gamma -> positions 1,2,3 (r6 is tiny, hi parts negligible)
+    // r6 * gamma -> positions 1,2,3
+    // r6 can be up to ~25 bits (carry from r5 plus small overflow terms).
+    // g0 is 49 bits, g1 is 50 bits, so r6*g0 and r6*g1 can exceed 52 bits
+    // and their hi parts MUST be captured. g2 is only 25 bits, so r6*g2
+    // fits in ~50 bits and its hi part is truly zero.
     r1 = _mm512_madd52lo_epu64(r1, r6, g0);
+    t = _mm512_madd52hi_epu64(zero, r6, g0);
+    r2 = _mm512_add_epi64(r2, _mm512_slli_epi64(t, 1));
     r2 = _mm512_madd52lo_epu64(r2, r6, g1);
+    t = _mm512_madd52hi_epu64(zero, r6, g1);
+    r3 = _mm512_add_epi64(r3, _mm512_slli_epi64(t, 1));
     r3 = _mm512_madd52lo_epu64(r3, r6, g2);
 
     // Final carry chain with gamma fold for carry out of limb 4
@@ -529,21 +557,41 @@ static FQ51X8_FORCE_INLINE void fq51x8_mul(fq51x8 *h, const fq51x8 *f, const fq5
     __m512i c7 = _mm512_add_epi64(lo7, _mm512_slli_epi64(hi6, 1));
     __m512i c8 = _mm512_add_epi64(lo8, _mm512_slli_epi64(hi7, 1));
 
-    // hi8 contributes to c9, but we fold it directly:
-    // c9 = hi8 << 1 represents position 9 (bits 459-510).
+    // hi8 contributes to c9 = hi8<<1, which represents position 9.
     // Position 9 folds as c9 * gamma into positions 4,5,6.
-    // But c9 is small (<=~52 bits >> 1 = ~51 bits), so we fold it
-    // into c4..c6 before passing to the reduction. Since hi8 has at most
-    // 1 IFMA accumulation, it is <=52 bits, and hi8<<1 is <=53 bits.
-    // We add it to c4 as an additional "upper limb at position 9" would
-    // fold to position 4 with gamma[0], position 5 with gamma[1], etc.
-    // But this complicates the reduction. Instead, just pass 9 limbs
-    // (c0..c8) and handle hi8 as a 10th limb.
-    // Actually, hi8<<1 represents the carry from position 8. We'll let
-    // the linear carry chain inside crandall_reduce handle it by adding
-    // hi8<<1 into c8 before the carry (c8 has room since it had only 1
-    // IFMA pair accumulated, so c8 <= ~53 bits + ~53 bits = ~54 bits, fine).
-    c8 = _mm512_add_epi64(c8, _mm512_slli_epi64(hi8, 1));
+    // hi8 has at most 1 IFMA accumulation, so hi8 <= 52 bits and
+    // c9 = hi8<<1 <= 53 bits. Since IFMA uses only bits [51:0] of its
+    // inputs, we normalize c9 into a 51-bit part and a carry:
+    //   c9_lo = c9 & mask51  (position 9, folds to 4,5,6)
+    //   c9_hi = c9 >> 51     (position 10, folds to 5,6,7)
+    {
+        const __m512i zero_v = _mm512_setzero_si512();
+        const __m512i mask = FQ51X8_MASK51;
+        const __m512i g0 = _mm512_set1_epi64((long long)GAMMA_51[0]);
+        const __m512i g1 = _mm512_set1_epi64((long long)GAMMA_51[1]);
+        const __m512i g2 = _mm512_set1_epi64((long long)GAMMA_51[2]);
+        __m512i t;
+
+        __m512i c9 = _mm512_slli_epi64(hi8, 1);
+        __m512i c9_hi = _mm512_srli_epi64(c9, 51);
+        c9 = _mm512_and_si512(c9, mask);
+
+        // c9_lo * gamma -> positions 4,5,6 (c9_lo <= 51 bits, safe for IFMA)
+        c4 = _mm512_madd52lo_epu64(c4, c9, g0);
+        t = _mm512_madd52hi_epu64(zero_v, c9, g0);
+        c5 = _mm512_add_epi64(c5, _mm512_slli_epi64(t, 1));
+        c5 = _mm512_madd52lo_epu64(c5, c9, g1);
+        t = _mm512_madd52hi_epu64(zero_v, c9, g1);
+        c6 = _mm512_add_epi64(c6, _mm512_slli_epi64(t, 1));
+        c6 = _mm512_madd52lo_epu64(c6, c9, g2);
+        t = _mm512_madd52hi_epu64(zero_v, c9, g2);
+        c7 = _mm512_add_epi64(c7, _mm512_slli_epi64(t, 1));
+
+        // c9_hi * gamma -> positions 5,6,7 (c9_hi <= ~2 bits, products tiny)
+        c5 = _mm512_madd52lo_epu64(c5, c9_hi, g0);
+        c6 = _mm512_madd52lo_epu64(c6, c9_hi, g1);
+        c7 = _mm512_madd52lo_epu64(c7, c9_hi, g2);
+    }
 
     fq51x8_crandall_reduce(h, c0, c1, c2, c3, c4, c5, c6, c7, c8);
 }
@@ -658,7 +706,38 @@ static FQ51X8_FORCE_INLINE void fq51x8_sq2(fq51x8 *h, const fq51x8 *f)
     __m512i c6 = _mm512_add_epi64(lo6, _mm512_slli_epi64(hi5, 1));
     __m512i c7 = _mm512_add_epi64(lo7, _mm512_slli_epi64(hi6, 1));
     __m512i c8 = _mm512_add_epi64(lo8, _mm512_slli_epi64(hi7, 1));
-    c8 = _mm512_add_epi64(c8, _mm512_slli_epi64(hi8, 1));
+    // hi8 contributes to c9 = hi8<<1, which represents position 9.
+    // Position 9 folds as c9 * gamma into positions 4,5,6.
+    // In sq2, hi8 was doubled (line 697), so hi8 <= 53 bits and
+    // c9 = hi8<<1 <= 54 bits. Normalize to 51 bits before IFMA.
+    {
+        const __m512i zero_v = _mm512_setzero_si512();
+        const __m512i mask = FQ51X8_MASK51;
+        const __m512i g0 = _mm512_set1_epi64((long long)GAMMA_51[0]);
+        const __m512i g1 = _mm512_set1_epi64((long long)GAMMA_51[1]);
+        const __m512i g2 = _mm512_set1_epi64((long long)GAMMA_51[2]);
+        __m512i t;
+
+        __m512i c9 = _mm512_slli_epi64(hi8, 1);
+        __m512i c9_hi = _mm512_srli_epi64(c9, 51);
+        c9 = _mm512_and_si512(c9, mask);
+
+        // c9_lo * gamma -> positions 4,5,6
+        c4 = _mm512_madd52lo_epu64(c4, c9, g0);
+        t = _mm512_madd52hi_epu64(zero_v, c9, g0);
+        c5 = _mm512_add_epi64(c5, _mm512_slli_epi64(t, 1));
+        c5 = _mm512_madd52lo_epu64(c5, c9, g1);
+        t = _mm512_madd52hi_epu64(zero_v, c9, g1);
+        c6 = _mm512_add_epi64(c6, _mm512_slli_epi64(t, 1));
+        c6 = _mm512_madd52lo_epu64(c6, c9, g2);
+        t = _mm512_madd52hi_epu64(zero_v, c9, g2);
+        c7 = _mm512_add_epi64(c7, _mm512_slli_epi64(t, 1));
+
+        // c9_hi * gamma -> positions 5,6,7
+        c5 = _mm512_madd52lo_epu64(c5, c9_hi, g0);
+        c6 = _mm512_madd52lo_epu64(c6, c9_hi, g1);
+        c7 = _mm512_madd52lo_epu64(c7, c9_hi, g2);
+    }
 
     fq51x8_crandall_reduce(h, c0, c1, c2, c3, c4, c5, c6, c7, c8);
 }

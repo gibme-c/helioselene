@@ -209,48 +209,55 @@ target_link_libraries(helioselene PUBLIC
     helioselene-common
 )
 
-# ── Tests and benchmarks ──
-option(BUILD_TESTS "Build unit tests and benchmarks" OFF)
+# ── Tests ──
+option(BUILD_TESTS "Build unit tests" OFF)
 if(DEFINED ENV{BUILD_TESTS})
     set(BUILD_TESTS $ENV{BUILD_TESTS})
-    message(STATUS "HELIOSELENE: Activating unit tests and benchmarks")
 endif()
 
 if(BUILD_TESTS)
     enable_testing()
+    message(STATUS "HELIOSELENE: Unit tests enabled")
 
-    add_executable(test-helioselene src/tests.cpp)
-    target_link_libraries(test-helioselene PRIVATE helioselene)
-    set_property(TARGET test-helioselene PROPERTY OUTPUT_NAME "helioselene-tests")
-    add_test(NAME helioselene-tests COMMAND test-helioselene)
+    add_executable(helioselene-tests src/tests.cpp)
+    target_link_libraries(helioselene-tests PRIVATE helioselene)
+    add_test(NAME helioselene-tests COMMAND helioselene-tests)
 
-    add_executable(benchmark-helioselene src/benchmark.cpp)
-    target_link_libraries(benchmark-helioselene PRIVATE helioselene)
-    set_property(TARGET benchmark-helioselene PROPERTY OUTPUT_NAME "helioselene-benchmark")
+    add_executable(helioselene-fuzz-tests src/tests_fuzz.cpp)
+    target_link_libraries(helioselene-fuzz-tests PRIVATE helioselene)
+    add_test(NAME helioselene-fuzz-tests COMMAND helioselene-fuzz-tests)
+endif()
 
-    add_executable(benchmark-contest src/benchmark_contest.cpp)
-    target_link_libraries(benchmark-contest PRIVATE helioselene)
-    set_property(TARGET benchmark-contest PROPERTY OUTPUT_NAME "helioselene-benchmark-contest")
+# ── Benchmarks ──
+option(BUILD_BENCHMARKS "Build benchmark executables" OFF)
+if(DEFINED ENV{BUILD_BENCHMARKS})
+    set(BUILD_BENCHMARKS $ENV{BUILD_BENCHMARKS})
+endif()
 
-    add_executable(benchmark-fcmpp src/benchmark_fcmpp.cpp)
-    target_link_libraries(benchmark-fcmpp PRIVATE helioselene)
-    set_property(TARGET benchmark-fcmpp PROPERTY OUTPUT_NAME "helioselene-benchmark-fcmpp")
+if(BUILD_BENCHMARKS)
+    message(STATUS "HELIOSELENE: Benchmarks enabled")
+
+    add_executable(helioselene-benchmark src/benchmark.cpp)
+    target_link_libraries(helioselene-benchmark PRIVATE helioselene)
+
+    add_executable(helioselene-benchmark-contest src/benchmark_contest.cpp)
+    target_link_libraries(helioselene-benchmark-contest PRIVATE helioselene)
+
+    add_executable(helioselene-benchmark-fcmpp src/benchmark_fcmpp.cpp)
+    target_link_libraries(helioselene-benchmark-fcmpp PRIVATE helioselene)
 endif()
 
 # ── Auxiliary tools ──
 option(BUILD_TOOLS "Build auxiliary tools (ECFFT curve search)" OFF)
 if(BUILD_TOOLS)
-    add_executable(find-ecfft-curve tools/find_ecfft_curve.cpp)
-    target_link_libraries(find-ecfft-curve helioselene)
-    set_property(TARGET find-ecfft-curve PROPERTY OUTPUT_NAME "helioselene-find-ecfft")
+    add_executable(helioselene-find-ecfft tools/find_ecfft_curve.cpp)
+    target_link_libraries(helioselene-find-ecfft helioselene)
 
-    add_executable(gen-ecfft-data tools/gen_ecfft_data.cpp)
-    target_link_libraries(gen-ecfft-data helioselene)
-    set_property(TARGET gen-ecfft-data PROPERTY OUTPUT_NAME "helioselene-gen-ecfft")
+    add_executable(helioselene-gen-ecfft tools/gen_ecfft_data.cpp)
+    target_link_libraries(helioselene-gen-ecfft helioselene)
 
-    add_executable(gen-test-vectors tools/gen_test_vectors.cpp)
-    target_link_libraries(gen-test-vectors helioselene)
-    set_property(TARGET gen-test-vectors PROPERTY OUTPUT_NAME "helioselene-gen-testvectors")
+    add_executable(helioselene-gen-testvectors tools/gen_test_vectors.cpp)
+    target_link_libraries(helioselene-gen-testvectors helioselene)
 
     message(STATUS "HELIOSELENE: Auxiliary tools enabled")
 endif()

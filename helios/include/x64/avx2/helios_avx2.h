@@ -109,11 +109,17 @@ static inline void helios_dbl_4x(helios_jacobian_4x *r, const helios_jacobian_4x
     fp10x4_mul(&alpha, &t0, &t1);
     fp10x4_add(&t0, &alpha, &alpha);
     fp10x4_add(&alpha, &t0, &alpha); // 3 * (X1 - delta)(X1 + delta)
+    fp10x4_carry(&alpha); // Normalize: limbs can reach 28 bits after 2 chained adds,
+                          // causing g*19 pre-products to exceed 32 bits in mul_epu32
 
     // X3 = alpha^2 - 8*beta
     fp10x4_sq(&r->X, &alpha);
     fp10x4_add(&t0, &beta, &beta); // 2*beta
     fp10x4_add(&t0, &t0, &t0); // 4*beta
+    fp10x4_carry(&t0); // Normalize: 2 chained adds produce 28-bit limbs, but fp10x4_sub's
+                       // 2p bias only covers up to 27-bit subtrahends. Without this carry,
+                       // (26-bit + 2p_bias) - 28-bit goes negative, wrapping in uint64_t,
+                       // and the unsigned carry shift (srli) produces garbage.
     fp10x4_sub(&r->X, &r->X, &t0); // alpha^2 - 4*beta
     fp10x4_sub(&r->X, &r->X, &t0); // alpha^2 - 8*beta
 
@@ -129,6 +135,7 @@ static inline void helios_dbl_4x(helios_jacobian_4x *r, const helios_jacobian_4x
     fp10x4_sq(&t0, &gamma); // gamma^2
     fp10x4_add(&t0, &t0, &t0); // 2*gamma^2
     fp10x4_add(&t0, &t0, &t0); // 4*gamma^2
+    fp10x4_carry(&t0); // Normalize: same 28-bit limb issue as 4*beta above
     fp10x4_sub(&r->Y, &t2, &t0); // - 4*gamma^2
     fp10x4_sub(&r->Y, &r->Y, &t0); // - 8*gamma^2
 }

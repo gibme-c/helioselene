@@ -45,6 +45,8 @@
 #include "selene_to_scalar.h"
 #include "selene_tobytes.h"
 
+#include <climits>
+#include <cstdint>
 #include <vector>
 
 namespace helioselene
@@ -92,7 +94,7 @@ namespace helioselene
 
     HeliosPoint HeliosPoint::multi_scalar_mul(const HeliosScalar *scalars, const HeliosPoint *points, size_t n)
     {
-        if (n == 0 || !scalars || !points)
+        if (n == 0 || !scalars || !points || n > SIZE_MAX / 32)
             return HeliosPoint();
 
         std::vector<unsigned char> scalar_bytes(32 * n);
@@ -117,7 +119,7 @@ namespace helioselene
         const HeliosPoint *generators,
         size_t n)
     {
-        if (n == 0 || !values || !generators)
+        if (n == 0 || !values || !generators || n > SIZE_MAX / 32)
             return HeliosPoint();
 
         auto blind_bytes = blinding.to_bytes();
@@ -192,7 +194,7 @@ namespace helioselene
 
     SelenePoint SelenePoint::multi_scalar_mul(const SeleneScalar *scalars, const SelenePoint *points, size_t n)
     {
-        if (n == 0 || !scalars || !points)
+        if (n == 0 || !scalars || !points || n > SIZE_MAX / 32)
             return SelenePoint();
 
         std::vector<unsigned char> scalar_bytes(32 * n);
@@ -217,7 +219,7 @@ namespace helioselene
         const SelenePoint *generators,
         size_t n)
     {
-        if (n == 0 || !values || !generators)
+        if (n == 0 || !values || !generators || n > SIZE_MAX / 32)
             return SelenePoint();
 
         auto blind_bytes = blinding.to_bytes();

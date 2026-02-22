@@ -34,6 +34,9 @@
  *
  * Usage:
  *   helioselene-gen-testvectors > test_vectors/helioselene_test_vectors.json
+ *
+ * MUST be built with -DFORCE_PORTABLE=1 to ensure vectors come from
+ * the reference (portable) backend, not an optimized SIMD path.
  */
 
 #include "helioselene.h"
@@ -134,17 +137,55 @@ static void close_arr(bool last = false)
     printf("]%s\n", last ? "" : ",");
 }
 
+/* Helper: emit a JSON array of hex-encoded 32-byte elements from a flat buffer */
+static void emit_hex_array(const char *key, const uint8_t *data, int count, bool last = false)
+{
+    open_arr(key);
+    for (int j = 0; j < count; j++)
+    {
+        emit_indent();
+        printf("\"%s\"%s\n", hex_str(data + j * 32, 32).c_str(), j == count - 1 ? "" : ",");
+    }
+    close_arr(last);
+}
+
+/* Helper: emit a JSON array of hex-encoded coefficients from an fp_poly */
+static void emit_fp_poly_coeffs(const char *key, const fp_poly &poly, bool last = false)
+{
+    open_arr(key);
+    for (size_t j = 0; j < poly.coeffs.size(); j++)
+    {
+        uint8_t buf[32];
+        fp_tobytes(buf, poly.coeffs[j].v);
+        emit_indent();
+        printf("\"%s\"%s\n", hex_str(buf, 32).c_str(), j == poly.coeffs.size() - 1 ? "" : ",");
+    }
+    close_arr(last);
+}
+
+/* Helper: emit a JSON array of hex-encoded coefficients from an fq_poly */
+static void emit_fq_poly_coeffs(const char *key, const fq_poly &poly, bool last = false)
+{
+    open_arr(key);
+    for (size_t j = 0; j < poly.coeffs.size(); j++)
+    {
+        uint8_t buf[32];
+        fq_tobytes(buf, poly.coeffs[j].v);
+        emit_indent();
+        printf("\"%s\"%s\n", hex_str(buf, 32).c_str(), j == poly.coeffs.size() - 1 ? "" : ",");
+    }
+    close_arr(last);
+}
+
 /* ── Deterministic test inputs ── */
 
-static const uint8_t test_a_bytes[32] = {0xef, 0xcd, 0xab, 0x90, 0x78, 0x56, 0x34, 0x12,
-                                          0xbe, 0xba, 0xfe, 0xca, 0xef, 0xbe, 0xad, 0xde,
-                                          0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                                          0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+static const uint8_t test_a_bytes[32] = {0xef, 0xcd, 0xab, 0x90, 0x78, 0x56, 0x34, 0x12, 0xbe, 0xba, 0xfe,
+                                         0xca, 0xef, 0xbe, 0xad, 0xde, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                                         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 
-static const uint8_t test_b_bytes[32] = {0x08, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01,
-                                          0x0d, 0xf0, 0xad, 0xba, 0xce, 0xfa, 0xed, 0xfe,
-                                          0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                                          0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+static const uint8_t test_b_bytes[32] = {0x08, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01, 0x0d, 0xf0, 0xad,
+                                         0xba, 0xce, 0xfa, 0xed, 0xfe, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                                         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 
 static const uint8_t zero_bytes[32] = {0};
 static const uint8_t one_bytes[32] = {1};
@@ -157,36 +198,33 @@ static uint8_t helios_order_m1[32];
 static uint8_t selene_order_m1[32];
 
 /* all-0xFF (invalid scalar for both curves) */
-static const uint8_t all_ff_bytes[32] = {
-    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
+static const uint8_t all_ff_bytes[32] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+                                         0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+                                         0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
 
 /* 64-byte wide reduction inputs */
 static const uint8_t wide_zero[64] = {0};
 static const uint8_t wide_small[64] = {42};
-static const uint8_t wide_large[64] = {
-    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-static const uint8_t wide_hash[64] = {
-    0x48, 0x65, 0x6c, 0x69, 0x6f, 0x73, 0x65, 0x6c, 0x65, 0x6e, 0x65, 0x5f, 0x74, 0x65, 0x73, 0x74,
-    0x5f, 0x76, 0x65, 0x63, 0x74, 0x6f, 0x72, 0x5f, 0x30, 0x30, 0x30, 0x31, 0x00, 0x00, 0x00, 0x00,
-    0xab, 0xcd, 0xef, 0x01, 0x23, 0x45, 0x67, 0x89, 0xde, 0xad, 0xbe, 0xef, 0xca, 0xfe, 0xba, 0xbe,
-    0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10};
+static const uint8_t wide_large[64] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+                                       0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+                                       0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                                       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                                       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+static const uint8_t wide_hash[64] = {0x48, 0x65, 0x6c, 0x69, 0x6f, 0x73, 0x65, 0x6c, 0x65, 0x6e, 0x65, 0x5f, 0x74,
+                                      0x65, 0x73, 0x74, 0x5f, 0x76, 0x65, 0x63, 0x74, 0x6f, 0x72, 0x5f, 0x30, 0x30,
+                                      0x30, 0x31, 0x00, 0x00, 0x00, 0x00, 0xab, 0xcd, 0xef, 0x01, 0x23, 0x45, 0x67,
+                                      0x89, 0xde, 0xad, 0xbe, 0xef, 0xca, 0xfe, 0xba, 0xbe, 0x01, 0x02, 0x03, 0x04,
+                                      0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10};
 
 /* off-curve point (valid x but wrong parity to produce invalid decompression) */
-static const uint8_t off_curve_bytes[32] = {
-    0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+static const uint8_t off_curve_bytes[32] = {0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                                            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                                            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 
 /* x >= p (non-canonical field element) */
-static const uint8_t x_ge_p_bytes[32] = {
-    0xee, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f};
+static const uint8_t x_ge_p_bytes[32] = {0xee, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+                                         0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+                                         0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f};
 
 static void compute_order_minus_one()
 {
@@ -228,7 +266,7 @@ static void emit_helios_scalar()
     /* from_bytes */
     open_arr("from_bytes");
     {
-        auto cases = std::vector<std::pair<const char *, const uint8_t *>>{
+        auto cases = std::vector<std::pair<const char *, const uint8_t *>> {
             {"zero", zero_bytes},
             {"one", one_bytes},
             {"fortytwo", fortytwo_bytes},
@@ -917,7 +955,7 @@ static void emit_helios_point()
     }
     close_arr();
 
-    /* add — only distinct non-identity inputs (Jacobian add is incomplete for P=Q or O inputs) */
+    /* add — including identity edge cases */
     open_arr("add");
     {
         auto s2 = *HeliosScalar::from_bytes(two_bytes);
@@ -936,21 +974,30 @@ static void emit_helios_point()
         {
             const char *label;
             HeliosPoint a, b;
-            HeliosPoint expected; /* computed via scalar_mul for correctness */
+            HeliosPoint expected;
         } cases[] = {
             {"2G_plus_7G", g2, g7, G.scalar_mul(s_nine)},
             {"G_plus_42G", G, g42, G.scalar_mul(HeliosScalar::one() + s4)},
             {"7G_plus_42G", g7, g42, G.scalar_mul(s3 + s4)},
-            {"P_plus_neg_P", G, -G, HeliosPoint::identity()},
+            {"P_plus_neg_P", G, -G, O},
+            /* Identity shenanigans */
+            {"O_plus_G", O, G, G},
+            {"G_plus_O", G, O, G},
+            {"O_plus_O", O, O, O},
+            {"O_plus_7G", O, g7, g7},
+            {"42G_plus_O", g42, O, g42},
+            /* P + P (doubling via add) */
+            {"G_plus_G", G, G, g2},
         };
-        for (size_t i = 0; i < 4; i++)
+        const size_t n_cases = sizeof(cases) / sizeof(cases[0]);
+        for (size_t i = 0; i < n_cases; i++)
         {
             open_obj();
             emit_string("label", cases[i].label);
             emit_hex_arr32("a", cases[i].a.to_bytes());
             emit_hex_arr32("b", cases[i].b.to_bytes());
             emit_hex_arr32("result", cases[i].expected.to_bytes(), true);
-            close_obj(i == 3);
+            close_obj(i == n_cases - 1);
         }
     }
     close_arr();
@@ -1037,8 +1084,14 @@ static void emit_helios_point()
             {"order_m1_times_G", som1, G},
             {"a_times_G", sa, G},
             {"a_times_7G", sa, p7},
+            /* Identity shenanigans */
+            {"zero_times_O", s0, O},
+            {"one_times_O", s1, O},
+            {"a_times_O", sa, O},
+            {"order_m1_times_O", som1, O},
         };
-        for (size_t i = 0; i < 8; i++)
+        const size_t n_cases = sizeof(cases) / sizeof(cases[0]);
+        for (size_t i = 0; i < n_cases; i++)
         {
             auto r = cases[i].p.scalar_mul(cases[i].s);
             open_obj();
@@ -1046,7 +1099,7 @@ static void emit_helios_point()
             emit_hex_arr32("scalar", cases[i].s.to_bytes());
             emit_hex_arr32("point", cases[i].p.to_bytes());
             emit_hex_arr32("result", r.to_bytes(), true);
-            close_obj(i == 7);
+            close_obj(i == n_cases - 1);
         }
     }
     close_arr();
@@ -1319,7 +1372,7 @@ static void emit_selene_point()
     }
     close_arr();
 
-    /* add — only distinct non-identity inputs (Jacobian add is incomplete for P=Q or O inputs) */
+    /* add — including identity edge cases */
     open_arr("add");
     {
         auto s2 = *SeleneScalar::from_bytes(two_bytes);
@@ -1340,16 +1393,25 @@ static void emit_selene_point()
             {"2G_plus_7G", g2, g7, G.scalar_mul(s_nine)},
             {"G_plus_42G", G, g42, G.scalar_mul(SeleneScalar::one() + s42)},
             {"7G_plus_42G", g7, g42, G.scalar_mul(s7 + s42)},
-            {"P_plus_neg_P", G, -G, SelenePoint::identity()},
+            {"P_plus_neg_P", G, -G, O},
+            /* Identity shenanigans */
+            {"O_plus_G", O, G, G},
+            {"G_plus_O", G, O, G},
+            {"O_plus_O", O, O, O},
+            {"O_plus_7G", O, g7, g7},
+            {"42G_plus_O", g42, O, g42},
+            /* P + P (doubling via add) */
+            {"G_plus_G", G, G, g2},
         };
-        for (size_t i = 0; i < 4; i++)
+        const size_t n_cases = sizeof(cases) / sizeof(cases[0]);
+        for (size_t i = 0; i < n_cases; i++)
         {
             open_obj();
             emit_string("label", cases[i].label);
             emit_hex_arr32("a", cases[i].a.to_bytes());
             emit_hex_arr32("b", cases[i].b.to_bytes());
             emit_hex_arr32("result", cases[i].expected.to_bytes(), true);
-            close_obj(i == 3);
+            close_obj(i == n_cases - 1);
         }
     }
     close_arr();
@@ -1434,8 +1496,14 @@ static void emit_selene_point()
             {"order_m1_times_G", som1, G},
             {"a_times_G", sa, G},
             {"a_times_7G", sa, p7},
+            /* Identity shenanigans */
+            {"zero_times_O", s0, O},
+            {"one_times_O", s1, O},
+            {"a_times_O", sa, O},
+            {"order_m1_times_O", som1, O},
         };
-        for (size_t i = 0; i < 8; i++)
+        const size_t n_cases = sizeof(cases) / sizeof(cases[0]);
+        for (size_t i = 0; i < n_cases; i++)
         {
             auto r = cases[i].p.scalar_mul(cases[i].s);
             open_obj();
@@ -1443,7 +1511,7 @@ static void emit_selene_point()
             emit_hex_arr32("scalar", cases[i].s.to_bytes());
             emit_hex_arr32("point", cases[i].p.to_bytes());
             emit_hex_arr32("result", r.to_bytes(), true);
-            close_obj(i == 7);
+            close_obj(i == n_cases - 1);
         }
     }
     close_arr();
@@ -1856,19 +1924,12 @@ static void emit_fp_polynomial()
             auto p1 = FpPolynomial::from_coefficients(c1, 2);
             auto p2 = FpPolynomial::from_coefficients(c2, 2);
             auto r = p1 * p2;
-            auto &raw = r.raw();
             open_obj();
             emit_string("label", "deg1_times_deg1");
+            emit_hex_array("a_coefficients", c1, 2);
+            emit_hex_array("b_coefficients", c2, 2);
             emit_int("degree", (int)r.degree());
-            open_arr("coefficients");
-            for (size_t j = 0; j < raw.coeffs.size(); j++)
-            {
-                uint8_t buf[32];
-                fp_tobytes(buf, raw.coeffs[j].v);
-                emit_indent();
-                printf("\"%s\"%s\n", hex_str(buf, 32).c_str(), j == raw.coeffs.size() - 1 ? "" : ",");
-            }
-            close_arr(true);
+            emit_fp_poly_coeffs("coefficients", r.raw(), true);
             close_obj();
         }
         /* deg 5 x 5 */
@@ -1882,19 +1943,12 @@ static void emit_fp_polynomial()
             auto p1 = FpPolynomial::from_coefficients(c1, 6);
             auto p2 = FpPolynomial::from_coefficients(c2, 6);
             auto r = p1 * p2;
-            auto &raw = r.raw();
             open_obj();
             emit_string("label", "deg5_times_deg5");
+            emit_hex_array("a_coefficients", c1, 6);
+            emit_hex_array("b_coefficients", c2, 6);
             emit_int("degree", (int)r.degree());
-            open_arr("coefficients");
-            for (size_t j = 0; j < raw.coeffs.size(); j++)
-            {
-                uint8_t buf[32];
-                fp_tobytes(buf, raw.coeffs[j].v);
-                emit_indent();
-                printf("\"%s\"%s\n", hex_str(buf, 32).c_str(), j == raw.coeffs.size() - 1 ? "" : ",");
-            }
-            close_arr(true);
+            emit_fp_poly_coeffs("coefficients", r.raw(), true);
             close_obj();
         }
         /* deg 15 x 15 (schoolbook) */
@@ -1908,19 +1962,12 @@ static void emit_fp_polynomial()
             auto p1 = FpPolynomial::from_coefficients(c1, 16);
             auto p2 = FpPolynomial::from_coefficients(c2, 16);
             auto r = p1 * p2;
-            auto &raw = r.raw();
             open_obj();
             emit_string("label", "deg15_times_deg15");
+            emit_hex_array("a_coefficients", c1, 16);
+            emit_hex_array("b_coefficients", c2, 16);
             emit_int("degree", (int)r.degree());
-            open_arr("coefficients");
-            for (size_t j = 0; j < raw.coeffs.size(); j++)
-            {
-                uint8_t buf[32];
-                fp_tobytes(buf, raw.coeffs[j].v);
-                emit_indent();
-                printf("\"%s\"%s\n", hex_str(buf, 32).c_str(), j == raw.coeffs.size() - 1 ? "" : ",");
-            }
-            close_arr(true);
+            emit_fp_poly_coeffs("coefficients", r.raw(), true);
             close_obj();
         }
         /* deg 16 x 16 (Karatsuba) */
@@ -1934,25 +1981,18 @@ static void emit_fp_polynomial()
             auto p1 = FpPolynomial::from_coefficients(c1, 17);
             auto p2 = FpPolynomial::from_coefficients(c2, 17);
             auto r = p1 * p2;
-            auto &raw = r.raw();
             open_obj();
             emit_string("label", "deg16_times_deg16_karatsuba");
+            emit_hex_array("a_coefficients", c1, 17);
+            emit_hex_array("b_coefficients", c2, 17);
             emit_int("degree", (int)r.degree());
-            open_arr("coefficients");
-            for (size_t j = 0; j < raw.coeffs.size(); j++)
-            {
-                uint8_t buf[32];
-                fp_tobytes(buf, raw.coeffs[j].v);
-                emit_indent();
-                printf("\"%s\"%s\n", hex_str(buf, 32).c_str(), j == raw.coeffs.size() - 1 ? "" : ",");
-            }
-            close_arr(true);
+            emit_fp_poly_coeffs("coefficients", r.raw(), true);
             close_obj(true);
         }
     }
     close_arr();
 
-    /* add/sub */
+    /* add */
     open_arr("add");
     {
         uint8_t c1[96], c2[96];
@@ -1963,19 +2003,12 @@ static void emit_fp_polynomial()
         auto p1 = FpPolynomial::from_coefficients(c1, 3);
         auto p2 = FpPolynomial::from_coefficients(c2, 3);
         auto r = p1 + p2;
-        auto &raw = r.raw();
 
         open_obj();
         emit_string("label", "same_degree");
-        open_arr("coefficients");
-        for (size_t j = 0; j < raw.coeffs.size(); j++)
-        {
-            uint8_t buf[32];
-            fp_tobytes(buf, raw.coeffs[j].v);
-            emit_indent();
-            printf("\"%s\"%s\n", hex_str(buf, 32).c_str(), j == raw.coeffs.size() - 1 ? "" : ",");
-        }
-        close_arr(true);
+        emit_hex_array("a_coefficients", c1, 3);
+        emit_hex_array("b_coefficients", c2, 3);
+        emit_fp_poly_coeffs("coefficients", r.raw(), true);
         close_obj();
 
         /* different degree */
@@ -1984,23 +2017,17 @@ static void emit_fp_polynomial()
         small_scalar_bytes(c3 + 32, 3);
         auto p3 = FpPolynomial::from_coefficients(c3, 2);
         auto r2 = p1 + p3;
-        auto &raw2 = r2.raw();
 
         open_obj();
         emit_string("label", "different_degree");
-        open_arr("coefficients");
-        for (size_t j = 0; j < raw2.coeffs.size(); j++)
-        {
-            uint8_t buf[32];
-            fp_tobytes(buf, raw2.coeffs[j].v);
-            emit_indent();
-            printf("\"%s\"%s\n", hex_str(buf, 32).c_str(), j == raw2.coeffs.size() - 1 ? "" : ",");
-        }
-        close_arr(true);
+        emit_hex_array("a_coefficients", c1, 3);
+        emit_hex_array("b_coefficients", c3, 2);
+        emit_fp_poly_coeffs("coefficients", r2.raw(), true);
         close_obj(true);
     }
     close_arr();
 
+    /* sub */
     open_arr("sub");
     {
         uint8_t c1[96], c2[96];
@@ -2011,19 +2038,12 @@ static void emit_fp_polynomial()
         auto p1 = FpPolynomial::from_coefficients(c1, 3);
         auto p2 = FpPolynomial::from_coefficients(c2, 3);
         auto r = p1 - p2;
-        auto &raw = r.raw();
 
         open_obj();
         emit_string("label", "same_degree");
-        open_arr("coefficients");
-        for (size_t j = 0; j < raw.coeffs.size(); j++)
-        {
-            uint8_t buf[32];
-            fp_tobytes(buf, raw.coeffs[j].v);
-            emit_indent();
-            printf("\"%s\"%s\n", hex_str(buf, 32).c_str(), j == raw.coeffs.size() - 1 ? "" : ",");
-        }
-        close_arr(true);
+        emit_hex_array("a_coefficients", c1, 3);
+        emit_hex_array("b_coefficients", c2, 3);
+        emit_fp_poly_coeffs("coefficients", r.raw(), true);
         close_obj();
 
         uint8_t c3[64];
@@ -2031,19 +2051,12 @@ static void emit_fp_polynomial()
         small_scalar_bytes(c3 + 32, 3);
         auto p3 = FpPolynomial::from_coefficients(c3, 2);
         auto r2 = p1 - p3;
-        auto &raw2 = r2.raw();
 
         open_obj();
         emit_string("label", "different_degree");
-        open_arr("coefficients");
-        for (size_t j = 0; j < raw2.coeffs.size(); j++)
-        {
-            uint8_t buf[32];
-            fp_tobytes(buf, raw2.coeffs[j].v);
-            emit_indent();
-            printf("\"%s\"%s\n", hex_str(buf, 32).c_str(), j == raw2.coeffs.size() - 1 ? "" : ",");
-        }
-        close_arr(true);
+        emit_hex_array("a_coefficients", c1, 3);
+        emit_hex_array("b_coefficients", c3, 2);
+        emit_fp_poly_coeffs("coefficients", r2.raw(), true);
         close_obj(true);
     }
     close_arr();
@@ -2059,29 +2072,13 @@ static void emit_fp_polynomial()
             auto num = FpPolynomial::from_roots(roots2, 2);
             auto den = FpPolynomial::from_roots(one_bytes, 1);
             auto [q, r] = num.divmod(den);
-            auto &qraw = q.raw();
-            auto &rraw = r.raw();
 
             open_obj();
             emit_string("label", "exact_division");
-            open_arr("quotient");
-            for (size_t j = 0; j < qraw.coeffs.size(); j++)
-            {
-                uint8_t buf[32];
-                fp_tobytes(buf, qraw.coeffs[j].v);
-                emit_indent();
-                printf("\"%s\"%s\n", hex_str(buf, 32).c_str(), j == qraw.coeffs.size() - 1 ? "" : ",");
-            }
-            close_arr();
-            open_arr("remainder");
-            for (size_t j = 0; j < rraw.coeffs.size(); j++)
-            {
-                uint8_t buf[32];
-                fp_tobytes(buf, rraw.coeffs[j].v);
-                emit_indent();
-                printf("\"%s\"%s\n", hex_str(buf, 32).c_str(), j == rraw.coeffs.size() - 1 ? "" : ",");
-            }
-            close_arr(true);
+            emit_fp_poly_coeffs("numerator", num.raw());
+            emit_fp_poly_coeffs("denominator", den.raw());
+            emit_fp_poly_coeffs("quotient", q.raw());
+            emit_fp_poly_coeffs("remainder", r.raw(), true);
             close_obj();
         }
         /* non-zero remainder */
@@ -2093,29 +2090,13 @@ static void emit_fp_polynomial()
             auto num = FpPolynomial::from_coefficients(c1, 3);
             auto den = FpPolynomial::from_roots(two_bytes, 1);
             auto [q, r] = num.divmod(den);
-            auto &qraw = q.raw();
-            auto &rraw = r.raw();
 
             open_obj();
             emit_string("label", "nonzero_remainder");
-            open_arr("quotient");
-            for (size_t j = 0; j < qraw.coeffs.size(); j++)
-            {
-                uint8_t buf[32];
-                fp_tobytes(buf, qraw.coeffs[j].v);
-                emit_indent();
-                printf("\"%s\"%s\n", hex_str(buf, 32).c_str(), j == qraw.coeffs.size() - 1 ? "" : ",");
-            }
-            close_arr();
-            open_arr("remainder");
-            for (size_t j = 0; j < rraw.coeffs.size(); j++)
-            {
-                uint8_t buf[32];
-                fp_tobytes(buf, rraw.coeffs[j].v);
-                emit_indent();
-                printf("\"%s\"%s\n", hex_str(buf, 32).c_str(), j == rraw.coeffs.size() - 1 ? "" : ",");
-            }
-            close_arr(true);
+            emit_fp_poly_coeffs("numerator", num.raw());
+            emit_fp_poly_coeffs("denominator", den.raw());
+            emit_fp_poly_coeffs("quotient", q.raw());
+            emit_fp_poly_coeffs("remainder", r.raw(), true);
             close_obj();
         }
         /* divide by linear */
@@ -2126,29 +2107,13 @@ static void emit_fp_polynomial()
             auto num = FpPolynomial::from_roots(roots3, 3);
             auto den = FpPolynomial::from_roots(roots3, 1);
             auto [q, r] = num.divmod(den);
-            auto &qraw = q.raw();
-            auto &rraw = r.raw();
 
             open_obj();
             emit_string("label", "divide_by_linear");
-            open_arr("quotient");
-            for (size_t j = 0; j < qraw.coeffs.size(); j++)
-            {
-                uint8_t buf[32];
-                fp_tobytes(buf, qraw.coeffs[j].v);
-                emit_indent();
-                printf("\"%s\"%s\n", hex_str(buf, 32).c_str(), j == qraw.coeffs.size() - 1 ? "" : ",");
-            }
-            close_arr();
-            open_arr("remainder");
-            for (size_t j = 0; j < rraw.coeffs.size(); j++)
-            {
-                uint8_t buf[32];
-                fp_tobytes(buf, rraw.coeffs[j].v);
-                emit_indent();
-                printf("\"%s\"%s\n", hex_str(buf, 32).c_str(), j == rraw.coeffs.size() - 1 ? "" : ",");
-            }
-            close_arr(true);
+            emit_fp_poly_coeffs("numerator", num.raw());
+            emit_fp_poly_coeffs("denominator", den.raw());
+            emit_fp_poly_coeffs("quotient", q.raw());
+            emit_fp_poly_coeffs("remainder", r.raw(), true);
             close_obj(true);
         }
     }
@@ -2166,20 +2131,13 @@ static void emit_fp_polynomial()
                 small_scalar_bytes(ys + i * 32, (uint64_t)((i + 1) * (i + 1)));
             }
             auto p = FpPolynomial::interpolate(xs, ys, 3);
-            auto &raw = p.raw();
             open_obj();
             emit_string("label", "three_points");
             emit_int("n", 3);
+            emit_hex_array("xs", xs, 3);
+            emit_hex_array("ys", ys, 3);
             emit_int("degree", (int)p.degree());
-            open_arr("coefficients");
-            for (size_t j = 0; j < raw.coeffs.size(); j++)
-            {
-                uint8_t buf[32];
-                fp_tobytes(buf, raw.coeffs[j].v);
-                emit_indent();
-                printf("\"%s\"%s\n", hex_str(buf, 32).c_str(), j == raw.coeffs.size() - 1 ? "" : ",");
-            }
-            close_arr(true);
+            emit_fp_poly_coeffs("coefficients", p.raw(), true);
             close_obj();
         }
         /* 4 points */
@@ -2191,20 +2149,13 @@ static void emit_fp_polynomial()
                 small_scalar_bytes(ys + i * 32, (uint64_t)((i + 1) * 3 + 2));
             }
             auto p = FpPolynomial::interpolate(xs, ys, 4);
-            auto &raw = p.raw();
             open_obj();
             emit_string("label", "four_points");
             emit_int("n", 4);
+            emit_hex_array("xs", xs, 4);
+            emit_hex_array("ys", ys, 4);
             emit_int("degree", (int)p.degree());
-            open_arr("coefficients");
-            for (size_t j = 0; j < raw.coeffs.size(); j++)
-            {
-                uint8_t buf[32];
-                fp_tobytes(buf, raw.coeffs[j].v);
-                emit_indent();
-                printf("\"%s\"%s\n", hex_str(buf, 32).c_str(), j == raw.coeffs.size() - 1 ? "" : ",");
-            }
-            close_arr(true);
+            emit_fp_poly_coeffs("coefficients", p.raw(), true);
             close_obj(true);
         }
     }
@@ -2224,20 +2175,12 @@ static void emit_fq_polynomial()
     {
         {
             auto p = FqPolynomial::from_roots(one_bytes, 1);
-            auto &raw = p.raw();
             open_obj();
             emit_string("label", "one_root");
             emit_int("n", 1);
+            emit_hex_array("roots", one_bytes, 1);
             emit_int("degree", (int)p.degree());
-            open_arr("coefficients");
-            for (size_t j = 0; j < raw.coeffs.size(); j++)
-            {
-                uint8_t buf[32];
-                fq_tobytes(buf, raw.coeffs[j].v);
-                emit_indent();
-                printf("\"%s\"%s\n", hex_str(buf, 32).c_str(), j == raw.coeffs.size() - 1 ? "" : ",");
-            }
-            close_arr(true);
+            emit_fq_poly_coeffs("coefficients", p.raw(), true);
             close_obj();
         }
         {
@@ -2245,20 +2188,12 @@ static void emit_fq_polynomial()
             memcpy(roots, one_bytes, 32);
             memcpy(roots + 32, two_bytes, 32);
             auto p = FqPolynomial::from_roots(roots, 2);
-            auto &raw = p.raw();
             open_obj();
             emit_string("label", "two_roots");
             emit_int("n", 2);
+            emit_hex_array("roots", roots, 2);
             emit_int("degree", (int)p.degree());
-            open_arr("coefficients");
-            for (size_t j = 0; j < raw.coeffs.size(); j++)
-            {
-                uint8_t buf[32];
-                fq_tobytes(buf, raw.coeffs[j].v);
-                emit_indent();
-                printf("\"%s\"%s\n", hex_str(buf, 32).c_str(), j == raw.coeffs.size() - 1 ? "" : ",");
-            }
-            close_arr(true);
+            emit_fq_poly_coeffs("coefficients", p.raw(), true);
             close_obj();
         }
         {
@@ -2266,20 +2201,12 @@ static void emit_fq_polynomial()
             for (int i = 0; i < 4; i++)
                 small_scalar_bytes(roots + i * 32, (uint64_t)(i + 1));
             auto p = FqPolynomial::from_roots(roots, 4);
-            auto &raw = p.raw();
             open_obj();
             emit_string("label", "four_roots");
             emit_int("n", 4);
+            emit_hex_array("roots", roots, 4);
             emit_int("degree", (int)p.degree());
-            open_arr("coefficients");
-            for (size_t j = 0; j < raw.coeffs.size(); j++)
-            {
-                uint8_t buf[32];
-                fq_tobytes(buf, raw.coeffs[j].v);
-                emit_indent();
-                printf("\"%s\"%s\n", hex_str(buf, 32).c_str(), j == raw.coeffs.size() - 1 ? "" : ",");
-            }
-            close_arr(true);
+            emit_fq_poly_coeffs("coefficients", p.raw(), true);
             close_obj(true);
         }
     }
@@ -2293,6 +2220,7 @@ static void emit_fq_polynomial()
             auto r = p.evaluate(seven_bytes);
             open_obj();
             emit_string("label", "constant_at_7");
+            emit_hex_array("coefficients", fortytwo_bytes, 1);
             emit_hex("x", seven_bytes, 32);
             emit_hex_arr32("result", r, true);
             close_obj();
@@ -2305,6 +2233,7 @@ static void emit_fq_polynomial()
             auto r = p.evaluate(zero_bytes);
             open_obj();
             emit_string("label", "linear_at_0");
+            emit_hex_array("coefficients", coeffs, 2);
             emit_hex("x", zero_bytes, 32);
             emit_hex_arr32("result", r, true);
             close_obj();
@@ -2317,6 +2246,7 @@ static void emit_fq_polynomial()
             auto r = p.evaluate(test_a_bytes);
             open_obj();
             emit_string("label", "linear_at_test_a");
+            emit_hex_array("coefficients", coeffs, 2);
             emit_hex("x", test_a_bytes, 32);
             emit_hex_arr32("result", r, true);
             close_obj();
@@ -2330,8 +2260,259 @@ static void emit_fq_polynomial()
             auto r = p.evaluate(seven_bytes);
             open_obj();
             emit_string("label", "quadratic_at_7");
+            emit_hex_array("coefficients", coeffs, 3);
             emit_hex("x", seven_bytes, 32);
             emit_hex_arr32("result", r, true);
+            close_obj(true);
+        }
+    }
+    close_arr();
+
+    /* mul */
+    open_arr("mul");
+    {
+        /* deg 1 x 1 */
+        {
+            uint8_t c1[64], c2[64];
+            memcpy(c1, one_bytes, 32);
+            memcpy(c1 + 32, two_bytes, 32);
+            memcpy(c2, seven_bytes, 32);
+            memcpy(c2 + 32, one_bytes, 32);
+            auto p1 = FqPolynomial::from_coefficients(c1, 2);
+            auto p2 = FqPolynomial::from_coefficients(c2, 2);
+            auto r = p1 * p2;
+            open_obj();
+            emit_string("label", "deg1_times_deg1");
+            emit_hex_array("a_coefficients", c1, 2);
+            emit_hex_array("b_coefficients", c2, 2);
+            emit_int("degree", (int)r.degree());
+            emit_fq_poly_coeffs("coefficients", r.raw(), true);
+            close_obj();
+        }
+        /* deg 5 x 5 */
+        {
+            uint8_t c1[192], c2[192];
+            for (int i = 0; i < 6; i++)
+            {
+                small_scalar_bytes(c1 + i * 32, (uint64_t)(i + 1));
+                small_scalar_bytes(c2 + i * 32, (uint64_t)(i + 7));
+            }
+            auto p1 = FqPolynomial::from_coefficients(c1, 6);
+            auto p2 = FqPolynomial::from_coefficients(c2, 6);
+            auto r = p1 * p2;
+            open_obj();
+            emit_string("label", "deg5_times_deg5");
+            emit_hex_array("a_coefficients", c1, 6);
+            emit_hex_array("b_coefficients", c2, 6);
+            emit_int("degree", (int)r.degree());
+            emit_fq_poly_coeffs("coefficients", r.raw(), true);
+            close_obj();
+        }
+        /* deg 15 x 15 (schoolbook) */
+        {
+            uint8_t c1[512], c2[512];
+            for (int i = 0; i < 16; i++)
+            {
+                small_scalar_bytes(c1 + i * 32, (uint64_t)(i + 1));
+                small_scalar_bytes(c2 + i * 32, (uint64_t)(i + 17));
+            }
+            auto p1 = FqPolynomial::from_coefficients(c1, 16);
+            auto p2 = FqPolynomial::from_coefficients(c2, 16);
+            auto r = p1 * p2;
+            open_obj();
+            emit_string("label", "deg15_times_deg15");
+            emit_hex_array("a_coefficients", c1, 16);
+            emit_hex_array("b_coefficients", c2, 16);
+            emit_int("degree", (int)r.degree());
+            emit_fq_poly_coeffs("coefficients", r.raw(), true);
+            close_obj();
+        }
+        /* deg 16 x 16 (Karatsuba) */
+        {
+            uint8_t c1[544], c2[544];
+            for (int i = 0; i < 17; i++)
+            {
+                small_scalar_bytes(c1 + i * 32, (uint64_t)(i + 1));
+                small_scalar_bytes(c2 + i * 32, (uint64_t)(i + 18));
+            }
+            auto p1 = FqPolynomial::from_coefficients(c1, 17);
+            auto p2 = FqPolynomial::from_coefficients(c2, 17);
+            auto r = p1 * p2;
+            open_obj();
+            emit_string("label", "deg16_times_deg16_karatsuba");
+            emit_hex_array("a_coefficients", c1, 17);
+            emit_hex_array("b_coefficients", c2, 17);
+            emit_int("degree", (int)r.degree());
+            emit_fq_poly_coeffs("coefficients", r.raw(), true);
+            close_obj(true);
+        }
+    }
+    close_arr();
+
+    /* add */
+    open_arr("add");
+    {
+        uint8_t c1[96], c2[96];
+        for (int i = 0; i < 3; i++)
+            small_scalar_bytes(c1 + i * 32, (uint64_t)(i + 1));
+        for (int i = 0; i < 3; i++)
+            small_scalar_bytes(c2 + i * 32, (uint64_t)(i + 10));
+        auto p1 = FqPolynomial::from_coefficients(c1, 3);
+        auto p2 = FqPolynomial::from_coefficients(c2, 3);
+        auto r = p1 + p2;
+
+        open_obj();
+        emit_string("label", "same_degree");
+        emit_hex_array("a_coefficients", c1, 3);
+        emit_hex_array("b_coefficients", c2, 3);
+        emit_fq_poly_coeffs("coefficients", r.raw(), true);
+        close_obj();
+
+        /* different degree */
+        uint8_t c3[64];
+        small_scalar_bytes(c3, 5);
+        small_scalar_bytes(c3 + 32, 3);
+        auto p3 = FqPolynomial::from_coefficients(c3, 2);
+        auto r2 = p1 + p3;
+
+        open_obj();
+        emit_string("label", "different_degree");
+        emit_hex_array("a_coefficients", c1, 3);
+        emit_hex_array("b_coefficients", c3, 2);
+        emit_fq_poly_coeffs("coefficients", r2.raw(), true);
+        close_obj(true);
+    }
+    close_arr();
+
+    /* sub */
+    open_arr("sub");
+    {
+        uint8_t c1[96], c2[96];
+        for (int i = 0; i < 3; i++)
+            small_scalar_bytes(c1 + i * 32, (uint64_t)(i + 10));
+        for (int i = 0; i < 3; i++)
+            small_scalar_bytes(c2 + i * 32, (uint64_t)(i + 1));
+        auto p1 = FqPolynomial::from_coefficients(c1, 3);
+        auto p2 = FqPolynomial::from_coefficients(c2, 3);
+        auto r = p1 - p2;
+
+        open_obj();
+        emit_string("label", "same_degree");
+        emit_hex_array("a_coefficients", c1, 3);
+        emit_hex_array("b_coefficients", c2, 3);
+        emit_fq_poly_coeffs("coefficients", r.raw(), true);
+        close_obj();
+
+        uint8_t c3[64];
+        small_scalar_bytes(c3, 5);
+        small_scalar_bytes(c3 + 32, 3);
+        auto p3 = FqPolynomial::from_coefficients(c3, 2);
+        auto r2 = p1 - p3;
+
+        open_obj();
+        emit_string("label", "different_degree");
+        emit_hex_array("a_coefficients", c1, 3);
+        emit_hex_array("b_coefficients", c3, 2);
+        emit_fq_poly_coeffs("coefficients", r2.raw(), true);
+        close_obj(true);
+    }
+    close_arr();
+
+    /* divmod */
+    open_arr("divmod");
+    {
+        /* exact division: (x-1)(x-2) / (x-1) = (x-2) */
+        {
+            uint8_t roots2[64];
+            memcpy(roots2, one_bytes, 32);
+            memcpy(roots2 + 32, two_bytes, 32);
+            auto num = FqPolynomial::from_roots(roots2, 2);
+            auto den = FqPolynomial::from_roots(one_bytes, 1);
+            auto [q, r] = num.divmod(den);
+
+            open_obj();
+            emit_string("label", "exact_division");
+            emit_fq_poly_coeffs("numerator", num.raw());
+            emit_fq_poly_coeffs("denominator", den.raw());
+            emit_fq_poly_coeffs("quotient", q.raw());
+            emit_fq_poly_coeffs("remainder", r.raw(), true);
+            close_obj();
+        }
+        /* non-zero remainder */
+        {
+            uint8_t c1[96];
+            small_scalar_bytes(c1, 7);
+            small_scalar_bytes(c1 + 32, 3);
+            small_scalar_bytes(c1 + 64, 1);
+            auto num = FqPolynomial::from_coefficients(c1, 3);
+            auto den = FqPolynomial::from_roots(two_bytes, 1);
+            auto [q, r] = num.divmod(den);
+
+            open_obj();
+            emit_string("label", "nonzero_remainder");
+            emit_fq_poly_coeffs("numerator", num.raw());
+            emit_fq_poly_coeffs("denominator", den.raw());
+            emit_fq_poly_coeffs("quotient", q.raw());
+            emit_fq_poly_coeffs("remainder", r.raw(), true);
+            close_obj();
+        }
+        /* divide by linear */
+        {
+            uint8_t roots3[96];
+            for (int i = 0; i < 3; i++)
+                small_scalar_bytes(roots3 + i * 32, (uint64_t)(i + 1));
+            auto num = FqPolynomial::from_roots(roots3, 3);
+            auto den = FqPolynomial::from_roots(roots3, 1);
+            auto [q, r] = num.divmod(den);
+
+            open_obj();
+            emit_string("label", "divide_by_linear");
+            emit_fq_poly_coeffs("numerator", num.raw());
+            emit_fq_poly_coeffs("denominator", den.raw());
+            emit_fq_poly_coeffs("quotient", q.raw());
+            emit_fq_poly_coeffs("remainder", r.raw(), true);
+            close_obj(true);
+        }
+    }
+    close_arr();
+
+    /* interpolate */
+    open_arr("interpolate");
+    {
+        /* 3 points */
+        {
+            uint8_t xs[96], ys[96];
+            for (int i = 0; i < 3; i++)
+            {
+                small_scalar_bytes(xs + i * 32, (uint64_t)(i + 1));
+                small_scalar_bytes(ys + i * 32, (uint64_t)((i + 1) * (i + 1)));
+            }
+            auto p = FqPolynomial::interpolate(xs, ys, 3);
+            open_obj();
+            emit_string("label", "three_points");
+            emit_int("n", 3);
+            emit_hex_array("xs", xs, 3);
+            emit_hex_array("ys", ys, 3);
+            emit_int("degree", (int)p.degree());
+            emit_fq_poly_coeffs("coefficients", p.raw(), true);
+            close_obj();
+        }
+        /* 4 points */
+        {
+            uint8_t xs[128], ys[128];
+            for (int i = 0; i < 4; i++)
+            {
+                small_scalar_bytes(xs + i * 32, (uint64_t)(i + 1));
+                small_scalar_bytes(ys + i * 32, (uint64_t)((i + 1) * 3 + 2));
+            }
+            auto p = FqPolynomial::interpolate(xs, ys, 4);
+            open_obj();
+            emit_string("label", "four_points");
+            emit_int("n", 4);
+            emit_hex_array("xs", xs, 4);
+            emit_hex_array("ys", ys, 4);
+            emit_int("degree", (int)p.degree());
+            emit_fq_poly_coeffs("coefficients", p.raw(), true);
             close_obj(true);
         }
     }
@@ -2676,13 +2857,19 @@ static void emit_batch_invert()
     }
     close_arr(true);
 
-    close_obj(true); /* batch_invert */
+    close_obj(); /* batch_invert */
 }
 
 /* ── Main ── */
 
 int main()
 {
+#if !defined(FORCE_PORTABLE) || !FORCE_PORTABLE
+    fprintf(stderr, "ERROR: gen_test_vectors MUST be built with -DFORCE_PORTABLE=1\n");
+    fprintf(stderr, "       to ensure vectors come from the reference portable backend.\n");
+    return 1;
+#endif
+
     helioselene::init();
     compute_order_minus_one();
 
@@ -2696,6 +2883,7 @@ int main()
     open_obj("parameters");
     emit_hex("helios_order", HELIOS_ORDER, 32);
     emit_hex("selene_order", SELENE_ORDER, 32);
+    printf("    \"curve_a\": -3,\n");
     {
         uint8_t buf[32];
         fp_tobytes(buf, HELIOS_B);
@@ -2742,6 +2930,128 @@ int main()
 
     fprintf(stderr, "  Batch invert...\n");
     emit_batch_invert();
+
+    /* High-degree polynomial multiplication vectors.
+     * Compact format: inputs are deterministic (coeff[i] = i+1 for a, i+n+1 for b),
+     * so we only store multi-point eval checks: a(x_j)*b(x_j) == result(x_j)
+     * at 3 independent points. This validates correctness without storing
+     * millions of coefficients.
+     *
+     * Sizes walk up in base-2 increments: 1, 2, 4, ..., 8192
+     * ECFFT threshold is 1024 coefficients per operand.
+     */
+    fprintf(stderr, "  High-degree polynomial mul...\n");
+
+    /* 3 eval points for multi-point verification */
+    const uint8_t *eval_points[] = {test_a_bytes, test_b_bytes, seven_bytes};
+    const char *eval_point_names[] = {"test_a", "test_b", "seven"};
+
+    open_obj("high_degree_poly_mul");
+    {
+        auto emit_highdeg_mul_fp = [&](const char *label, int n_coeffs, bool last)
+        {
+            fprintf(stderr, "    fp %s (%d coeffs)...\n", label, n_coeffs);
+            std::vector<uint8_t> c1(n_coeffs * 32), c2(n_coeffs * 32);
+            for (int i = 0; i < n_coeffs; i++)
+            {
+                small_scalar_bytes(c1.data() + i * 32, (uint64_t)(i + 1));
+                small_scalar_bytes(c2.data() + i * 32, (uint64_t)(i + n_coeffs + 1));
+            }
+            auto p1 = FpPolynomial::from_coefficients(c1.data(), n_coeffs);
+            auto p2 = FpPolynomial::from_coefficients(c2.data(), n_coeffs);
+            auto result = p1 * p2;
+
+            open_obj();
+            emit_string("label", label);
+            emit_int("n_coeffs", n_coeffs);
+            emit_int("result_degree", (int)result.degree());
+
+            /* Multi-point eval checks */
+            open_arr("eval_checks");
+            for (int j = 0; j < 3; j++)
+            {
+                auto ev_a = p1.evaluate(eval_points[j]);
+                auto ev_b = p2.evaluate(eval_points[j]);
+                auto ev_r = result.evaluate(eval_points[j]);
+                open_obj();
+                emit_string("point", eval_point_names[j]);
+                emit_hex("x", eval_points[j], 32);
+                emit_hex_arr32("a_of_x", ev_a);
+                emit_hex_arr32("b_of_x", ev_b);
+                emit_hex_arr32("result_of_x", ev_r, true);
+                close_obj(j == 2);
+            }
+            close_arr(true);
+
+            close_obj(last);
+        };
+
+        auto emit_highdeg_mul_fq = [&](const char *label, int n_coeffs, bool last)
+        {
+            fprintf(stderr, "    fq %s (%d coeffs)...\n", label, n_coeffs);
+            std::vector<uint8_t> c1(n_coeffs * 32), c2(n_coeffs * 32);
+            for (int i = 0; i < n_coeffs; i++)
+            {
+                small_scalar_bytes(c1.data() + i * 32, (uint64_t)(i + 1));
+                small_scalar_bytes(c2.data() + i * 32, (uint64_t)(i + n_coeffs + 1));
+            }
+            auto p1 = FqPolynomial::from_coefficients(c1.data(), n_coeffs);
+            auto p2 = FqPolynomial::from_coefficients(c2.data(), n_coeffs);
+            auto result = p1 * p2;
+
+            open_obj();
+            emit_string("label", label);
+            emit_int("n_coeffs", n_coeffs);
+            emit_int("result_degree", (int)result.degree());
+
+            open_arr("eval_checks");
+            for (int j = 0; j < 3; j++)
+            {
+                auto ev_a = p1.evaluate(eval_points[j]);
+                auto ev_b = p2.evaluate(eval_points[j]);
+                auto ev_r = result.evaluate(eval_points[j]);
+                open_obj();
+                emit_string("point", eval_point_names[j]);
+                emit_hex("x", eval_points[j], 32);
+                emit_hex_arr32("a_of_x", ev_a);
+                emit_hex_arr32("b_of_x", ev_b);
+                emit_hex_arr32("result_of_x", ev_r, true);
+                close_obj(j == 2);
+            }
+            close_arr(true);
+
+            close_obj(last);
+        };
+
+        /* Fp high-degree: base-2 walk from 1 to 8192 */
+        open_arr("fp");
+        {
+            const int sizes[] = {1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192};
+            const int n_sizes = sizeof(sizes) / sizeof(sizes[0]);
+            for (int si = 0; si < n_sizes; si++)
+            {
+                char label[64];
+                snprintf(label, sizeof(label), "n%d", sizes[si]);
+                emit_highdeg_mul_fp(label, sizes[si], si == n_sizes - 1);
+            }
+        }
+        close_arr();
+
+        /* Fq high-degree: same base-2 walk */
+        open_arr("fq");
+        {
+            const int sizes[] = {1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192};
+            const int n_sizes = sizeof(sizes) / sizeof(sizes[0]);
+            for (int si = 0; si < n_sizes; si++)
+            {
+                char label[64];
+                snprintf(label, sizeof(label), "n%d", sizes[si]);
+                emit_highdeg_mul_fq(label, sizes[si], si == n_sizes - 1);
+            }
+        }
+        close_arr(true);
+    }
+    close_obj(true); /* high_degree_poly_mul */
 
     close_obj(true);
 

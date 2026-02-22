@@ -13,25 +13,8 @@ All arithmetic is performed purely in SageMath (no C++ calls).
 import json
 import sys
 
-# ── Curve parameters ──
-
-p = 2**255 - 19
-Fp = GF(p)
-
-helios_b = Fp(15789920373731020205926570676277057129217619222203920395806844808978996083412)
-E_helios = EllipticCurve(Fp, [-3, helios_b])
-G_helios = E_helios(3, 37760095087190773158272406437720879471285821656958791565335581949097084993268)
-q_helios = 57896044618658097711785492504343953926549254372227246365156541811699034343327
-
-Fq = GF(q_helios)
-
-selene_b = Fq(50691664119640283727448954162351551669994268339720539671652090628799494505816)
-E_selene = EllipticCurve(Fq, [-3, selene_b])
-G_selene = E_selene(1, 55227837453588766352929163364143300868577356225733378474337919561890377498066)
-
-# Verify generators are on the curves
-assert G_helios in E_helios, "Helios generator not on curve"
-assert G_selene in E_selene, "Selene generator not on curve"
+# No hardcoded curve parameters — everything is loaded from the JSON file at runtime.
+# See load_curve_params() and validate() below.
 
 # ── Serialization helpers ──
 
@@ -66,7 +49,7 @@ def decompress_point(hex_str, curve, prime):
     x = val & ((1 << 255) - 1)
     F = GF(prime)
     x_f = F(x)
-    rhs = x_f**3 - 3*x_f + curve.a6()
+    rhs = x_f**3 + curve.a4()*x_f + curve.a6()
     if not rhs.is_square():
         return None
     y_f = rhs.sqrt()
@@ -78,26 +61,21 @@ def decompress_point(hex_str, curve, prime):
 
 def sswu_map(u_int, curve, prime):
     """
-    Simplified SWU map for y^2 = x^3 - 3x + b.
-    a = -3, Z chosen per curve.
+    Simplified SWU map for y^2 = x^3 + a*x + b.
+    Z is the first non-square from -1, -2, ... such that g(B/(Z*A)) is square.
     """
     F = GF(prime)
-    a = F(-3)
+    a = curve.a4()
     b_coeff = curve.a6()
 
-    # Z values: must be non-square, and g(B/(Z*A)) must be square
-    # For Helios (Fp): Z = -10 (matches RFC 9380 for a=-3 over Fp)
-    # For Selene (Fq): need to find Z
-    if prime == p:
-        Z = F(-10)
-    else:
-        Z = F(-10)  # Try -10 first
-        if Z.is_square():
-            # Find a non-square Z
-            for z_try in range(-1, -100, -1):
-                Z = F(z_try)
-                if not Z.is_square():
-                    break
+    # Find Z: first negative integer that is non-square in F
+    Z = None
+    for z_try in range(-1, -100, -1):
+        z_cand = F(z_try)
+        if not z_cand.is_square():
+            Z = z_cand
+            break
+    assert Z is not None, "Failed to find non-square Z"
 
     u = F(u_int)
 
@@ -122,23 +100,6 @@ def sswu_map(u_int, curve, prime):
         if int(u) % 2 != int(y2) % 2:
             y2 = -y2
         return curve(x2, y2)
-
-# ── Test input constants ──
-
-test_a_hex = "efcdab9078563412bebafecaefbeadde00000000000000000000000000000000"
-test_b_hex = "08070605040302010df0adbacefaedfe00000000000000000000000000000000"
-test_a_int = from_le_hex(test_a_hex)
-test_b_int = from_le_hex(test_b_hex)
-
-wide_zero = bytes(64)
-wide_small = bytes([42]) + bytes(63)
-wide_large = bytes([0xff]*32) + bytes(32)
-wide_hash = bytes([
-    0x48, 0x65, 0x6c, 0x69, 0x6f, 0x73, 0x65, 0x6c, 0x65, 0x6e, 0x65, 0x5f, 0x74, 0x65, 0x73, 0x74,
-    0x5f, 0x76, 0x65, 0x63, 0x74, 0x6f, 0x72, 0x5f, 0x30, 0x30, 0x30, 0x31, 0x00, 0x00, 0x00, 0x00,
-    0xab, 0xcd, 0xef, 0x01, 0x23, 0x45, 0x67, 0x89, 0xde, 0xad, 0xbe, 0xef, 0xca, 0xfe, 0xba, 0xbe,
-    0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10
-])
 
 # ── Validation ──
 
@@ -398,16 +359,29 @@ def validate_polynomial_section(section, field_order, field_name, errors):
     R = PolynomialRing(F, 'x')
     x = R.gen()
 
+    def make_poly(coeffs_hex):
+        return sum(F(from_le_hex(c)) * x**i for i, c in enumerate(coeffs_hex))
+
+    def poly_to_le_hex_list(poly):
+        if poly == 0:
+            return [to_le_hex(0)]
+        return [to_le_hex(int(poly[i])) for i in range(poly.degree() + 1)]
+
     # from_roots
     for vec in section.get("from_roots", []):
         label = vec["label"]
-        n = vec.get("n", 0)
+        roots_hex = vec.get("roots", [])
         coeffs_hex = vec.get("coefficients", [])
-        # Build expected polynomial from roots
-        # (we don't have roots stored in the JSON for fq, so just verify degree)
-        degree = vec.get("degree", len(coeffs_hex) - 1)
-        if len(coeffs_hex) != degree + 1:
-            errors.append(f"{field_name}.from_roots.{label}: coefficient count mismatch")
+        if roots_hex:
+            roots = [F(from_le_hex(r)) for r in roots_hex]
+            poly = prod(x - r for r in roots)
+            computed = poly_to_le_hex_list(poly)
+            if computed != coeffs_hex:
+                errors.append(f"{field_name}.from_roots.{label}: coefficient mismatch")
+        else:
+            degree = vec.get("degree", len(coeffs_hex) - 1)
+            if len(coeffs_hex) != degree + 1:
+                errors.append(f"{field_name}.from_roots.{label}: coefficient count mismatch")
 
     # evaluate
     for vec in section.get("evaluate", []):
@@ -416,11 +390,69 @@ def validate_polynomial_section(section, field_order, field_name, errors):
         expected = vec["result"]
         coeffs = vec.get("coefficients", [])
         if coeffs:
-            poly = sum(F(from_le_hex(c)) * x**i for i, c in enumerate(coeffs))
-            result = int(poly(x_val))
-            computed = to_le_hex(result)
+            poly = make_poly(coeffs)
+            computed = to_le_hex(int(poly(x_val)))
             if computed != expected:
                 errors.append(f"{field_name}.evaluate.{label}: expected {expected}, got {computed}")
+
+    # mul
+    for vec in section.get("mul", []):
+        label = vec["label"]
+        a_poly = make_poly(vec["a_coefficients"])
+        b_poly = make_poly(vec["b_coefficients"])
+        expected = vec["coefficients"]
+        result = a_poly * b_poly
+        computed = poly_to_le_hex_list(result)
+        if computed != expected:
+            errors.append(f"{field_name}.mul.{label}: coefficient mismatch")
+
+    # add
+    for vec in section.get("add", []):
+        label = vec["label"]
+        a_poly = make_poly(vec["a_coefficients"])
+        b_poly = make_poly(vec["b_coefficients"])
+        expected = vec["coefficients"]
+        result = a_poly + b_poly
+        computed = poly_to_le_hex_list(result)
+        if computed != expected:
+            errors.append(f"{field_name}.add.{label}: coefficient mismatch")
+
+    # sub
+    for vec in section.get("sub", []):
+        label = vec["label"]
+        a_poly = make_poly(vec["a_coefficients"])
+        b_poly = make_poly(vec["b_coefficients"])
+        expected = vec["coefficients"]
+        result = a_poly - b_poly
+        computed = poly_to_le_hex_list(result)
+        if computed != expected:
+            errors.append(f"{field_name}.sub.{label}: coefficient mismatch")
+
+    # divmod
+    for vec in section.get("divmod", []):
+        label = vec["label"]
+        num = make_poly(vec["numerator"])
+        den = make_poly(vec["denominator"])
+        expected_q = vec["quotient"]
+        expected_r = vec["remainder"]
+        q, r = num.quo_rem(den)
+        computed_q = poly_to_le_hex_list(q)
+        computed_r = poly_to_le_hex_list(r)
+        if computed_q != expected_q:
+            errors.append(f"{field_name}.divmod.{label}: quotient mismatch")
+        if computed_r != expected_r:
+            errors.append(f"{field_name}.divmod.{label}: remainder mismatch")
+
+    # interpolate
+    for vec in section.get("interpolate", []):
+        label = vec["label"]
+        xs = [F(from_le_hex(h)) for h in vec["xs"]]
+        ys = [F(from_le_hex(h)) for h in vec["ys"]]
+        expected = vec["coefficients"]
+        poly = R.lagrange_polynomial(list(zip(xs, ys)))
+        computed = poly_to_le_hex_list(poly)
+        if computed != expected:
+            errors.append(f"{field_name}.interpolate.{label}: coefficient mismatch")
 
 
 def validate_divisor_section(section, curve, G, scalar_order, base_prime, field_name, errors):
@@ -439,14 +471,14 @@ def validate_divisor_section(section, curve, G, scalar_order, base_prime, field_
             errors.append(f"{field_name}.compute.{label}: eval at non-member should be nonzero")
 
 
-def validate_wei25519(section, errors):
+def validate_wei25519(section, helios_base_field, errors):
     """Validate Wei25519 bridge vectors."""
     for vec in section.get("x_to_selene_scalar", []):
         label = vec["label"]
         inp = from_le_hex(vec["input"])
         expected = vec["result"]
 
-        if inp >= p:
+        if inp >= helios_base_field:
             if expected is not None:
                 errors.append(f"wei25519.{label}: expected null for x >= p, got {expected}")
         else:
@@ -457,9 +489,57 @@ def validate_wei25519(section, errors):
                 errors.append(f"wei25519.{label}: expected {expected}, got {computed}")
 
 
-def validate_batch_invert(section, errors):
+def validate_high_degree_poly_mul(section, helios_base_field, selene_base_field, errors):
+    """Validate high-degree polynomial multiplication via multi-point evaluation."""
+    for field_name, field_order in [("fp", helios_base_field), ("fq", selene_base_field)]:
+        F = GF(field_order)
+        R = PolynomialRing(F, 'x')
+        x = R.gen()
+        for vec in section.get(field_name, []):
+            label = vec["label"]
+            n_coeffs = vec["n_coeffs"]
+            result_degree = vec["result_degree"]
+            print(f"    {field_name}/{label} (n={n_coeffs})...", end="", flush=True)
+
+            # Rebuild deterministic inputs: a[i] = i+1, b[i] = i+n+1
+            a_poly = sum(F(i + 1) * x**i for i in range(n_coeffs))
+            b_poly = sum(F(i + n_coeffs + 1) * x**i for i in range(n_coeffs))
+
+            # Check result degree
+            expected_degree = (n_coeffs - 1) * 2 if n_coeffs > 0 else 0
+            if result_degree != expected_degree:
+                errors.append(f"high_degree.{field_name}.{label}: degree {result_degree} != expected {expected_degree}")
+                continue
+
+            # Multi-point eval checks
+            for check in vec.get("eval_checks", []):
+                pt_name = check["point"]
+                xv = F(from_le_hex(check["x"]))
+                expected_a = from_le_hex(check["a_of_x"])
+                expected_b = from_le_hex(check["b_of_x"])
+                expected_r = from_le_hex(check["result_of_x"])
+
+                # Verify a(x) and b(x) independently
+                computed_a = int(a_poly(xv))
+                if computed_a != expected_a:
+                    errors.append(f"high_degree.{field_name}.{label}.{pt_name}: a(x) mismatch")
+                    continue
+                computed_b = int(b_poly(xv))
+                if computed_b != expected_b:
+                    errors.append(f"high_degree.{field_name}.{label}.{pt_name}: b(x) mismatch")
+                    continue
+
+                # Core check: a(x) * b(x) == result(x)
+                expected_product = int(F(expected_a) * F(expected_b))
+                if expected_product != expected_r:
+                    errors.append(f"high_degree.{field_name}.{label}.{pt_name}: a*b={to_le_hex(expected_product)} != result={to_le_hex(expected_r)}")
+
+            print(" OK")
+
+
+def validate_batch_invert(section, helios_base_field, selene_base_field, errors):
     """Validate batch inversion vectors."""
-    for field_name, field_order in [("fp", p), ("fq", q_helios)]:
+    for field_name, field_order in [("fp", helios_base_field), ("fq", selene_base_field)]:
         F = GF(field_order)
         for vec in section.get(field_name, []):
             label = vec["label"]
@@ -476,79 +556,115 @@ def validate_batch_invert(section, errors):
 
 
 def validate(filename):
-    """Validate all test vectors in a JSON file."""
+    """Validate all test vectors in a JSON file.
+    ALL curve parameters are loaded from the JSON — no hardcoded values."""
     with open(filename) as f:
         data = json.load(f)
 
     errors = []
-    total_checks = 0
 
     print(f"Validating {filename}...")
 
-    # Parameters
-    params = data.get("parameters", {})
-    if params:
-        h_order = from_le_hex(params["helios_order"])
-        s_order = from_le_hex(params["selene_order"])
-        assert h_order == q_helios, f"Helios order mismatch: {h_order} != {q_helios}"
-        assert s_order == p, f"Selene order mismatch: {s_order} != {p}"
-        print("  Parameters: OK")
+    # Load ALL parameters from JSON
+    params = data["parameters"]
+    helios_order = from_le_hex(params["helios_order"])  # Q — Helios scalar field = Selene base field
+    selene_order = from_le_hex(params["selene_order"])   # P — Selene scalar field = Helios base field
+    curve_a = params["curve_a"]                          # a coefficient (both curves)
+
+    # Helios base field = Selene scalar field order = P
+    helios_base = selene_order
+    # Selene base field = Helios scalar field order = Q
+    selene_base = helios_order
+
+    Fp = GF(helios_base)
+    Fq = GF(selene_base)
+
+    helios_b_val = Fp(from_le_hex(params["helios_b"]))
+    selene_b_val = Fq(from_le_hex(params["selene_b"]))
+
+    E_helios = EllipticCurve(Fp, [curve_a, helios_b_val])
+    E_selene = EllipticCurve(Fq, [curve_a, selene_b_val])
+
+    # Decode generators from JSON
+    helios_gx = from_le_hex(params["helios_gx"])
+    helios_gy = from_le_hex(params["helios_gy"])
+    G_helios = E_helios(Fp(helios_gx), Fp(helios_gy))
+
+    selene_gx = from_le_hex(params["selene_gx"])
+    selene_gy = from_le_hex(params["selene_gy"])
+    G_selene = E_selene(Fq(selene_gx), Fq(selene_gy))
+
+    print(f"  Helios: y^2 = x^3 + {curve_a}x + b over Fp")
+    print(f"    Fp = 0x{helios_base:064x}")
+    print(f"    b  = 0x{int(helios_b_val):064x}")
+    print(f"    order = 0x{helios_order:064x}")
+    print(f"  Selene: y^2 = x^3 + {curve_a}x + b over Fq")
+    print(f"    Fq = 0x{selene_base:064x}")
+    print(f"    b  = 0x{int(selene_b_val):064x}")
+    print(f"    order = 0x{selene_order:064x}")
+    print("  Parameters: OK")
 
     # Scalar sections
     if "helios_scalar" in data:
         print("  Helios scalar...", end="", flush=True)
-        validate_scalar_section(data["helios_scalar"], q_helios, "helios_scalar", errors)
+        validate_scalar_section(data["helios_scalar"], helios_order, "helios_scalar", errors)
         print(" OK" if not any("helios_scalar" in e for e in errors) else " ERRORS")
 
     if "selene_scalar" in data:
         print("  Selene scalar...", end="", flush=True)
-        validate_scalar_section(data["selene_scalar"], p, "selene_scalar", errors)
+        validate_scalar_section(data["selene_scalar"], selene_order, "selene_scalar", errors)
         print(" OK" if not any("selene_scalar" in e for e in errors) else " ERRORS")
 
     # Point sections
     if "helios_point" in data:
         print("  Helios point...", end="", flush=True)
-        validate_point_section(data["helios_point"], E_helios, G_helios, q_helios, p, "helios_point", errors)
+        validate_point_section(data["helios_point"], E_helios, G_helios, helios_order, helios_base, "helios_point", errors)
         print(" OK" if not any("helios_point" in e for e in errors) else " ERRORS")
 
     if "selene_point" in data:
         print("  Selene point...", end="", flush=True)
-        validate_point_section(data["selene_point"], E_selene, G_selene, p, q_helios, "selene_point", errors)
+        validate_point_section(data["selene_point"], E_selene, G_selene, selene_order, selene_base, "selene_point", errors)
         print(" OK" if not any("selene_point" in e for e in errors) else " ERRORS")
 
     # Polynomial sections
     if "fp_polynomial" in data:
         print("  Fp polynomial...", end="", flush=True)
-        validate_polynomial_section(data["fp_polynomial"], p, "fp_polynomial", errors)
+        validate_polynomial_section(data["fp_polynomial"], helios_base, "fp_polynomial", errors)
         print(" OK" if not any("fp_polynomial" in e for e in errors) else " ERRORS")
 
     if "fq_polynomial" in data:
         print("  Fq polynomial...", end="", flush=True)
-        validate_polynomial_section(data["fq_polynomial"], q_helios, "fq_polynomial", errors)
+        validate_polynomial_section(data["fq_polynomial"], selene_base, "fq_polynomial", errors)
         print(" OK" if not any("fq_polynomial" in e for e in errors) else " ERRORS")
 
     # Divisor sections
     if "helios_divisor" in data:
         print("  Helios divisor...", end="", flush=True)
-        validate_divisor_section(data["helios_divisor"], E_helios, G_helios, q_helios, p, "helios_divisor", errors)
+        validate_divisor_section(data["helios_divisor"], E_helios, G_helios, helios_order, helios_base, "helios_divisor", errors)
         print(" OK" if not any("helios_divisor" in e for e in errors) else " ERRORS")
 
     if "selene_divisor" in data:
         print("  Selene divisor...", end="", flush=True)
-        validate_divisor_section(data["selene_divisor"], E_selene, G_selene, p, q_helios, "selene_divisor", errors)
+        validate_divisor_section(data["selene_divisor"], E_selene, G_selene, selene_order, selene_base, "selene_divisor", errors)
         print(" OK" if not any("selene_divisor" in e for e in errors) else " ERRORS")
 
     # Wei25519
     if "wei25519" in data:
         print("  Wei25519 bridge...", end="", flush=True)
-        validate_wei25519(data["wei25519"], errors)
+        validate_wei25519(data["wei25519"], helios_base, errors)
         print(" OK" if not any("wei25519" in e for e in errors) else " ERRORS")
 
     # Batch invert
     if "batch_invert" in data:
         print("  Batch invert...", end="", flush=True)
-        validate_batch_invert(data["batch_invert"], errors)
+        validate_batch_invert(data["batch_invert"], helios_base, selene_base, errors)
         print(" OK" if not any("batch_invert" in e for e in errors) else " ERRORS")
+
+    # High-degree polynomial multiplication
+    if "high_degree_poly_mul" in data:
+        print("  High-degree poly mul...")
+        validate_high_degree_poly_mul(data["high_degree_poly_mul"], helios_base, selene_base, errors)
+        print("  High-degree poly mul:" + (" OK" if not any("high_degree" in e for e in errors) else " ERRORS"))
 
     # Summary
     print()

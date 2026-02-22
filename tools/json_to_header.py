@@ -212,6 +212,179 @@ def emit_point_section(f, section, ns_name):
     f.write(f"}} // namespace {ns_name}\n\n")
 
 
+def emit_polynomial_section(f, section, ns_name):
+    """Emit test vector structs for a polynomial section."""
+    f.write(f"namespace {ns_name} {{\n\n")
+
+    # from_roots: variable-length arrays
+    vectors = section.get("from_roots", [])
+    for v in vectors:
+        label = v["label"]
+        n_roots = v["n"]
+        roots = v["roots"]
+        coeffs = v["coefficients"]
+        n_coeffs = len(coeffs)
+        f.write(f"static const uint8_t from_roots_{label}_roots[{n_roots}][32] = {{\n")
+        for r in roots:
+            f.write(f"  {hex_to_c_array(r)},\n")
+        f.write(f"}};\n")
+        f.write(f"static const uint8_t from_roots_{label}_coefficients[{n_coeffs}][32] = {{\n")
+        for c in coeffs:
+            f.write(f"  {hex_to_c_array(c)},\n")
+        f.write(f"}};\n\n")
+
+    # evaluate
+    vectors = section.get("evaluate", [])
+    for v in vectors:
+        label = v["label"]
+        coeffs = v["coefficients"]
+        n_coeffs = len(coeffs)
+        f.write(f"static const uint8_t eval_{label}_coefficients[{n_coeffs}][32] = {{\n")
+        for c in coeffs:
+            f.write(f"  {hex_to_c_array(c)},\n")
+        f.write(f"}};\n")
+        f.write(f"static const uint8_t eval_{label}_x[32] = {hex_to_c_array(v['x'])};\n")
+        f.write(f"static const uint8_t eval_{label}_result[32] = {hex_to_c_array(v['result'])};\n\n")
+
+    # mul
+    vectors = section.get("mul", [])
+    for v in vectors:
+        label = v["label"]
+        a_coeffs = v["a_coefficients"]
+        b_coeffs = v["b_coefficients"]
+        r_coeffs = v["coefficients"]
+        f.write(f"static const uint8_t mul_{label}_a[{len(a_coeffs)}][32] = {{\n")
+        for c in a_coeffs:
+            f.write(f"  {hex_to_c_array(c)},\n")
+        f.write(f"}};\n")
+        f.write(f"static const uint8_t mul_{label}_b[{len(b_coeffs)}][32] = {{\n")
+        for c in b_coeffs:
+            f.write(f"  {hex_to_c_array(c)},\n")
+        f.write(f"}};\n")
+        f.write(f"static const uint8_t mul_{label}_result[{len(r_coeffs)}][32] = {{\n")
+        for c in r_coeffs:
+            f.write(f"  {hex_to_c_array(c)},\n")
+        f.write(f"}};\n\n")
+
+    # add
+    vectors = section.get("add", [])
+    for v in vectors:
+        label = v["label"]
+        a_coeffs = v["a_coefficients"]
+        b_coeffs = v["b_coefficients"]
+        r_coeffs = v["coefficients"]
+        f.write(f"static const uint8_t add_{label}_a[{len(a_coeffs)}][32] = {{\n")
+        for c in a_coeffs:
+            f.write(f"  {hex_to_c_array(c)},\n")
+        f.write(f"}};\n")
+        f.write(f"static const uint8_t add_{label}_b[{len(b_coeffs)}][32] = {{\n")
+        for c in b_coeffs:
+            f.write(f"  {hex_to_c_array(c)},\n")
+        f.write(f"}};\n")
+        f.write(f"static const uint8_t add_{label}_result[{len(r_coeffs)}][32] = {{\n")
+        for c in r_coeffs:
+            f.write(f"  {hex_to_c_array(c)},\n")
+        f.write(f"}};\n\n")
+
+    # sub
+    vectors = section.get("sub", [])
+    for v in vectors:
+        label = v["label"]
+        a_coeffs = v["a_coefficients"]
+        b_coeffs = v["b_coefficients"]
+        r_coeffs = v["coefficients"]
+        f.write(f"static const uint8_t sub_{label}_a[{len(a_coeffs)}][32] = {{\n")
+        for c in a_coeffs:
+            f.write(f"  {hex_to_c_array(c)},\n")
+        f.write(f"}};\n")
+        f.write(f"static const uint8_t sub_{label}_b[{len(b_coeffs)}][32] = {{\n")
+        for c in b_coeffs:
+            f.write(f"  {hex_to_c_array(c)},\n")
+        f.write(f"}};\n")
+        f.write(f"static const uint8_t sub_{label}_result[{len(r_coeffs)}][32] = {{\n")
+        for c in r_coeffs:
+            f.write(f"  {hex_to_c_array(c)},\n")
+        f.write(f"}};\n\n")
+
+    # divmod
+    vectors = section.get("divmod", [])
+    for v in vectors:
+        label = v["label"]
+        num = v["numerator"]
+        den = v["denominator"]
+        quot = v["quotient"]
+        rem = v["remainder"]
+        f.write(f"static const uint8_t divmod_{label}_numerator[{len(num)}][32] = {{\n")
+        for c in num:
+            f.write(f"  {hex_to_c_array(c)},\n")
+        f.write(f"}};\n")
+        f.write(f"static const uint8_t divmod_{label}_denominator[{len(den)}][32] = {{\n")
+        for c in den:
+            f.write(f"  {hex_to_c_array(c)},\n")
+        f.write(f"}};\n")
+        f.write(f"static const uint8_t divmod_{label}_quotient[{len(quot)}][32] = {{\n")
+        for c in quot:
+            f.write(f"  {hex_to_c_array(c)},\n")
+        f.write(f"}};\n")
+        f.write(f"static const uint8_t divmod_{label}_remainder[{len(rem)}][32] = {{\n")
+        for c in rem:
+            f.write(f"  {hex_to_c_array(c)},\n")
+        f.write(f"}};\n\n")
+
+    # interpolate
+    vectors = section.get("interpolate", [])
+    for v in vectors:
+        label = v["label"]
+        n = v["n"]
+        xs = v["xs"]
+        ys = v["ys"]
+        coeffs = v["coefficients"]
+        f.write(f"static const uint8_t interp_{label}_xs[{n}][32] = {{\n")
+        for x in xs:
+            f.write(f"  {hex_to_c_array(x)},\n")
+        f.write(f"}};\n")
+        f.write(f"static const uint8_t interp_{label}_ys[{n}][32] = {{\n")
+        for y in ys:
+            f.write(f"  {hex_to_c_array(y)},\n")
+        f.write(f"}};\n")
+        f.write(f"static const uint8_t interp_{label}_coefficients[{len(coeffs)}][32] = {{\n")
+        for c in coeffs:
+            f.write(f"  {hex_to_c_array(c)},\n")
+        f.write(f"}};\n\n")
+
+    f.write(f"}} // namespace {ns_name}\n\n")
+
+
+def emit_divisor_section(f, section, ns_name):
+    """Emit test vector structs for a divisor section."""
+    f.write(f"namespace {ns_name} {{\n\n")
+
+    vectors = section.get("compute", [])
+    for v in vectors:
+        label = v["label"]
+        n = v["n"]
+        points = v["points"]
+        a_coeffs = v["a_coefficients"]
+        b_coeffs = v["b_coefficients"]
+        f.write(f"static const uint8_t {label}_points[{n}][32] = {{\n")
+        for pt in points:
+            f.write(f"  {hex_to_c_array(pt)},\n")
+        f.write(f"}};\n")
+        f.write(f"static const uint8_t {label}_a_coefficients[{len(a_coeffs)}][32] = {{\n")
+        for c in a_coeffs:
+            f.write(f"  {hex_to_c_array(c)},\n")
+        f.write(f"}};\n")
+        f.write(f"static const uint8_t {label}_b_coefficients[{len(b_coeffs)}][32] = {{\n")
+        for c in b_coeffs:
+            f.write(f"  {hex_to_c_array(c)},\n")
+        f.write(f"}};\n")
+        f.write(f"static const uint8_t {label}_eval_point_x[32] = {hex_to_c_array(v['eval_point_x'])};\n")
+        f.write(f"static const uint8_t {label}_eval_point_y[32] = {hex_to_c_array(v['eval_point_y'])};\n")
+        f.write(f"static const uint8_t {label}_eval_result[32] = {hex_to_c_array(v['eval_result'])};\n\n")
+
+    f.write(f"}} // namespace {ns_name}\n\n")
+
+
 def emit_batch_invert_section(f, section):
     """Emit batch inversion vectors."""
     f.write(f"namespace batch_invert {{\n\n")
@@ -249,6 +422,40 @@ def emit_wei25519_section(f, section):
         f.write(f"static const size_t x_to_scalar_count = sizeof(x_to_scalar_vectors) / sizeof(x_to_scalar_vectors[0]);\n\n")
 
     f.write(f"}} // namespace wei25519\n\n")
+
+
+def emit_high_degree_poly_mul_section(f, data):
+    """Emit compact multi-point eval check data for high-degree polynomial multiplication.
+    Only stores eval points and expected values — C++ tests rebuild inputs from
+    the deterministic coefficient pattern (1, 2, 3, ...)."""
+    f.write("namespace high_degree_poly_mul {\n\n")
+
+    f.write("struct eval_check { const char *point; uint8_t x[32]; uint8_t a_of_x[32]; uint8_t b_of_x[32]; uint8_t result_of_x[32]; };\n")
+    f.write("struct highdeg_vector { const char *label; int n_coeffs; int result_degree; eval_check checks[3]; };\n\n")
+
+    for field_name in ["fp", "fq"]:
+        if field_name not in data:
+            continue
+
+        vectors = data[field_name]
+        f.write(f"static const highdeg_vector {field_name}_vectors[] = {{\n")
+        for vec in vectors:
+            label = vec["label"].replace("-", "_")
+            n_coeffs = vec["n_coeffs"]
+            result_degree = vec["result_degree"]
+            checks = vec["eval_checks"]
+            f.write(f"  {{\"{label}\", {n_coeffs}, {result_degree}, {{\n")
+            for ci, check in enumerate(checks):
+                comma = "," if ci < len(checks) - 1 else ""
+                f.write(f"    {{\"{check['point']}\", {hex_to_c_array(check['x'])}, "
+                        f"{hex_to_c_array(check['a_of_x'])}, "
+                        f"{hex_to_c_array(check['b_of_x'])}, "
+                        f"{hex_to_c_array(check['result_of_x'])}}}{comma}\n")
+            f.write(f"  }}}},\n")
+        f.write(f"}};\n")
+        f.write(f"static const size_t {field_name}_count = sizeof({field_name}_vectors) / sizeof({field_name}_vectors[0]);\n\n")
+
+    f.write("} // namespace high_degree_poly_mul\n\n")
 
 
 def main():
@@ -293,6 +500,18 @@ def main():
         if "selene_point" in data:
             emit_point_section(f, data["selene_point"], "selene_point")
 
+        # Polynomial sections
+        if "fp_polynomial" in data:
+            emit_polynomial_section(f, data["fp_polynomial"], "fp_polynomial")
+        if "fq_polynomial" in data:
+            emit_polynomial_section(f, data["fq_polynomial"], "fq_polynomial")
+
+        # Divisor sections
+        if "helios_divisor" in data:
+            emit_divisor_section(f, data["helios_divisor"], "helios_divisor")
+        if "selene_divisor" in data:
+            emit_divisor_section(f, data["selene_divisor"], "selene_divisor")
+
         # Wei25519
         if "wei25519" in data:
             emit_wei25519_section(f, data["wei25519"])
@@ -300,6 +519,10 @@ def main():
         # Batch invert
         if "batch_invert" in data:
             emit_batch_invert_section(f, data["batch_invert"])
+
+        # High-degree polynomial multiplication
+        if "high_degree_poly_mul" in data:
+            emit_high_degree_poly_mul_section(f, data["high_degree_poly_mul"])
 
         f.write("} // namespace helioselene_test_vectors\n\n")
         f.write("#endif // HELIOSELENE_TEST_VECTORS_H\n")
