@@ -39,9 +39,26 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 if(MSVC)
+    include(CheckCXXCompilerFlag)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std:c++17 /W4 /GS /sdl /guard:cf /wd4267 /wd4804 /D_DLL")
     string(REPLACE "/Ob0" "/Ob2" CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")
     set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /Oi")
+
+    # Spectre mitigation
+    check_cxx_compiler_flag("/Qspectre" HAS_QSPECTRE)
+    if(HAS_QSPECTRE)
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /Qspectre")
+    endif()
+
+    # PE linker hardening — DEP + ASLR
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /DYNAMICBASE /NXCOMPAT /HIGHENTROPYVA")
+
+    # CET shadow stack (newer MSVC only)
+    check_cxx_compiler_flag("/guard:ehcont" HAS_GUARD_EHCONT)
+    if(HAS_GUARD_EHCONT)
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /guard:ehcont")
+        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /guard:ehcont /CETCOMPAT")
+    endif()
 else()
     if("${ARCH}" STREQUAL "default")
         set(ARCH_FLAG "")
@@ -51,9 +68,13 @@ else()
 
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17 -Wall -Wextra -Wuninitialized -Wformat-security -Wconversion -Wsign-conversion ${ARCH_FLAG}")
 
-    # Stack protector: exclude Clang+MinGW (accepts at configure time but
-    # the MinGW runtime lacks __stack_chk_fail, causing link errors).
-    if(NOT (CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND MINGW))
+    # Stack protector: try-compile probe (catches any toolchain where
+    # libssp / compiler-rt is missing, not just Clang+MinGW).
+    include(CheckCXXSourceCompiles)
+    set(CMAKE_REQUIRED_FLAGS "-fstack-protector-strong")
+    check_cxx_source_compiles("int main() { char buf[64]; buf[0] = 0; return buf[0]; }" HAS_STACK_PROTECTOR_STRONG)
+    unset(CMAKE_REQUIRED_FLAGS)
+    if(HAS_STACK_PROTECTOR_STRONG)
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fstack-protector-strong")
     endif()
 
@@ -77,13 +98,33 @@ else()
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-vectorize -fno-slp-vectorize")
     endif()
 
-    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -g3 -Og")
-    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -DNDEBUG -O3 -D_FORTIFY_SOURCE=2")
+    # CET control-flow integrity (Intel CET shadow stack + indirect branch tracking)
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "^([xX]86_64|[aA][mM][dD]64)$")
+        check_cxx_compiler_flag("-fcf-protection=full" HAS_CF_PROTECTION)
+        if(HAS_CF_PROTECTION)
+            set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fcf-protection=full")
+        endif()
+    endif()
 
+    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -g3 -Og")
+    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -DNDEBUG -O3")
+    if(NOT WIN32)
+        set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -D_FORTIFY_SOURCE=2")
+    endif()
+
+    # GCC libstdc++ debug assertions (bounds checks on operator[], iterator validation)
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -D_GLIBCXX_ASSERTIONS")
+    endif()
 
     # ELF linker hardening (not applicable on Apple, Windows, or MSVC)
     if(NOT APPLE AND NOT WIN32)
         set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-z,relro -Wl,-z,now -Wl,-z,noexecstack")
+    endif()
+
+    # MinGW (GCC) PE linker hardening — DEP + ASLR
+    if(MINGW)
+        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--nxcompat -Wl,--dynamicbase -Wl,--high-entropy-va")
     endif()
 endif()
 
