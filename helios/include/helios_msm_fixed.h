@@ -80,14 +80,16 @@ static inline void
     /* Start from top window (51) */
     helios_identity(r);
 
+    helios_affine selected;
+    helios_jacobian tmp, fresh;
+
     for (size_t j = 0; j < n; j++)
     {
         int32_t d = (int32_t)all_digits[j * 52 + 51];
-        int32_t sign_mask = d >> 31;
+        int32_t sign_mask = -(int32_t)((uint32_t)d >> 31);
         unsigned int abs_d = (unsigned int)((d ^ sign_mask) - sign_mask);
         unsigned int neg = (unsigned int)(sign_mask & 1);
 
-        helios_affine selected;
         fp_0(selected.x);
         fp_0(selected.y);
         for (unsigned int k = 0; k < 16; k++)
@@ -100,10 +102,7 @@ static inline void
         unsigned int nonzero = 1u ^ ((abs_d - 1u) >> 31);
         unsigned int z_nonzero = (unsigned int)fp_isnonzero(r->Z);
 
-        helios_jacobian tmp;
         helios_madd(&tmp, r, &selected);
-
-        helios_jacobian fresh;
         helios_from_affine(&fresh, &selected);
 
         helios_cmov(r, &tmp, nonzero & z_nonzero);
@@ -111,7 +110,7 @@ static inline void
     }
 
     /* Main loop: windows 50 down to 0 */
-    for (int i = 50; i >= 0; i--)
+    for (size_t i = 51; i-- > 0;)
     {
         /* 5 shared doublings */
         helios_dbl(r, r);
@@ -124,11 +123,10 @@ static inline void
         for (size_t j = 0; j < n; j++)
         {
             int32_t d = (int32_t)all_digits[j * 52 + i];
-            int32_t sign_mask = d >> 31;
+            int32_t sign_mask = -(int32_t)((uint32_t)d >> 31);
             unsigned int abs_d = (unsigned int)((d ^ sign_mask) - sign_mask);
             unsigned int neg = (unsigned int)(sign_mask & 1);
 
-            helios_affine selected;
             fp_1(selected.x);
             fp_1(selected.y);
             for (unsigned int k = 0; k < 16; k++)
@@ -141,10 +139,7 @@ static inline void
             unsigned int nonzero = 1u ^ ((abs_d - 1u) >> 31);
             unsigned int z_nonzero = (unsigned int)fp_isnonzero(r->Z);
 
-            helios_jacobian tmp;
             helios_madd(&tmp, r, &selected);
-
-            helios_jacobian fresh;
             helios_from_affine(&fresh, &selected);
 
             helios_cmov(r, &tmp, nonzero & z_nonzero);
@@ -154,6 +149,9 @@ static inline void
 
     /* Secure erase */
     helioselene_secure_erase(all_digits.data(), all_digits.size());
+    helioselene_secure_erase(&selected, sizeof(selected));
+    helioselene_secure_erase(&tmp, sizeof(tmp));
+    helioselene_secure_erase(&fresh, sizeof(fresh));
 }
 
 #endif // HELIOSELENE_HELIOS_MSM_FIXED_H

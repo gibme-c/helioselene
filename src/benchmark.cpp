@@ -640,8 +640,7 @@ int main(int argc, char *argv[])
         std::cout << "--- Polynomial ops (with ECFFT) ---" << std::endl;
 
         {
-            ecfft_fp_global_init();
-            ecfft_fq_global_init();
+            ecfft_global_init();
 
             auto poly_iters = [](size_t d) -> size_t
             {
@@ -710,9 +709,6 @@ int main(int argc, char *argv[])
             bench_fq_poly_mul_ecfft(128, "fq_poly_mul+ecfft deg=128");
             bench_fq_poly_mul_ecfft(256, "fq_poly_mul+ecfft deg=256");
             bench_fq_poly_mul_ecfft(1024, "fq_poly_mul+ecfft deg=1024");
-
-            ecfft_fp_global_free();
-            ecfft_fq_global_free();
         }
 #endif
 

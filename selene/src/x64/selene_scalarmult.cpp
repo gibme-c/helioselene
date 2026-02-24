@@ -37,6 +37,8 @@
 #include "selene_madd.h"
 #include "selene_ops.h"
 
+#include <vector>
+
 /*
  * Constant-time scalar multiplication for Selene (over F_q).
  * Same algorithm as helios_scalarmult but using fq_* field ops.
@@ -59,31 +61,36 @@ static void scalar_recode_signed4(int8_t digits[64], const unsigned char scalar[
         digits[i] = (int8_t)(val - (carry << 4));
     }
     digits[63] = (int8_t)(nibbles[63] + carry);
+    helioselene_secure_erase(nibbles, sizeof(nibbles));
 }
 
-static void batch_to_affine(selene_affine *out, const selene_jacobian *in, int n)
+static void batch_to_affine(selene_affine *out, const selene_jacobian *in, size_t n)
 {
     if (n == 0)
         return;
 
-    fq_fe *z_vals = new fq_fe[n];
-    fq_fe *products = new fq_fe[n];
+    struct fq_fe_s
+    {
+        fq_fe v;
+    };
+    std::vector<fq_fe_s> z_vals(n);
+    std::vector<fq_fe_s> products(n);
 
-    for (int i = 0; i < n; i++)
-        fq_copy(z_vals[i], in[i].Z);
+    for (size_t i = 0; i < n; i++)
+        fq_copy(z_vals[i].v, in[i].Z);
 
-    fq_copy(products[0], z_vals[0]);
-    for (int i = 1; i < n; i++)
-        fq_mul(products[i], products[i - 1], z_vals[i]);
+    fq_copy(products[0].v, z_vals[0].v);
+    for (size_t i = 1; i < n; i++)
+        fq_mul(products[i].v, products[i - 1].v, z_vals[i].v);
 
     fq_fe inv;
-    fq_invert(inv, products[n - 1]);
+    fq_invert(inv, products[n - 1].v);
 
-    for (int i = n - 1; i > 0; i--)
+    for (size_t i = n - 1; i > 0; i--)
     {
         fq_fe z_inv;
-        fq_mul(z_inv, inv, products[i - 1]);
-        fq_mul(inv, inv, z_vals[i]);
+        fq_mul(z_inv, inv, products[i - 1].v);
+        fq_mul(inv, inv, z_vals[i].v);
 
         fq_fe z_inv2, z_inv3;
         fq_sq(z_inv2, z_inv);
@@ -101,10 +108,8 @@ static void batch_to_affine(selene_affine *out, const selene_jacobian *in, int n
     }
 
     helioselene_secure_erase(&inv, sizeof(inv));
-    helioselene_secure_erase(z_vals, n * sizeof(fq_fe));
-    helioselene_secure_erase(products, n * sizeof(fq_fe));
-    delete[] z_vals;
-    delete[] products;
+    helioselene_secure_erase(z_vals.data(), n * sizeof(fq_fe_s));
+    helioselene_secure_erase(products.data(), n * sizeof(fq_fe_s));
 }
 
 void selene_scalarmult_x64(selene_jacobian *r, const unsigned char scalar[32], const selene_jacobian *p)
@@ -126,7 +131,7 @@ void selene_scalarmult_x64(selene_jacobian *r, const unsigned char scalar[32], c
     scalar_recode_signed4(digits, scalar);
 
     int32_t d = (int32_t)digits[63];
-    int32_t sign_mask = d >> 31;
+    int32_t sign_mask = -(int32_t)((uint32_t)d >> 31);
     unsigned int abs_d = (unsigned int)((d ^ sign_mask) - sign_mask);
     unsigned int neg = (unsigned int)(sign_mask & 1);
 
@@ -153,6 +158,7 @@ void selene_scalarmult_x64(selene_jacobian *r, const unsigned char scalar[32], c
     selene_copy(r, &ident);
     selene_cmov(r, &from_table, nonzero);
 
+    selene_jacobian tmp, fresh;
     for (int i = 62; i >= 0; i--)
     {
         selene_dbl(r, r);
@@ -161,7 +167,7 @@ void selene_scalarmult_x64(selene_jacobian *r, const unsigned char scalar[32], c
         selene_dbl(r, r);
 
         d = (int32_t)digits[i];
-        sign_mask = d >> 31;
+        sign_mask = -(int32_t)((uint32_t)d >> 31);
         abs_d = (unsigned int)((d ^ sign_mask) - sign_mask);
         neg = (unsigned int)(sign_mask & 1);
 
@@ -178,16 +184,19 @@ void selene_scalarmult_x64(selene_jacobian *r, const unsigned char scalar[32], c
         nonzero = 1u ^ ((abs_d - 1u) >> 31);
         unsigned int z_nonzero = (unsigned int)fq_isnonzero(r->Z);
 
-        selene_jacobian tmp;
         selene_madd(&tmp, r, &selected);
 
-        selene_jacobian fresh;
         selene_from_affine(&fresh, &selected);
 
         selene_cmov(r, &tmp, nonzero & z_nonzero);
         selene_cmov(r, &fresh, nonzero & (1u - z_nonzero));
     }
 
+    helioselene_secure_erase(&selected, sizeof(selected));
+    helioselene_secure_erase(&from_table, sizeof(from_table));
+    helioselene_secure_erase(&ident, sizeof(ident));
+    helioselene_secure_erase(&tmp, sizeof(tmp));
+    helioselene_secure_erase(&fresh, sizeof(fresh));
     helioselene_secure_erase(table_jac, sizeof(table_jac));
     helioselene_secure_erase(table, sizeof(table));
     helioselene_secure_erase(digits, sizeof(digits));

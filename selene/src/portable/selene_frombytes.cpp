@@ -74,6 +74,10 @@ static const uint64_t SELENE_B_LIMBS[5] =
  * Same algorithm as helios_frombytes but over F_q.
  *
  * Returns 0 on success, -1 on invalid input.
+ *
+ * SECURITY NOTE: Early returns on validation failure are intentionally
+ * variable-time. The input bytes are public (untrusted external data),
+ * not secret. Timing side-channels on public data are not exploitable.
  */
 int selene_frombytes_portable(selene_jacobian *r, const unsigned char s[32])
 {

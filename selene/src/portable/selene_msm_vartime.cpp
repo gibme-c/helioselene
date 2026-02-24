@@ -35,10 +35,12 @@
 #include "fq_ops.h"
 #include "fq_sq.h"
 #include "fq_utils.h"
+#include "helioselene_secure_erase.h"
 #include "selene_add.h"
 #include "selene_dbl.h"
 #include "selene_ops.h"
 
+#include <cstdint>
 #include <cstring>
 #include <vector>
 
@@ -97,24 +99,24 @@ static void selene_add_safe(selene_jacobian *r, const selene_jacobian *p, const 
 // Signed digit encoding (curve-independent)
 // ============================================================================
 
-static void encode_signed_w4(signed char *digits, const unsigned char *scalar)
+static void encode_signed_w4(int16_t *digits, const unsigned char *scalar)
 {
     int carry = 0;
     for (int i = 0; i < 31; i++)
     {
         carry += scalar[i];
         int carry2 = (carry + 8) >> 4;
-        digits[2 * i] = static_cast<signed char>(carry - (carry2 << 4));
+        digits[2 * i] = static_cast<int16_t>(carry - (carry2 << 4));
         carry = (carry2 + 8) >> 4;
-        digits[2 * i + 1] = static_cast<signed char>(carry2 - (carry << 4));
+        digits[2 * i + 1] = static_cast<int16_t>(carry2 - (carry << 4));
     }
     carry += scalar[31];
     int carry2 = (carry + 8) >> 4;
-    digits[62] = static_cast<signed char>(carry - (carry2 << 4));
-    digits[63] = static_cast<signed char>(carry2);
+    digits[62] = static_cast<int16_t>(carry - (carry2 << 4));
+    digits[63] = static_cast<int16_t>(carry2);
 }
 
-static int encode_signed_wbit(signed char *digits, const unsigned char *scalar, int w)
+static int encode_signed_wbit(int16_t *digits, const unsigned char *scalar, int w)
 {
     const int half = 1 << (w - 1);
     const int mask = (1 << w) - 1;
@@ -145,7 +147,7 @@ static int encode_signed_wbit(signed char *digits, const unsigned char *scalar, 
             carry = 1;
         }
 
-        digits[i] = static_cast<signed char>(val);
+        digits[i] = static_cast<int16_t>(val);
     }
 
     return num_digits;
@@ -157,7 +159,7 @@ static int encode_signed_wbit(signed char *digits, const unsigned char *scalar, 
 
 static void msm_straus(selene_jacobian *result, const unsigned char *scalars, const selene_jacobian *points, size_t n)
 {
-    std::vector<signed char> all_digits(n * 64);
+    std::vector<int16_t> all_digits(n * 64);
     for (size_t i = 0; i < n; i++)
     {
         encode_signed_w4(all_digits.data() + i * 64, scalars + i * 32);
@@ -193,18 +195,18 @@ static void msm_straus(selene_jacobian *result, const unsigned char *scalars, co
 
         for (size_t i = 0; i < n; i++)
         {
-            signed char digit = all_digits[i * 64 + d];
+            int16_t digit = all_digits[i * 64 + (size_t)d];
             if (digit == 0)
                 continue;
 
             selene_jacobian pt;
             if (digit > 0)
             {
-                selene_copy(&pt, &tables[i * 8 + digit - 1]);
+                selene_copy(&pt, &tables[i * 8 + (size_t)(digit - 1)]);
             }
             else
             {
-                selene_neg(&pt, &tables[i * 8 + (-digit) - 1]);
+                selene_neg(&pt, &tables[i * 8 + (size_t)((-digit) - 1)]);
             }
 
             if (acc_is_identity)
@@ -218,6 +220,10 @@ static void msm_straus(selene_jacobian *result, const unsigned char *scalars, co
             }
         }
     }
+
+    // Defense-in-depth: erase digit encodings and precomputed tables
+    helioselene_secure_erase(all_digits.data(), all_digits.size() * sizeof(all_digits[0]));
+    helioselene_secure_erase(tables.data(), tables.size() * sizeof(tables[0]));
 
     if (acc_is_identity)
         selene_identity(result);
@@ -250,10 +256,10 @@ static void
     msm_pippenger(selene_jacobian *result, const unsigned char *scalars, const selene_jacobian *points, size_t n)
 {
     const int w = pippenger_window_size(n);
-    const int num_buckets = (1 << (w - 1));
-    const int num_windows = (256 + w - 1) / w;
+    const size_t num_buckets = (size_t)1 << (w - 1);
+    const size_t num_windows = (size_t)((256 + w - 1) / w);
 
-    std::vector<signed char> all_digits(n * num_windows);
+    std::vector<int16_t> all_digits(n * num_windows);
     for (size_t i = 0; i < n; i++)
     {
         encode_signed_wbit(all_digits.data() + i * num_windows, scalars + i * 32, w);
@@ -263,7 +269,7 @@ static void
     selene_identity(&total);
     bool total_is_identity = true;
 
-    for (int win = num_windows - 1; win >= 0; win--)
+    for (size_t win = num_windows; win-- > 0;)
     {
         if (!total_is_identity)
         {
@@ -276,21 +282,21 @@ static void
 
         for (size_t i = 0; i < n; i++)
         {
-            signed char digit = all_digits[i * num_windows + win];
+            int16_t digit = all_digits[i * num_windows + win];
             if (digit == 0)
                 continue;
 
-            int bucket_idx;
+            size_t bucket_idx;
             selene_jacobian effective_point;
 
             if (digit > 0)
             {
-                bucket_idx = digit - 1;
+                bucket_idx = (size_t)(digit - 1);
                 selene_copy(&effective_point, &points[i]);
             }
             else
             {
-                bucket_idx = (-digit) - 1;
+                bucket_idx = (size_t)((-digit) - 1);
                 selene_neg(&effective_point, &points[i]);
             }
 
@@ -311,7 +317,7 @@ static void
         selene_jacobian partial;
         bool partial_is_identity = true;
 
-        for (int j = num_buckets - 1; j >= 0; j--)
+        for (size_t j = num_buckets; j-- > 0;)
         {
             if (!bucket_is_identity[j])
             {
@@ -340,6 +346,9 @@ static void
             }
         }
 
+        // Defense-in-depth: erase bucket points
+        helioselene_secure_erase(bucket_points.data(), bucket_points.size() * sizeof(bucket_points[0]));
+
         if (!partial_is_identity)
         {
             if (total_is_identity)
@@ -353,6 +362,9 @@ static void
             }
         }
     }
+
+    // Defense-in-depth: erase digit encodings
+    helioselene_secure_erase(all_digits.data(), all_digits.size() * sizeof(all_digits[0]));
 
     if (total_is_identity)
         selene_identity(result);

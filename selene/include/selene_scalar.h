@@ -126,15 +126,17 @@ static inline void selene_scalar_reduce_wide(fp_fe out, const unsigned char wide
     fp_add(out, lo, hi_shifted);
 
     /* Correct for bit 255 stripped by fp_frombytes from each half. */
-    int lo_b = (wide[31] >> 7) & 1;
-    int hi_b = (wide[63] >> 7) & 1;
-    int corr = lo_b * 19 + hi_b * 722;
+    unsigned int lo_b = (wide[31] >> 7) & 1u;
+    unsigned int hi_b = (wide[63] >> 7) & 1u;
+    unsigned int corr = lo_b * 19u + hi_b * 722u;
 
     if (corr)
     {
+        unsigned char corr_bytes[32] = {0};
+        corr_bytes[0] = static_cast<unsigned char>(corr & 0xffu);
+        corr_bytes[1] = static_cast<unsigned char>((corr >> 8) & 0xffu);
         fp_fe correction;
-        fp_0(correction);
-        correction[0] = corr;
+        fp_frombytes(correction, corr_bytes);
         fp_add(out, out, correction);
     }
 }

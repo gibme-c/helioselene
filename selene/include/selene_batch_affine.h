@@ -36,6 +36,7 @@
  */
 
 #include "fq_batch_invert.h"
+#include "fq_cmov.h"
 #include "fq_mul.h"
 #include "fq_sq.h"
 #include "selene.h"
@@ -57,15 +58,13 @@ static inline void selene_batch_to_affine(selene_affine *out, const selene_jacob
         return;
     if (n == 1)
     {
-        if (selene_is_identity(&points[0]))
-        {
-            fq_0(out[0].x);
-            fq_0(out[0].y);
-        }
-        else
-        {
-            selene_to_affine(&out[0], &points[0]);
-        }
+        /* CT: always compute affine, then cmov to (0,0) if identity */
+        selene_to_affine(&out[0], &points[0]);
+        unsigned int is_ident = 1u - (unsigned int)fq_isnonzero(points[0].Z);
+        fq_fe zero;
+        fq_0(zero);
+        fq_cmov(out[0].x, zero, is_ident);
+        fq_cmov(out[0].y, zero, is_ident);
         return;
     }
 
@@ -81,22 +80,20 @@ static inline void selene_batch_to_affine(selene_affine *out, const selene_jacob
 
     fq_batch_invert(&zinvs[0].v, &zs[0].v, n);
 
-    /* Convert each point using its Z inverse */
+    /* Convert each point using its Z inverse (CT: always compute, cmov to zero if identity) */
+    fq_fe zero;
+    fq_0(zero);
     for (size_t i = 0; i < n; i++)
     {
-        if (!fq_isnonzero(points[i].Z))
-        {
-            fq_0(out[i].x);
-            fq_0(out[i].y);
-        }
-        else
-        {
-            fq_fe zi2, zi3;
-            fq_sq(zi2, zinvs[i].v);
-            fq_mul(zi3, zi2, zinvs[i].v);
-            fq_mul(out[i].x, points[i].X, zi2);
-            fq_mul(out[i].y, points[i].Y, zi3);
-        }
+        fq_fe zi2, zi3;
+        fq_sq(zi2, zinvs[i].v);
+        fq_mul(zi3, zi2, zinvs[i].v);
+        fq_mul(out[i].x, points[i].X, zi2);
+        fq_mul(out[i].y, points[i].Y, zi3);
+
+        unsigned int is_ident = 1u - (unsigned int)fq_isnonzero(points[i].Z);
+        fq_cmov(out[i].x, zero, is_ident);
+        fq_cmov(out[i].y, zero, is_ident);
     }
 }
 

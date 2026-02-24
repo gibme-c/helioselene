@@ -29,39 +29,61 @@
 #include "ecfft_fp.h"
 #include "ecfft_fq.h"
 
+#include <atomic>
+
+#if HELIOSELENE_PLATFORM_X64
+#include <immintrin.h>
+#define SPIN_PAUSE() _mm_pause()
+#else
+#define SPIN_PAUSE() ((void)0)
+#endif
+
+/* 0 = uninitialized, 1 = initializing, 2 = ready (terminal) */
+static std::atomic<int> g_ecfft_state {0};
+
 static ecfft_fp_ctx g_ecfft_fp_ctx = {};
 static ecfft_fq_ctx g_ecfft_fq_ctx = {};
 
-void ecfft_fp_global_init()
+void ecfft_global_init()
 {
-    if (!g_ecfft_fp_ctx.initialized)
-        ecfft_fp_init(&g_ecfft_fp_ctx);
-}
-
-void ecfft_fp_global_free()
-{
-    ecfft_fp_free(&g_ecfft_fp_ctx);
+    for (;;)
+    {
+        int state = g_ecfft_state.load(std::memory_order_acquire);
+        if (state == 2)
+            return;
+        if (state == 0)
+        {
+            int expected = 0;
+            if (g_ecfft_state.compare_exchange_strong(expected, 1, std::memory_order_acq_rel))
+            {
+                try
+                {
+                    ecfft_fp_init(&g_ecfft_fp_ctx);
+                    ecfft_fq_init(&g_ecfft_fq_ctx);
+                }
+                catch (...)
+                {
+                    g_ecfft_state.store(0, std::memory_order_release);
+                    throw;
+                }
+                g_ecfft_state.store(2, std::memory_order_release);
+                return;
+            }
+            continue; /* CAS failed, re-check state */
+        }
+        /* state == 1: another thread is initializing */
+        SPIN_PAUSE();
+    }
 }
 
 const ecfft_fp_ctx *ecfft_fp_global_ctx()
 {
-    return g_ecfft_fp_ctx.initialized ? &g_ecfft_fp_ctx : nullptr;
-}
-
-void ecfft_fq_global_init()
-{
-    if (!g_ecfft_fq_ctx.initialized)
-        ecfft_fq_init(&g_ecfft_fq_ctx);
-}
-
-void ecfft_fq_global_free()
-{
-    ecfft_fq_free(&g_ecfft_fq_ctx);
+    return g_ecfft_state.load(std::memory_order_acquire) == 2 ? &g_ecfft_fp_ctx : nullptr;
 }
 
 const ecfft_fq_ctx *ecfft_fq_global_ctx()
 {
-    return g_ecfft_fq_ctx.initialized ? &g_ecfft_fq_ctx : nullptr;
+    return g_ecfft_state.load(std::memory_order_acquire) == 2 ? &g_ecfft_fq_ctx : nullptr;
 }
 
 #endif /* HELIOSELENE_ECFFT */

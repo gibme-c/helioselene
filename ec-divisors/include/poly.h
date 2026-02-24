@@ -91,11 +91,8 @@ void fq_poly_divmod(fq_poly *q, fq_poly *rem, const fq_poly *a, const fq_poly *b
 void fq_poly_interpolate(fq_poly *out, const fq_fe *xs, const fq_fe *ys, size_t n);
 
 #ifdef HELIOSELENE_ECFFT
-/* ECFFT global context management */
-void ecfft_fp_global_init();
-void ecfft_fp_global_free();
-void ecfft_fq_global_init();
-void ecfft_fq_global_free();
+/* ECFFT global context management (init-once, thread-safe) */
+void ecfft_global_init();
 #endif
 
 #endif // HELIOSELENE_POLY_H

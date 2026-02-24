@@ -25,41 +25,24 @@
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 /**
- * @file fq_utils.h
- * @brief Utility functions for F_q: is_zero, is_negative (parity check), equality test.
+ * @file fp_cneg.h
+ * @brief Constant-time conditional negation for fp_fe: if b, negate; else copy.
  */
 
-#ifndef HELIOSELENE_FQ_UTILS_H
-#define HELIOSELENE_FQ_UTILS_H
+#ifndef HELIOSELENE_FP_CNEG_H
+#define HELIOSELENE_FP_CNEG_H
 
-#include "ct_barrier.h"
-#include "fq.h"
-#include "fq_tobytes.h"
+#include "fp_cmov.h"
+#include "fp_ops.h"
+#include "helioselene_secure_erase.h"
 
-/*
- * Returns 1 if h is nonzero (in canonical form), 0 if zero.
- * Branchless: uses ct_barrier + bit-shift to avoid conditional branch on d.
- */
-static inline int fq_isnonzero(const fq_fe h)
+static inline void fp_cneg(fp_fe h, const fp_fe f, unsigned int b)
 {
-    unsigned char s[32];
-    fq_tobytes(s, h);
-    unsigned char d = 0;
-    for (int i = 0; i < 32; i++)
-        d |= s[i];
-    uint64_t w = ct_barrier_u64((uint64_t)d);
-    return (int)((w | (0 - w)) >> 63);
+    fp_fe neg;
+    fp_neg(neg, f);
+    fp_copy(h, f);
+    fp_cmov(h, neg, b);
+    helioselene_secure_erase(neg, sizeof(neg));
 }
 
-/*
- * Returns the "sign" of h: the least significant bit of the canonical
- * representation. 0 = even (non-negative), 1 = odd (negative).
- */
-static inline int fq_isnegative(const fq_fe h)
-{
-    unsigned char s[32];
-    fq_tobytes(s, h);
-    return s[0] & 1;
-}
-
-#endif // HELIOSELENE_FQ_UTILS_H
+#endif // HELIOSELENE_FP_CNEG_H

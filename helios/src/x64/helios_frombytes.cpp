@@ -51,6 +51,10 @@
  *   7. Return Jacobian (x, y, 1)
  *
  * Returns 0 on success, -1 on invalid input.
+ *
+ * SECURITY NOTE: Early returns on validation failure are intentionally
+ * variable-time. The input bytes are public (untrusted external data),
+ * not secret. Timing side-channels on public data are not exploitable.
  */
 int helios_frombytes_x64(helios_jacobian *r, const unsigned char s[32])
 {

@@ -617,14 +617,14 @@ static void fuzz_msm_random()
 
     for (int si = 0; si < 7; si++)
     {
-        int n = sizes[si];
+        size_t n = (size_t)sizes[si];
         for (int trial = 0; trial < 8; trial++)
         {
             std::string label = "helios_msm[n=" + std::to_string(n) + ",t=" + std::to_string(trial) + "]";
 
             std::vector<HeliosScalar> scalars(n);
             std::vector<HeliosPoint> points(n);
-            for (int j = 0; j < n; j++)
+            for (size_t j = 0; j < n; j++)
             {
                 scalars[j] = random_helios_scalar(rng);
                 points[j] = random_helios_point(rng);
@@ -632,7 +632,7 @@ static void fuzz_msm_random()
 
             auto msm = HeliosPoint::multi_scalar_mul(scalars.data(), points.data(), n);
             auto naive = HeliosPoint::identity();
-            for (int j = 0; j < n; j++)
+            for (size_t j = 0; j < n; j++)
                 naive = naive + points[j].scalar_mul_vartime(scalars[j]);
 
             check_true(label.c_str(), helios_points_equal(msm, naive));
@@ -641,14 +641,14 @@ static void fuzz_msm_random()
 
     for (int si = 0; si < 7; si++)
     {
-        int n = sizes[si];
+        size_t n = (size_t)sizes[si];
         for (int trial = 0; trial < 8; trial++)
         {
             std::string label = "selene_msm[n=" + std::to_string(n) + ",t=" + std::to_string(trial) + "]";
 
             std::vector<SeleneScalar> scalars(n);
             std::vector<SelenePoint> points(n);
-            for (int j = 0; j < n; j++)
+            for (size_t j = 0; j < n; j++)
             {
                 scalars[j] = random_selene_scalar(rng);
                 points[j] = random_selene_point(rng);
@@ -656,7 +656,7 @@ static void fuzz_msm_random()
 
             auto msm = SelenePoint::multi_scalar_mul(scalars.data(), points.data(), n);
             auto naive = SelenePoint::identity();
-            for (int j = 0; j < n; j++)
+            for (size_t j = 0; j < n; j++)
                 naive = naive + points[j].scalar_mul_vartime(scalars[j]);
 
             check_true(label.c_str(), selene_points_equal(msm, naive));
@@ -679,12 +679,12 @@ static void fuzz_msm_sparse()
     for (int trial = 0; trial < 20; trial++)
     {
         std::string label = "helios_sparse[" + std::to_string(trial) + "]";
-        int n = 8;
+        size_t n = 8;
         std::vector<HeliosScalar> scalars(n);
         std::vector<HeliosPoint> points(n);
 
         /* Zero scalars mixed in */
-        for (int j = 0; j < n; j++)
+        for (size_t j = 0; j < n; j++)
         {
             points[j] = random_helios_point(rng);
             if (j % 3 == 0)
@@ -695,7 +695,7 @@ static void fuzz_msm_sparse()
 
         auto msm = HeliosPoint::multi_scalar_mul(scalars.data(), points.data(), n);
         auto naive = HeliosPoint::identity();
-        for (int j = 0; j < n; j++)
+        for (size_t j = 0; j < n; j++)
             naive = naive + points[j].scalar_mul_vartime(scalars[j]);
         check_true((label + " zero_mixed").c_str(), helios_points_equal(msm, naive));
     }
@@ -704,11 +704,11 @@ static void fuzz_msm_sparse()
     for (int trial = 0; trial < 10; trial++)
     {
         std::string label = "helios_all_one[" + std::to_string(trial) + "]";
-        int n = 8;
+        size_t n = 8;
         std::vector<HeliosScalar> scalars(n, HeliosScalar::one());
         std::vector<HeliosPoint> points(n);
         auto sum = HeliosPoint::identity();
-        for (int j = 0; j < n; j++)
+        for (size_t j = 0; j < n; j++)
         {
             points[j] = random_helios_point(rng);
             sum = sum + points[j];
@@ -721,12 +721,12 @@ static void fuzz_msm_sparse()
     for (int trial = 0; trial < 10; trial++)
     {
         std::string label = "helios_same_pt[" + std::to_string(trial) + "]";
-        int n = 8;
+        size_t n = 8;
         auto P = random_helios_point(rng);
         std::vector<HeliosPoint> points(n, P);
         std::vector<HeliosScalar> scalars(n);
         auto ssum = HeliosScalar::zero();
-        for (int j = 0; j < n; j++)
+        for (size_t j = 0; j < n; j++)
         {
             scalars[j] = random_helios_scalar(rng);
             ssum = ssum + scalars[j];
@@ -740,10 +740,10 @@ static void fuzz_msm_sparse()
     for (int trial = 0; trial < 5; trial++)
     {
         std::string label = "helios_all_zero[" + std::to_string(trial) + "]";
-        int n = 8;
+        size_t n = 8;
         std::vector<HeliosScalar> scalars(n, HeliosScalar::zero());
         std::vector<HeliosPoint> points(n);
-        for (int j = 0; j < n; j++)
+        for (size_t j = 0; j < n; j++)
             points[j] = random_helios_point(rng);
         auto msm = HeliosPoint::multi_scalar_mul(scalars.data(), points.data(), n);
         check_true(label.c_str(), msm.is_identity());
@@ -753,12 +753,12 @@ static void fuzz_msm_sparse()
     for (int trial = 0; trial < 10; trial++)
     {
         std::string label = "helios_single_nz[" + std::to_string(trial) + "]";
-        int n = 8;
+        size_t n = 8;
         std::vector<HeliosScalar> scalars(n, HeliosScalar::zero());
         std::vector<HeliosPoint> points(n);
-        for (int j = 0; j < n; j++)
+        for (size_t j = 0; j < n; j++)
             points[j] = random_helios_point(rng);
-        int idx = trial % n;
+        size_t idx = (size_t)trial % n;
         scalars[idx] = random_helios_scalar(rng);
         auto msm = HeliosPoint::multi_scalar_mul(scalars.data(), points.data(), n);
         auto expected = points[idx].scalar_mul_vartime(scalars[idx]);
@@ -769,17 +769,17 @@ static void fuzz_msm_sparse()
     for (int trial = 0; trial < 20; trial++)
     {
         std::string label = "selene_sparse[" + std::to_string(trial) + "]";
-        int n = 8;
+        size_t n = 8;
         std::vector<SeleneScalar> scalars(n);
         std::vector<SelenePoint> points(n);
-        for (int j = 0; j < n; j++)
+        for (size_t j = 0; j < n; j++)
         {
             points[j] = random_selene_point(rng);
             scalars[j] = (j % 3 == 0) ? SeleneScalar::zero() : random_selene_scalar(rng);
         }
         auto msm = SelenePoint::multi_scalar_mul(scalars.data(), points.data(), n);
         auto naive = SelenePoint::identity();
-        for (int j = 0; j < n; j++)
+        for (size_t j = 0; j < n; j++)
             naive = naive + points[j].scalar_mul_vartime(scalars[j]);
         check_true((label + " zero_mixed").c_str(), selene_points_equal(msm, naive));
     }
@@ -787,11 +787,11 @@ static void fuzz_msm_sparse()
     for (int trial = 0; trial < 10; trial++)
     {
         std::string label = "selene_all_one[" + std::to_string(trial) + "]";
-        int n = 8;
+        size_t n = 8;
         std::vector<SeleneScalar> scalars(n, SeleneScalar::one());
         std::vector<SelenePoint> points(n);
         auto sum = SelenePoint::identity();
-        for (int j = 0; j < n; j++)
+        for (size_t j = 0; j < n; j++)
         {
             points[j] = random_selene_point(rng);
             sum = sum + points[j];
@@ -803,12 +803,12 @@ static void fuzz_msm_sparse()
     for (int trial = 0; trial < 10; trial++)
     {
         std::string label = "selene_same_pt[" + std::to_string(trial) + "]";
-        int n = 8;
+        size_t n = 8;
         auto P = random_selene_point(rng);
         std::vector<SelenePoint> points(n, P);
         std::vector<SeleneScalar> scalars(n);
         auto ssum = SeleneScalar::zero();
-        for (int j = 0; j < n; j++)
+        for (size_t j = 0; j < n; j++)
         {
             scalars[j] = random_selene_scalar(rng);
             ssum = ssum + scalars[j];
@@ -821,10 +821,10 @@ static void fuzz_msm_sparse()
     for (int trial = 0; trial < 5; trial++)
     {
         std::string label = "selene_all_zero[" + std::to_string(trial) + "]";
-        int n = 8;
+        size_t n = 8;
         std::vector<SeleneScalar> scalars(n, SeleneScalar::zero());
         std::vector<SelenePoint> points(n);
-        for (int j = 0; j < n; j++)
+        for (size_t j = 0; j < n; j++)
             points[j] = random_selene_point(rng);
         auto msm = SelenePoint::multi_scalar_mul(scalars.data(), points.data(), n);
         check_true(label.c_str(), msm.is_identity());
@@ -833,12 +833,12 @@ static void fuzz_msm_sparse()
     for (int trial = 0; trial < 10; trial++)
     {
         std::string label = "selene_single_nz[" + std::to_string(trial) + "]";
-        int n = 8;
+        size_t n = 8;
         std::vector<SeleneScalar> scalars(n, SeleneScalar::zero());
         std::vector<SelenePoint> points(n);
-        for (int j = 0; j < n; j++)
+        for (size_t j = 0; j < n; j++)
             points[j] = random_selene_point(rng);
-        int idx = trial % n;
+        size_t idx = (size_t)trial % n;
         scalars[idx] = random_selene_scalar(rng);
         auto msm = SelenePoint::multi_scalar_mul(scalars.data(), points.data(), n);
         auto expected = points[idx].scalar_mul_vartime(scalars[idx]);
@@ -974,7 +974,7 @@ static void fuzz_pedersen()
     /* Helios */
     for (int si = 0; si < 5; si++)
     {
-        int n = sizes[si];
+        size_t n = (size_t)sizes[si];
         for (int trial = 0; trial < 10; trial++)
         {
             std::string label = "helios_ped[n=" + std::to_string(n) + ",t=" + std::to_string(trial) + "]";
@@ -983,7 +983,7 @@ static void fuzz_pedersen()
             auto H = random_helios_point(rng);
             std::vector<HeliosScalar> vals(n);
             std::vector<HeliosPoint> gens(n);
-            for (int j = 0; j < n; j++)
+            for (size_t j = 0; j < n; j++)
             {
                 vals[j] = random_helios_scalar(rng);
                 gens[j] = random_helios_point(rng);
@@ -993,7 +993,7 @@ static void fuzz_pedersen()
 
             /* Naive: b*H + sum(v[i]*G[i]) */
             auto naive = H.scalar_mul_vartime(blinding);
-            for (int j = 0; j < n; j++)
+            for (size_t j = 0; j < n; j++)
                 naive = naive + gens[j].scalar_mul_vartime(vals[j]);
 
             check_true((label + " correct").c_str(), helios_points_equal(commit, naive));
@@ -1003,7 +1003,7 @@ static void fuzz_pedersen()
             std::vector<HeliosPoint> all_points(n + 1);
             all_scalars[0] = blinding;
             all_points[0] = H;
-            for (int j = 0; j < n; j++)
+            for (size_t j = 0; j < n; j++)
             {
                 all_scalars[j + 1] = vals[j];
                 all_points[j + 1] = gens[j];
@@ -1017,16 +1017,16 @@ static void fuzz_pedersen()
     for (int trial = 0; trial < 10; trial++)
     {
         std::string label = "helios_ped_homo[" + std::to_string(trial) + "]";
-        int n = 4;
+        size_t n = 4;
         auto H = random_helios_point(rng);
         std::vector<HeliosPoint> gens(n);
-        for (int j = 0; j < n; j++)
+        for (size_t j = 0; j < n; j++)
             gens[j] = random_helios_point(rng);
 
         auto b1 = random_helios_scalar(rng);
         auto b2 = random_helios_scalar(rng);
         std::vector<HeliosScalar> v1(n), v2(n), vsum(n);
-        for (int j = 0; j < n; j++)
+        for (size_t j = 0; j < n; j++)
         {
             v1[j] = random_helios_scalar(rng);
             v2[j] = random_helios_scalar(rng);
@@ -1043,18 +1043,18 @@ static void fuzz_pedersen()
     for (int trial = 0; trial < 5; trial++)
     {
         std::string label = "helios_ped_zblind[" + std::to_string(trial) + "]";
-        int n = 4;
+        size_t n = 4;
         auto H = random_helios_point(rng);
         std::vector<HeliosPoint> gens(n);
         std::vector<HeliosScalar> vals(n);
-        for (int j = 0; j < n; j++)
+        for (size_t j = 0; j < n; j++)
         {
             gens[j] = random_helios_point(rng);
             vals[j] = random_helios_scalar(rng);
         }
         auto commit = HeliosPoint::pedersen_commit(HeliosScalar::zero(), H, vals.data(), gens.data(), n);
         auto naive = HeliosPoint::identity();
-        for (int j = 0; j < n; j++)
+        for (size_t j = 0; j < n; j++)
             naive = naive + gens[j].scalar_mul_vartime(vals[j]);
         check_true(label.c_str(), helios_points_equal(commit, naive));
     }
@@ -1062,7 +1062,7 @@ static void fuzz_pedersen()
     /* Selene */
     for (int si = 0; si < 5; si++)
     {
-        int n = sizes[si];
+        size_t n = (size_t)sizes[si];
         for (int trial = 0; trial < 10; trial++)
         {
             std::string label = "selene_ped[n=" + std::to_string(n) + ",t=" + std::to_string(trial) + "]";
@@ -1071,7 +1071,7 @@ static void fuzz_pedersen()
             auto H = random_selene_point(rng);
             std::vector<SeleneScalar> vals(n);
             std::vector<SelenePoint> gens(n);
-            for (int j = 0; j < n; j++)
+            for (size_t j = 0; j < n; j++)
             {
                 vals[j] = random_selene_scalar(rng);
                 gens[j] = random_selene_point(rng);
@@ -1079,7 +1079,7 @@ static void fuzz_pedersen()
 
             auto commit = SelenePoint::pedersen_commit(blinding, H, vals.data(), gens.data(), n);
             auto naive = H.scalar_mul_vartime(blinding);
-            for (int j = 0; j < n; j++)
+            for (size_t j = 0; j < n; j++)
                 naive = naive + gens[j].scalar_mul_vartime(vals[j]);
             check_true((label + " correct").c_str(), selene_points_equal(commit, naive));
 
@@ -1088,7 +1088,7 @@ static void fuzz_pedersen()
             std::vector<SelenePoint> all_points(n + 1);
             all_scalars[0] = blinding;
             all_points[0] = H;
-            for (int j = 0; j < n; j++)
+            for (size_t j = 0; j < n; j++)
             {
                 all_scalars[j + 1] = vals[j];
                 all_points[j + 1] = gens[j];
@@ -1101,16 +1101,16 @@ static void fuzz_pedersen()
     for (int trial = 0; trial < 10; trial++)
     {
         std::string label = "selene_ped_homo[" + std::to_string(trial) + "]";
-        int n = 4;
+        size_t n = 4;
         auto H = random_selene_point(rng);
         std::vector<SelenePoint> gens(n);
-        for (int j = 0; j < n; j++)
+        for (size_t j = 0; j < n; j++)
             gens[j] = random_selene_point(rng);
 
         auto b1 = random_selene_scalar(rng);
         auto b2 = random_selene_scalar(rng);
         std::vector<SeleneScalar> v1(n), v2(n), vsum(n);
-        for (int j = 0; j < n; j++)
+        for (size_t j = 0; j < n; j++)
         {
             v1[j] = random_selene_scalar(rng);
             v2[j] = random_selene_scalar(rng);
@@ -1126,18 +1126,18 @@ static void fuzz_pedersen()
     for (int trial = 0; trial < 5; trial++)
     {
         std::string label = "selene_ped_zblind[" + std::to_string(trial) + "]";
-        int n = 4;
+        size_t n = 4;
         auto H = random_selene_point(rng);
         std::vector<SelenePoint> gens(n);
         std::vector<SeleneScalar> vals(n);
-        for (int j = 0; j < n; j++)
+        for (size_t j = 0; j < n; j++)
         {
             gens[j] = random_selene_point(rng);
             vals[j] = random_selene_scalar(rng);
         }
         auto commit = SelenePoint::pedersen_commit(SeleneScalar::zero(), H, vals.data(), gens.data(), n);
         auto naive = SelenePoint::identity();
-        for (int j = 0; j < n; j++)
+        for (size_t j = 0; j < n; j++)
             naive = naive + gens[j].scalar_mul_vartime(vals[j]);
         check_true(label.c_str(), selene_points_equal(commit, naive));
     }
@@ -1158,13 +1158,13 @@ static void fuzz_batch_affine()
     /* Helios */
     for (int si = 0; si < 6; si++)
     {
-        int n = sizes[si];
+        size_t n = (size_t)sizes[si];
         for (int trial = 0; trial < 8; trial++)
         {
             std::string label = "helios_batch_aff[n=" + std::to_string(n) + ",t=" + std::to_string(trial) + "]";
 
             std::vector<helios_jacobian> jac(n);
-            for (int j = 0; j < n; j++)
+            for (size_t j = 0; j < n; j++)
             {
                 auto P = random_helios_point(rng);
                 helios_copy(&jac[j], &P.raw());
@@ -1174,7 +1174,7 @@ static void fuzz_batch_affine()
             helios_batch_to_affine(batch.data(), jac.data(), n);
 
             bool all_ok = true;
-            for (int j = 0; j < n; j++)
+            for (size_t j = 0; j < n; j++)
             {
                 helios_affine single;
                 if (helios_is_identity(&jac[j]))
@@ -1203,13 +1203,13 @@ static void fuzz_batch_affine()
     /* Selene */
     for (int si = 0; si < 6; si++)
     {
-        int n = sizes[si];
+        size_t n = (size_t)sizes[si];
         for (int trial = 0; trial < 8; trial++)
         {
             std::string label = "selene_batch_aff[n=" + std::to_string(n) + ",t=" + std::to_string(trial) + "]";
 
             std::vector<selene_jacobian> jac(n);
-            for (int j = 0; j < n; j++)
+            for (size_t j = 0; j < n; j++)
             {
                 auto P = random_selene_point(rng);
                 selene_copy(&jac[j], &P.raw());
@@ -1219,7 +1219,7 @@ static void fuzz_batch_affine()
             selene_batch_to_affine(batch.data(), jac.data(), n);
 
             bool all_ok = true;
-            for (int j = 0; j < n; j++)
+            for (size_t j = 0; j < n; j++)
             {
                 selene_affine single;
                 if (selene_is_identity(&jac[j]))
@@ -1261,19 +1261,19 @@ static void fuzz_polynomial()
     for (int i = 0; i < 250; i++)
     {
         std::string label = "fp_poly[" + std::to_string(i) + "]";
-        int deg_a = 1 + (rng.next() % 16);
-        int deg_b = 1 + (rng.next() % 16);
+        size_t deg_a = 1 + (rng.next() % 16);
+        size_t deg_b = 1 + (rng.next() % 16);
 
         /* Build coefficient arrays */
         std::vector<uint8_t> a_coeffs(deg_a * 32);
         std::vector<uint8_t> b_coeffs(deg_b * 32);
-        for (int j = 0; j < deg_a; j++)
+        for (size_t j = 0; j < deg_a; j++)
         {
             auto s = random_selene_scalar(rng); /* Fp elements */
             auto sb = s.to_bytes();
             std::memcpy(&a_coeffs[j * 32], sb.data(), 32);
         }
-        for (int j = 0; j < deg_b; j++)
+        for (size_t j = 0; j < deg_b; j++)
         {
             auto s = random_selene_scalar(rng);
             auto sb = s.to_bytes();
@@ -1332,9 +1332,9 @@ static void fuzz_polynomial()
     for (int i = 0; i < 50; i++)
     {
         std::string label = "fp_roots[" + std::to_string(i) + "]";
-        int n = 2 + (rng.next() % 8);
+        size_t n = 2 + (rng.next() % 8);
         std::vector<uint8_t> roots(n * 32);
-        for (int j = 0; j < n; j++)
+        for (size_t j = 0; j < n; j++)
         {
             auto s = random_selene_scalar(rng);
             auto sb = s.to_bytes();
@@ -1342,7 +1342,7 @@ static void fuzz_polynomial()
         }
         auto P = FpPolynomial::from_roots(roots.data(), n);
         bool all_zero = true;
-        for (int j = 0; j < n; j++)
+        for (size_t j = 0; j < n; j++)
         {
             auto ev = P.evaluate(&roots[j * 32]);
             if (std::memcmp(ev.data(), zero32, 32) != 0)
@@ -1355,18 +1355,18 @@ static void fuzz_polynomial()
     for (int i = 0; i < 250; i++)
     {
         std::string label = "fq_poly[" + std::to_string(i) + "]";
-        int deg_a = 1 + (rng.next() % 16);
-        int deg_b = 1 + (rng.next() % 16);
+        size_t deg_a = 1 + (rng.next() % 16);
+        size_t deg_b = 1 + (rng.next() % 16);
 
         std::vector<uint8_t> a_coeffs(deg_a * 32);
         std::vector<uint8_t> b_coeffs(deg_b * 32);
-        for (int j = 0; j < deg_a; j++)
+        for (size_t j = 0; j < deg_a; j++)
         {
             auto s = random_helios_scalar(rng); /* Fq elements */
             auto sb = s.to_bytes();
             std::memcpy(&a_coeffs[j * 32], sb.data(), 32);
         }
-        for (int j = 0; j < deg_b; j++)
+        for (size_t j = 0; j < deg_b; j++)
         {
             auto s = random_helios_scalar(rng);
             auto sb = s.to_bytes();
@@ -1418,9 +1418,9 @@ static void fuzz_polynomial()
     for (int i = 0; i < 50; i++)
     {
         std::string label = "fq_roots[" + std::to_string(i) + "]";
-        int n = 2 + (rng.next() % 8);
+        size_t n = 2 + (rng.next() % 8);
         std::vector<uint8_t> roots(n * 32);
-        for (int j = 0; j < n; j++)
+        for (size_t j = 0; j < n; j++)
         {
             auto s = random_helios_scalar(rng);
             auto sb = s.to_bytes();
@@ -1428,7 +1428,7 @@ static void fuzz_polynomial()
         }
         auto P = FqPolynomial::from_roots(roots.data(), n);
         bool all_zero = true;
-        for (int j = 0; j < n; j++)
+        for (size_t j = 0; j < n; j++)
         {
             auto ev = P.evaluate(&roots[j * 32]);
             if (std::memcmp(ev.data(), zero32, 32) != 0)
@@ -1454,17 +1454,17 @@ static void fuzz_polynomial_protocol_sizes()
     for (int trial = 0; trial < 25; trial++)
     {
         std::string label = "fp_kara[" + std::to_string(trial) + "]";
-        int deg_a = 32 + (rng.next() % 33);
-        int deg_b = 32 + (rng.next() % 33);
+        size_t deg_a = 32 + (rng.next() % 33);
+        size_t deg_b = 32 + (rng.next() % 33);
 
         std::vector<uint8_t> ac(deg_a * 32), bc(deg_b * 32);
-        for (int j = 0; j < deg_a; j++)
+        for (size_t j = 0; j < deg_a; j++)
         {
             auto s = random_selene_scalar(rng);
             auto sb = s.to_bytes();
             std::memcpy(&ac[j * 32], sb.data(), 32);
         }
-        for (int j = 0; j < deg_b; j++)
+        for (size_t j = 0; j < deg_b; j++)
         {
             auto s = random_selene_scalar(rng);
             auto sb = s.to_bytes();
@@ -1500,9 +1500,9 @@ static void fuzz_polynomial_protocol_sizes()
     for (int trial = 0; trial < 25; trial++)
     {
         std::string label = "fp_roots_lg[" + std::to_string(trial) + "]";
-        int n = 16 + (rng.next() % 17);
+        size_t n = 16 + (rng.next() % 17);
         std::vector<uint8_t> roots(n * 32);
-        for (int j = 0; j < n; j++)
+        for (size_t j = 0; j < n; j++)
         {
             auto s = random_selene_scalar(rng);
             auto sb = s.to_bytes();
@@ -1511,9 +1511,9 @@ static void fuzz_polynomial_protocol_sizes()
         auto P = FpPolynomial::from_roots(roots.data(), n);
         /* Check 3 random roots */
         bool ok = true;
-        for (int k = 0; k < 3 && k < n; k++)
+        for (size_t k = 0; k < 3 && k < n; k++)
         {
-            int idx = rng.next() % n;
+            size_t idx = rng.next() % n;
             auto ev = P.evaluate(&roots[idx * 32]);
             if (std::memcmp(ev.data(), zero32, 32) != 0)
                 ok = false;
@@ -1525,9 +1525,9 @@ static void fuzz_polynomial_protocol_sizes()
     for (int trial = 0; trial < 25; trial++)
     {
         std::string label = "fp_interp[" + std::to_string(trial) + "]";
-        int n = 8 + (rng.next() % 9);
+        size_t n = 8 + (rng.next() % 9);
         std::vector<uint8_t> xs(n * 32), ys(n * 32);
-        for (int j = 0; j < n; j++)
+        for (size_t j = 0; j < n; j++)
         {
             auto sx = random_selene_scalar(rng);
             auto sy = random_selene_scalar(rng);
@@ -1538,7 +1538,7 @@ static void fuzz_polynomial_protocol_sizes()
         }
         auto P = FpPolynomial::interpolate(xs.data(), ys.data(), n);
         bool ok = true;
-        for (int j = 0; j < n; j++)
+        for (size_t j = 0; j < n; j++)
         {
             auto ev = P.evaluate(&xs[j * 32]);
             if (std::memcmp(ev.data(), &ys[j * 32], 32) != 0)
@@ -1551,17 +1551,17 @@ static void fuzz_polynomial_protocol_sizes()
     for (int trial = 0; trial < 25; trial++)
     {
         std::string label = "fq_kara[" + std::to_string(trial) + "]";
-        int deg_a = 32 + (rng.next() % 33);
-        int deg_b = 32 + (rng.next() % 33);
+        size_t deg_a = 32 + (rng.next() % 33);
+        size_t deg_b = 32 + (rng.next() % 33);
 
         std::vector<uint8_t> ac(deg_a * 32), bc(deg_b * 32);
-        for (int j = 0; j < deg_a; j++)
+        for (size_t j = 0; j < deg_a; j++)
         {
             auto s = random_helios_scalar(rng);
             auto sb = s.to_bytes();
             std::memcpy(&ac[j * 32], sb.data(), 32);
         }
-        for (int j = 0; j < deg_b; j++)
+        for (size_t j = 0; j < deg_b; j++)
         {
             auto s = random_helios_scalar(rng);
             auto sb = s.to_bytes();
@@ -1595,9 +1595,9 @@ static void fuzz_polynomial_protocol_sizes()
     for (int trial = 0; trial < 25; trial++)
     {
         std::string label = "fq_roots_lg[" + std::to_string(trial) + "]";
-        int n = 16 + (rng.next() % 17);
+        size_t n = 16 + (rng.next() % 17);
         std::vector<uint8_t> roots(n * 32);
-        for (int j = 0; j < n; j++)
+        for (size_t j = 0; j < n; j++)
         {
             auto s = random_helios_scalar(rng);
             auto sb = s.to_bytes();
@@ -1605,9 +1605,9 @@ static void fuzz_polynomial_protocol_sizes()
         }
         auto P = FqPolynomial::from_roots(roots.data(), n);
         bool ok = true;
-        for (int k = 0; k < 3 && k < n; k++)
+        for (size_t k = 0; k < 3 && k < n; k++)
         {
-            int idx = rng.next() % n;
+            size_t idx = rng.next() % n;
             auto ev = P.evaluate(&roots[idx * 32]);
             if (std::memcmp(ev.data(), zero32, 32) != 0)
                 ok = false;
@@ -1618,9 +1618,9 @@ static void fuzz_polynomial_protocol_sizes()
     for (int trial = 0; trial < 25; trial++)
     {
         std::string label = "fq_interp[" + std::to_string(trial) + "]";
-        int n = 8 + (rng.next() % 9);
+        size_t n = 8 + (rng.next() % 9);
         std::vector<uint8_t> xs(n * 32), ys(n * 32);
-        for (int j = 0; j < n; j++)
+        for (size_t j = 0; j < n; j++)
         {
             auto sx = random_helios_scalar(rng);
             auto sy = random_helios_scalar(rng);
@@ -1631,7 +1631,7 @@ static void fuzz_polynomial_protocol_sizes()
         }
         auto P = FqPolynomial::interpolate(xs.data(), ys.data(), n);
         bool ok = true;
-        for (int j = 0; j < n; j++)
+        for (size_t j = 0; j < n; j++)
         {
             auto ev = P.evaluate(&xs[j * 32]);
             if (std::memcmp(ev.data(), &ys[j * 32], 32) != 0)
@@ -1658,20 +1658,20 @@ static void fuzz_divisor()
     /* Helios */
     for (int si = 0; si < 5; si++)
     {
-        int n = sizes[si];
+        size_t n = (size_t)sizes[si];
         for (int trial = 0; trial < 10; trial++)
         {
             std::string label = "helios_div[n=" + std::to_string(n) + ",t=" + std::to_string(trial) + "]";
 
             std::vector<HeliosPoint> pts(n);
-            for (int j = 0; j < n; j++)
+            for (size_t j = 0; j < n; j++)
                 pts[j] = random_helios_point(rng);
 
             auto div = HeliosDivisor::compute(pts.data(), n);
 
             /* Vanishing: evaluate at each defining point */
             bool vanish_ok = true;
-            for (int j = 0; j < n; j++)
+            for (size_t j = 0; j < n; j++)
             {
                 /* Get affine coordinates */
                 helios_affine aff;
@@ -1701,19 +1701,19 @@ static void fuzz_divisor()
     /* Selene */
     for (int si = 0; si < 5; si++)
     {
-        int n = sizes[si];
+        size_t n = (size_t)sizes[si];
         for (int trial = 0; trial < 10; trial++)
         {
             std::string label = "selene_div[n=" + std::to_string(n) + ",t=" + std::to_string(trial) + "]";
 
             std::vector<SelenePoint> pts(n);
-            for (int j = 0; j < n; j++)
+            for (size_t j = 0; j < n; j++)
                 pts[j] = random_selene_point(rng);
 
             auto div = SeleneDivisor::compute(pts.data(), n);
 
             bool vanish_ok = true;
-            for (int j = 0; j < n; j++)
+            for (size_t j = 0; j < n; j++)
             {
                 selene_affine aff;
                 selene_to_affine(&aff, &pts[j].raw());
@@ -1967,7 +1967,7 @@ static void fuzz_ecfft_poly_mul()
             fp_frombytes(coeffs[j], sb.data());
             fp_copy(saved[j], coeffs[j]);
         }
-        for (size_t j = deg + 1; j < n; j++)
+        for (size_t j = (size_t)(deg + 1); j < n; j++)
         {
             fp_0(coeffs[j]);
             fp_0(saved[j]);
@@ -2008,7 +2008,7 @@ static void fuzz_ecfft_poly_mul()
             fq_frombytes(coeffs[j], sb.data());
             fq_copy(saved[j], coeffs[j]);
         }
-        for (size_t j = deg + 1; j < n; j++)
+        for (size_t j = (size_t)(deg + 1); j < n; j++)
         {
             fq_0(coeffs[j]);
             fq_0(saved[j]);
@@ -2033,17 +2033,17 @@ static void fuzz_ecfft_poly_mul()
     for (int trial = 0; trial < 100; trial++)
     {
         std::string label = "ecfft_small_fp[" + std::to_string(trial) + "]";
-        int deg_a = 2 + (rng.next() % 15);
-        int deg_b = 2 + (rng.next() % 15);
+        size_t deg_a = 2 + (rng.next() % 15);
+        size_t deg_b = 2 + (rng.next() % 15);
 
         std::vector<uint8_t> ac(deg_a * 32), bc(deg_b * 32);
-        for (int j = 0; j < deg_a; j++)
+        for (size_t j = 0; j < deg_a; j++)
         {
             auto s = random_selene_scalar(rng);
             auto sb = s.to_bytes();
             std::memcpy(&ac[j * 32], sb.data(), 32);
         }
-        for (int j = 0; j < deg_b; j++)
+        for (size_t j = 0; j < deg_b; j++)
         {
             auto s = random_selene_scalar(rng);
             auto sb = s.to_bytes();
@@ -2073,17 +2073,17 @@ static void fuzz_ecfft_poly_mul()
     for (int trial = 0; trial < 100; trial++)
     {
         std::string label = "ecfft_small_fq[" + std::to_string(trial) + "]";
-        int deg_a = 2 + (rng.next() % 15);
-        int deg_b = 2 + (rng.next() % 15);
+        size_t deg_a = 2 + (rng.next() % 15);
+        size_t deg_b = 2 + (rng.next() % 15);
 
         std::vector<uint8_t> ac(deg_a * 32), bc(deg_b * 32);
-        for (int j = 0; j < deg_a; j++)
+        for (size_t j = 0; j < deg_a; j++)
         {
             auto s = random_helios_scalar(rng);
             auto sb = s.to_bytes();
             std::memcpy(&ac[j * 32], sb.data(), 32);
         }
-        for (int j = 0; j < deg_b; j++)
+        for (size_t j = 0; j < deg_b; j++)
         {
             auto s = random_helios_scalar(rng);
             auto sb = s.to_bytes();
@@ -2114,17 +2114,17 @@ static void fuzz_ecfft_poly_mul()
     for (int trial = 0; trial < 25; trial++)
     {
         std::string label = "ecfft_kara_fp[" + std::to_string(trial) + "]";
-        int deg_a = 32 + (rng.next() % 33);
-        int deg_b = 32 + (rng.next() % 33);
+        size_t deg_a = 32 + (rng.next() % 33);
+        size_t deg_b = 32 + (rng.next() % 33);
 
         std::vector<uint8_t> ac(deg_a * 32), bc(deg_b * 32);
-        for (int j = 0; j < deg_a; j++)
+        for (size_t j = 0; j < deg_a; j++)
         {
             auto s = random_selene_scalar(rng);
             auto sb = s.to_bytes();
             std::memcpy(&ac[j * 32], sb.data(), 32);
         }
-        for (int j = 0; j < deg_b; j++)
+        for (size_t j = 0; j < deg_b; j++)
         {
             auto s = random_selene_scalar(rng);
             auto sb = s.to_bytes();
@@ -2158,17 +2158,17 @@ static void fuzz_ecfft_poly_mul()
     for (int trial = 0; trial < 25; trial++)
     {
         std::string label = "ecfft_kara_fq[" + std::to_string(trial) + "]";
-        int deg_a = 32 + (rng.next() % 33);
-        int deg_b = 32 + (rng.next() % 33);
+        size_t deg_a = 32 + (rng.next() % 33);
+        size_t deg_b = 32 + (rng.next() % 33);
 
         std::vector<uint8_t> ac(deg_a * 32), bc(deg_b * 32);
-        for (int j = 0; j < deg_a; j++)
+        for (size_t j = 0; j < deg_a; j++)
         {
             auto s = random_helios_scalar(rng);
             auto sb = s.to_bytes();
             std::memcpy(&ac[j * 32], sb.data(), 32);
         }
-        for (int j = 0; j < deg_b; j++)
+        for (size_t j = 0; j < deg_b; j++)
         {
             auto s = random_helios_scalar(rng);
             auto sb = s.to_bytes();
@@ -2203,9 +2203,9 @@ static void fuzz_ecfft_poly_mul()
     for (int trial = 0; trial < 2; trial++)
     {
         std::string label = "ecfft_large_fp[" + std::to_string(trial) + "]";
-        int n_roots = 1024;
+        size_t n_roots = 1024;
         std::vector<uint8_t> roots_a(n_roots * 32), roots_b(n_roots * 32);
-        for (int j = 0; j < n_roots; j++)
+        for (size_t j = 0; j < n_roots; j++)
         {
             auto sa = random_selene_scalar(rng);
             auto sb_val = random_selene_scalar(rng);
@@ -2243,9 +2243,9 @@ static void fuzz_ecfft_poly_mul()
     for (int trial = 0; trial < 2; trial++)
     {
         std::string label = "ecfft_large_fq[" + std::to_string(trial) + "]";
-        int n_roots = 1024;
+        size_t n_roots = 1024;
         std::vector<uint8_t> roots_a(n_roots * 32), roots_b(n_roots * 32);
-        for (int j = 0; j < n_roots; j++)
+        for (size_t j = 0; j < n_roots; j++)
         {
             auto sa = random_helios_scalar(rng);
             auto sb_val = random_helios_scalar(rng);
@@ -2280,9 +2280,6 @@ static void fuzz_ecfft_poly_mul()
         }
         check_true(label.c_str(), ok);
     }
-
-    ecfft_fp_free(&fp_ctx);
-    ecfft_fq_free(&fq_ctx);
 }
 
 #endif /* HELIOSELENE_ECFFT */
@@ -2552,8 +2549,7 @@ int main(int argc, char *argv[])
      * FpPolynomial::operator* dispatch to the ECFFT path for large multiplies
      * (degree >= 1024).  Without this, fq_poly_mul / fp_poly_mul fall through
      * to Karatsuba even when ECFFT is compiled in. */
-    ecfft_fp_global_init();
-    ecfft_fq_global_init();
+    ecfft_global_init();
 #endif
 
     fuzz_scalar_arithmetic();

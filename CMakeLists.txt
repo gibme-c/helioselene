@@ -8,7 +8,6 @@ endif()
 
 message(STATUS "Mode: ${CMAKE_BUILD_TYPE}")
 
-set(CMAKE_CONFIGURATION_TYPES Debug RelWithDebInfo Release CACHE STRING INTERNAL)
 set(ARCH native CACHE STRING  "CPU to build for: -march value or native")
 
 message(STATUS "Building for target architecture: ${ARCH}")
@@ -25,7 +24,7 @@ if(NOT MSVC)
     find_program(CCACHE_PROGRAM ccache)
     if(CCACHE_PROGRAM)
         message(STATUS "Found ccache package... Activating...")
-        set_property(GLOBAL PROPERTY RULE_LAUNCH_COMPILE "${CCACHE_PROGRAM}")
+        set(CMAKE_CXX_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
     endif()
 endif()
 
@@ -39,12 +38,8 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-set(STATIC ON CACHE BOOL FORCE "Link libraries statically? Forced to ON")
-add_definitions(-DSTATICLIB)
-
 if(MSVC)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std:c++17 /W4 /GS /sdl /guard:cf /DWIN32_LEAN_AND_MEAN /wd4267 /wd4804 /D_DLL")
-    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /O2")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std:c++17 /W4 /GS /sdl /guard:cf /wd4267 /wd4804 /D_DLL")
     string(REPLACE "/Ob0" "/Ob2" CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")
     set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /Oi")
 else()
@@ -54,13 +49,19 @@ else()
         set(ARCH_FLAG "-march=${ARCH}")
     endif()
 
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17 -Wall -Wextra -Wuninitialized -Wformat-security -fstack-protector-strong ${ARCH_FLAG}")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17 -Wall -Wextra -Wuninitialized -Wformat-security -Wconversion -Wsign-conversion ${ARCH_FLAG}")
+
+    # Stack protector: exclude Clang+MinGW (accepts at configure time but
+    # the MinGW runtime lacks __stack_chk_fail, causing link errors).
+    if(NOT (CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND MINGW))
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fstack-protector-strong")
+    endif()
 
     # Stack clash protection (GCC 8.3+, Clang 11+)
     # Exclude AppleClang and Windows Clang: they accept the flag at configure
     # time but emit "argument unused during compilation" warnings on every TU.
     include(CheckCXXCompilerFlag)
-    if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang" AND NOT (CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND WIN32))
+    if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang" AND NOT (CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND (WIN32 OR APPLE)))
         check_cxx_compiler_flag("-fstack-clash-protection" HAS_STACK_CLASH_PROTECTION)
         if(HAS_STACK_CLASH_PROTECTION)
             set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fstack-clash-protection")
@@ -77,16 +78,8 @@ else()
     endif()
 
     set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -g3 -Og")
-    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -DNDEBUG -O3")
+    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -DNDEBUG -O3 -D_FORTIFY_SOURCE=2")
 
-    if(MINGW OR STATIC_LIBC)
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -static -static-libstdc++")
-        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static")
-    endif()
-
-    if(NOT APPLE AND NOT WIN32)
-        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static-libgcc -static-libstdc++")
-    endif()
 
     # ELF linker hardening (not applicable on Apple, Windows, or MSVC)
     if(NOT APPLE AND NOT WIN32)
@@ -245,6 +238,13 @@ if(BUILD_BENCHMARKS)
 
     add_executable(helioselene-benchmark-fcmpp src/benchmark_fcmpp.cpp)
     target_link_libraries(helioselene-benchmark-fcmpp PRIVATE helioselene)
+
+    # Benchmarks are developer tools — relax sign-conversion warnings
+    if(NOT MSVC)
+        foreach(_bench helioselene-benchmark helioselene-benchmark-contest helioselene-benchmark-fcmpp)
+            target_compile_options(${_bench} PRIVATE -Wno-sign-conversion)
+        endforeach()
+    endif()
 endif()
 
 # ── Auxiliary tools ──
@@ -258,6 +258,13 @@ if(BUILD_TOOLS)
 
     add_executable(helioselene-gen-testvectors tools/gen_test_vectors.cpp)
     target_link_libraries(helioselene-gen-testvectors helioselene)
+
+    # Tools are developer utilities — relax sign-conversion warnings
+    if(NOT MSVC)
+        foreach(_tool helioselene-find-ecfft helioselene-gen-ecfft helioselene-gen-testvectors)
+            target_compile_options(${_tool} PRIVATE -Wno-sign-conversion)
+        endforeach()
+    endif()
 
     message(STATUS "HELIOSELENE: Auxiliary tools enabled")
 endif()

@@ -93,7 +93,6 @@ struct ecfft_fp_ctx
     std::vector<ecfft_fp_level> levels;
     size_t log_n;
     size_t domain_size;
-    int initialized;
 };
 
 static inline void ecfft_fp_apply_psi(
@@ -106,7 +105,7 @@ static inline void ecfft_fp_apply_psi(
 {
     fp_fe num_val;
     fp_copy(num_val, num_coeffs[num_degree].v);
-    for (int i = (int)num_degree - 1; i >= 0; i--)
+    for (size_t i = num_degree; i-- > 0;)
     {
         fp_fe tmp;
         fp_mul(tmp, num_val, x);
@@ -115,7 +114,7 @@ static inline void ecfft_fp_apply_psi(
 
     fp_fe den_val;
     fp_copy(den_val, den_coeffs[den_degree].v);
-    for (int i = (int)den_degree - 1; i >= 0; i--)
+    for (size_t i = den_degree; i-- > 0;)
     {
         fp_fe tmp;
         fp_mul(tmp, den_val, x);
@@ -161,8 +160,6 @@ static inline void ecfft_fp_init(ecfft_fp_ctx *ctx)
 {
     ctx->log_n = ECFFT_FP_LOG_DOMAIN;
     ctx->domain_size = ECFFT_FP_DOMAIN_SIZE;
-    ctx->initialized = 0;
-
     ctx->levels.resize(ctx->log_n);
 
     struct iso_info
@@ -229,13 +226,13 @@ static inline void ecfft_fp_init(ecfft_fp_ctx *ctx)
 
         if (lv + 1 < ctx->log_n)
         {
-            int num_deg = iso_levels[lv].num_degree;
-            int den_deg = iso_levels[lv].den_degree;
+            size_t num_deg = iso_levels[lv].num_degree;
+            size_t den_deg = iso_levels[lv].den_degree;
             std::vector<ecfft_fp_fe_s> num_c(num_deg + 1);
             std::vector<ecfft_fp_fe_s> den_c(den_deg + 1);
-            for (int k = 0; k <= num_deg; k++)
+            for (size_t k = 0; k <= num_deg; k++)
                 fp_frombytes(num_c[k].v, &iso_levels[lv].num_data[k * 32]);
-            for (int k = 0; k <= den_deg; k++)
+            for (size_t k = 0; k <= den_deg; k++)
                 fp_frombytes(den_c[k].v, &iso_levels[lv].den_data[k * 32]);
 
             std::vector<ecfft_fp_fe_s> next_points(half);
@@ -250,14 +247,6 @@ static inline void ecfft_fp_init(ecfft_fp_ctx *ctx)
 
         level_size = half;
     }
-
-    ctx->initialized = 1;
-}
-
-static inline void ecfft_fp_free(ecfft_fp_ctx *ctx)
-{
-    ctx->levels.clear();
-    ctx->initialized = 0;
 }
 
 /* ====================================================================
@@ -384,7 +373,7 @@ static inline void ecfft_fp_exit(fp_fe *data, size_t n, const ecfft_fp_ctx *ctx)
     fp_copy(p[0].v, d[n - 1].v);
     size_t deg = 0;
 
-    for (int k = (int)n - 2; k >= 0; k--)
+    for (size_t k = n - 1; k-- > 0;)
     {
         /* Multiply p[0..deg] by (x - s[k]):
          *   p[deg+1] = p[deg]

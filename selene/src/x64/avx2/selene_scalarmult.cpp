@@ -49,6 +49,8 @@
 #include "x64/selene_add.h"
 #include "x64/selene_dbl.h"
 
+#include <vector>
+
 /* ── fq10 affine point type ── */
 
 typedef struct
@@ -80,6 +82,7 @@ static void scalar_recode_signed4(int8_t digits[64], const unsigned char scalar[
         digits[i] = (int8_t)(val - (carry << 4));
     }
     digits[63] = (int8_t)(nibbles[63] + carry);
+    helioselene_secure_erase(nibbles, sizeof(nibbles));
 }
 
 /* ── Batch affine conversion (fq51) ── */
@@ -88,29 +91,33 @@ static void scalar_recode_signed4(int8_t digits[64], const unsigned char scalar[
  * Batch affine conversion using Montgomery's trick.
  * Converts n Jacobian points to affine using a single inversion.
  */
-static void batch_to_affine(selene_affine *out, const selene_jacobian *in, int n)
+static void batch_to_affine(selene_affine *out, const selene_jacobian *in, size_t n)
 {
     if (n == 0)
         return;
 
-    fq_fe *z_vals = new fq_fe[n];
-    fq_fe *products = new fq_fe[n];
+    struct fq_fe_s
+    {
+        fq_fe v;
+    };
+    std::vector<fq_fe_s> z_vals(n);
+    std::vector<fq_fe_s> products(n);
 
-    for (int i = 0; i < n; i++)
-        fq_copy(z_vals[i], in[i].Z);
+    for (size_t i = 0; i < n; i++)
+        fq_copy(z_vals[i].v, in[i].Z);
 
-    fq_copy(products[0], z_vals[0]);
-    for (int i = 1; i < n; i++)
-        fq_mul(products[i], products[i - 1], z_vals[i]);
+    fq_copy(products[0].v, z_vals[0].v);
+    for (size_t i = 1; i < n; i++)
+        fq_mul(products[i].v, products[i - 1].v, z_vals[i].v);
 
     fq_fe inv;
-    fq_invert(inv, products[n - 1]);
+    fq_invert(inv, products[n - 1].v);
 
-    for (int i = n - 1; i > 0; i--)
+    for (size_t i = n - 1; i > 0; i--)
     {
         fq_fe z_inv;
-        fq_mul(z_inv, inv, products[i - 1]);
-        fq_mul(inv, inv, z_vals[i]);
+        fq_mul(z_inv, inv, products[i - 1].v);
+        fq_mul(inv, inv, z_vals[i].v);
 
         fq_fe z_inv2, z_inv3;
         fq_sq(z_inv2, z_inv);
@@ -128,10 +135,8 @@ static void batch_to_affine(selene_affine *out, const selene_jacobian *in, int n
     }
 
     helioselene_secure_erase(&inv, sizeof(inv));
-    helioselene_secure_erase(z_vals, n * sizeof(fq_fe));
-    helioselene_secure_erase(products, n * sizeof(fq_fe));
-    delete[] z_vals;
-    delete[] products;
+    helioselene_secure_erase(z_vals.data(), n * sizeof(fq_fe_s));
+    helioselene_secure_erase(products.data(), n * sizeof(fq_fe_s));
 }
 
 /* ── Inline fq10 point doubling: dbl-2001-b with a = -3 ── */
@@ -308,7 +313,7 @@ void selene_scalarmult_avx2(selene_jacobian *r, const unsigned char scalar[32], 
 
     /* Step 5: Initialize from top digit (branchless abs + sign) */
     int32_t d = (int32_t)digits[63];
-    int32_t sign_mask = d >> 31;
+    int32_t sign_mask = -(int32_t)((uint32_t)d >> 31);
     unsigned int abs_d = (unsigned int)((d ^ sign_mask) - sign_mask);
     unsigned int neg = (unsigned int)(sign_mask & 1);
 
@@ -371,7 +376,7 @@ void selene_scalarmult_avx2(selene_jacobian *r, const unsigned char scalar[32], 
 
         /* Extract digit (branchless) */
         d = (int32_t)digits[i];
-        sign_mask = d >> 31;
+        sign_mask = -(int32_t)((uint32_t)d >> 31);
         abs_d = (unsigned int)((d ^ sign_mask) - sign_mask);
         neg = (unsigned int)(sign_mask & 1);
 

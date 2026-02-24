@@ -330,7 +330,7 @@ namespace helioselene
     {
         const auto bytes = p.to_bytes();
         const auto flags = os.flags();
-        for (int i = 31; i >= 0; --i)
+        for (size_t i = 32; i-- > 0;)
             os << std::hex << std::setfill('0') << std::setw(2) << static_cast<unsigned>(bytes[i]);
         os.flags(flags);
         return os;
@@ -340,7 +340,7 @@ namespace helioselene
     {
         const auto bytes = p.to_bytes();
         const auto flags = os.flags();
-        for (int i = 31; i >= 0; --i)
+        for (size_t i = 32; i-- > 0;)
             os << std::hex << std::setfill('0') << std::setw(2) << static_cast<unsigned>(bytes[i]);
         os.flags(flags);
         return os;

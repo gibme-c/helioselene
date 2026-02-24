@@ -26,6 +26,7 @@
 
 #include "portable/fp_sqrt.h"
 
+#include "fp_cmov.h"
 #include "fp_ops.h"
 #include "fp_tobytes.h"
 #include "helioselene_secure_erase.h"
@@ -36,63 +37,68 @@
 static const fp_fe SQRT_M1 =
     {-32595792, -7943725, 9377950, 3500415, 12389472, -272473, -25146209, -2005654, 326686, 11406482};
 
+/*
+ * Constant-time Atkin's square root for p ≡ 5 (mod 8).
+ *
+ * Always computes both candidate roots (beta and beta*sqrt(-1)),
+ * both checks, then selects via cmov. No secret-dependent branches.
+ */
+
 /* Forward declaration */
 void fp_pow22523_portable(fp_fe out, const fp_fe z);
 
 int fp_sqrt_portable(fp_fe out, const fp_fe z)
 {
-    fp_fe beta, beta_sq, neg_z, check;
+    fp_fe beta, beta_sqrtm1, beta_sq, neg_z, check;
 
     /* beta = z^((p+3)/8) = pow22523(z) * z */
     fp_pow22523_portable(beta, z);
     fp25_chain_mul(beta, beta, z);
 
+    /* Always compute both candidates */
+    fp25_chain_mul(beta_sqrtm1, beta, SQRT_M1);
+
     /* check = beta^2 */
     fp25_chain_sq(beta_sq, beta);
 
-    /* Is beta^2 == z? */
+    /* CT is_zero check for beta^2 - z */
     fp_sub(check, beta_sq, z);
     unsigned char check_bytes[32];
     fp_tobytes(check_bytes, check);
 
-    unsigned int is_zero = 1;
+    uint32_t d1 = 0;
     for (int i = 0; i < 32; i++)
-        is_zero &= (check_bytes[i] == 0) ? 1 : 0;
+        d1 |= check_bytes[i];
+    unsigned int check1_zero = ((uint32_t)(d1 - 1u)) >> 31;
 
-    if (is_zero)
-    {
-        fp_copy(out, beta);
-        helioselene_secure_erase(beta, sizeof(fp_fe));
-        helioselene_secure_erase(beta_sq, sizeof(fp_fe));
-        helioselene_secure_erase(check, sizeof(fp_fe));
-        return 0;
-    }
-
-    /* Is beta^2 == -z? */
+    /* CT is_zero check for beta^2 - (-z) */
     fp_neg(neg_z, z);
     fp_sub(check, beta_sq, neg_z);
     fp_tobytes(check_bytes, check);
 
-    is_zero = 1;
+    uint32_t d2 = 0;
     for (int i = 0; i < 32; i++)
-        is_zero &= (check_bytes[i] == 0) ? 1 : 0;
+        d2 |= check_bytes[i];
+    unsigned int check2_zero = ((uint32_t)(d2 - 1u)) >> 31;
 
-    if (is_zero)
-    {
-        /* out = beta * sqrt(-1) */
-        fp25_chain_mul(out, beta, SQRT_M1);
-        helioselene_secure_erase(beta, sizeof(fp_fe));
-        helioselene_secure_erase(beta_sq, sizeof(fp_fe));
-        helioselene_secure_erase(check, sizeof(fp_fe));
-        helioselene_secure_erase(neg_z, sizeof(fp_fe));
-        return 0;
-    }
+    unsigned int is_qr = check1_zero | check2_zero;
 
-    /* z is not a quadratic residue */
-    fp_0(out);
+    /* Select output: start with beta_sqrtm1, overwrite with beta if check1 */
+    fp_copy(out, beta_sqrtm1);
+    fp_cmov(out, beta, check1_zero);
+
+    /* If not QR, output zero */
+    fp_fe zero;
+    fp_0(zero);
+    fp_cmov(out, zero, 1u - is_qr);
+
+    /* Secure erase temporaries */
     helioselene_secure_erase(beta, sizeof(fp_fe));
+    helioselene_secure_erase(beta_sqrtm1, sizeof(fp_fe));
     helioselene_secure_erase(beta_sq, sizeof(fp_fe));
-    helioselene_secure_erase(check, sizeof(fp_fe));
     helioselene_secure_erase(neg_z, sizeof(fp_fe));
-    return -1;
+    helioselene_secure_erase(check, sizeof(fp_fe));
+    helioselene_secure_erase(check_bytes, sizeof(check_bytes));
+
+    return -(int)(1u - is_qr);
 }

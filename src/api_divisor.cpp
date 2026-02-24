@@ -40,6 +40,9 @@
 namespace helioselene
 {
 
+    /* Upper bound on divisor size: 1M points. Prevents unbounded allocations. */
+    static constexpr size_t MAX_DIVISOR_SIZE = 1u << 20;
+
     /* ---- HeliosDivisor ---- */
 
     void HeliosDivisor::sync_wrappers()
@@ -50,7 +53,7 @@ namespace helioselene
 
     HeliosDivisor HeliosDivisor::compute(const HeliosPoint *points, size_t n)
     {
-        if (n == 0 || !points)
+        if (n == 0 || !points || n > MAX_DIVISOR_SIZE)
             return HeliosDivisor();
 
         std::vector<helios_jacobian> jac(n);
@@ -88,7 +91,7 @@ namespace helioselene
 
     SeleneDivisor SeleneDivisor::compute(const SelenePoint *points, size_t n)
     {
-        if (n == 0 || !points)
+        if (n == 0 || !points || n > MAX_DIVISOR_SIZE)
             return SeleneDivisor();
 
         std::vector<selene_jacobian> jac(n);

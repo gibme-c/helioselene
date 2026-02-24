@@ -214,13 +214,16 @@ namespace helioselene
         if (n == 0 || !root_bytes || n > MAX_POLY_SIZE || n > SIZE_MAX / 32)
             return FpPolynomial();
 
-        fp_fe *roots = new fp_fe[n];
+        struct fp_fe_s
+        {
+            fp_fe v;
+        };
+        std::vector<fp_fe_s> roots(n);
         for (size_t i = 0; i < n; i++)
-            fp_frombytes(roots[i], root_bytes + 32 * i);
+            fp_frombytes(roots[i].v, root_bytes + 32 * i);
 
         FpPolynomial p;
-        fp_poly_from_roots(&p.poly_, roots, n);
-        delete[] roots;
+        fp_poly_from_roots(&p.poly_, &roots[0].v, n);
         return p;
     }
 
@@ -270,18 +273,20 @@ namespace helioselene
         if (n == 0 || !x_bytes || !y_bytes || n > MAX_POLY_SIZE || n > SIZE_MAX / 32)
             return FpPolynomial();
 
-        fp_fe *xs = new fp_fe[n];
-        fp_fe *ys = new fp_fe[n];
+        struct fp_fe_s
+        {
+            fp_fe v;
+        };
+        std::vector<fp_fe_s> xs(n);
+        std::vector<fp_fe_s> ys(n);
         for (size_t i = 0; i < n; i++)
         {
-            fp_frombytes(xs[i], x_bytes + 32 * i);
-            fp_frombytes(ys[i], y_bytes + 32 * i);
+            fp_frombytes(xs[i].v, x_bytes + 32 * i);
+            fp_frombytes(ys[i].v, y_bytes + 32 * i);
         }
 
         FpPolynomial p;
-        fp_poly_interpolate(&p.poly_, xs, ys, n);
-        delete[] xs;
-        delete[] ys;
+        fp_poly_interpolate(&p.poly_, &xs[0].v, &ys[0].v, n);
         return p;
     }
 
@@ -311,13 +316,16 @@ namespace helioselene
         if (n == 0 || !root_bytes || n > MAX_POLY_SIZE || n > SIZE_MAX / 32)
             return FqPolynomial();
 
-        fq_fe *roots = new fq_fe[n];
+        struct fq_fe_s
+        {
+            fq_fe v;
+        };
+        std::vector<fq_fe_s> roots(n);
         for (size_t i = 0; i < n; i++)
-            fq_frombytes(roots[i], root_bytes + 32 * i);
+            fq_frombytes(roots[i].v, root_bytes + 32 * i);
 
         FqPolynomial p;
-        fq_poly_from_roots(&p.poly_, roots, n);
-        delete[] roots;
+        fq_poly_from_roots(&p.poly_, &roots[0].v, n);
         return p;
     }
 
@@ -367,18 +375,20 @@ namespace helioselene
         if (n == 0 || !x_bytes || !y_bytes || n > MAX_POLY_SIZE || n > SIZE_MAX / 32)
             return FqPolynomial();
 
-        fq_fe *xs = new fq_fe[n];
-        fq_fe *ys = new fq_fe[n];
+        struct fq_fe_s
+        {
+            fq_fe v;
+        };
+        std::vector<fq_fe_s> xs(n);
+        std::vector<fq_fe_s> ys(n);
         for (size_t i = 0; i < n; i++)
         {
-            fq_frombytes(xs[i], x_bytes + 32 * i);
-            fq_frombytes(ys[i], y_bytes + 32 * i);
+            fq_frombytes(xs[i].v, x_bytes + 32 * i);
+            fq_frombytes(ys[i].v, y_bytes + 32 * i);
         }
 
         FqPolynomial p;
-        fq_poly_interpolate(&p.poly_, xs, ys, n);
-        delete[] xs;
-        delete[] ys;
+        fq_poly_interpolate(&p.poly_, &xs[0].v, &ys[0].v, n);
         return p;
     }
 

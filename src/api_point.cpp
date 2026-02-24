@@ -36,6 +36,7 @@
 #include "helios_to_scalar.h"
 #include "helios_tobytes.h"
 #include "helioselene_point.h"
+#include "helioselene_secure_erase.h"
 #include "selene_frombytes.h"
 #include "selene_map_to_curve.h"
 #include "selene_msm_vartime.h"
@@ -81,6 +82,7 @@ namespace helioselene
         auto sb = s.to_bytes();
         HeliosPoint r;
         helios_scalarmult(&r.jac_, sb.data(), &jac_);
+        helioselene_secure_erase(sb.data(), 32);
         return r;
     }
 
@@ -89,6 +91,7 @@ namespace helioselene
         auto sb = s.to_bytes();
         HeliosPoint r;
         helios_scalarmult_vartime(&r.jac_, sb.data(), &jac_);
+        helioselene_secure_erase(sb.data(), 32);
         return r;
     }
 
@@ -135,6 +138,8 @@ namespace helioselene
 
         HeliosPoint r;
         helios_pedersen_commit(&r.jac_, blind_bytes.data(), &H.raw(), val_bytes.data(), gen_points.data(), n);
+        helioselene_secure_erase(blind_bytes.data(), 32);
+        helioselene_secure_erase(val_bytes.data(), val_bytes.size());
         return r;
     }
 
@@ -181,6 +186,7 @@ namespace helioselene
         auto sb = s.to_bytes();
         SelenePoint r;
         selene_scalarmult(&r.jac_, sb.data(), &jac_);
+        helioselene_secure_erase(sb.data(), 32);
         return r;
     }
 
@@ -189,6 +195,7 @@ namespace helioselene
         auto sb = s.to_bytes();
         SelenePoint r;
         selene_scalarmult_vartime(&r.jac_, sb.data(), &jac_);
+        helioselene_secure_erase(sb.data(), 32);
         return r;
     }
 
@@ -235,6 +242,8 @@ namespace helioselene
 
         SelenePoint r;
         selene_pedersen_commit(&r.jac_, blind_bytes.data(), &H.raw(), val_bytes.data(), gen_points.data(), n);
+        helioselene_secure_erase(blind_bytes.data(), 32);
+        helioselene_secure_erase(val_bytes.data(), val_bytes.size());
         return r;
     }
 

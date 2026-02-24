@@ -37,6 +37,8 @@
 #include "helios_ops.h"
 #include "helioselene_secure_erase.h"
 
+#include <vector>
+
 /*
  * Constant-time scalar multiplication using signed 4-bit fixed-window (radix-16).
  *
@@ -75,39 +77,44 @@ static void scalar_recode_signed4(int8_t digits[64], const unsigned char scalar[
         digits[i] = (int8_t)(val - (carry << 4));
     }
     digits[63] = (int8_t)(nibbles[63] + carry);
+    helioselene_secure_erase(nibbles, sizeof(nibbles));
 }
 
 /*
  * Batch affine conversion using Montgomery's trick.
  * Converts n Jacobian points to affine using a single inversion.
  */
-static void batch_to_affine(helios_affine *out, const helios_jacobian *in, int n)
+static void batch_to_affine(helios_affine *out, const helios_jacobian *in, size_t n)
 {
     if (n == 0)
         return;
 
-    fp_fe *z_vals = new fp_fe[n];
-    fp_fe *products = new fp_fe[n];
+    struct fp_fe_s
+    {
+        fp_fe v;
+    };
+    std::vector<fp_fe_s> z_vals(n);
+    std::vector<fp_fe_s> products(n);
 
     /* Collect Z values */
-    for (int i = 0; i < n; i++)
-        fp_copy(z_vals[i], in[i].Z);
+    for (size_t i = 0; i < n; i++)
+        fp_copy(z_vals[i].v, in[i].Z);
 
     /* Compute cumulative products: products[i] = z[0] * z[1] * ... * z[i] */
-    fp_copy(products[0], z_vals[0]);
-    for (int i = 1; i < n; i++)
-        fp_mul(products[i], products[i - 1], z_vals[i]);
+    fp_copy(products[0].v, z_vals[0].v);
+    for (size_t i = 1; i < n; i++)
+        fp_mul(products[i].v, products[i - 1].v, z_vals[i].v);
 
     /* Invert the cumulative product */
     fp_fe inv;
-    fp_invert(inv, products[n - 1]);
+    fp_invert(inv, products[n - 1].v);
 
     /* Work backwards to get individual inverses */
-    for (int i = n - 1; i > 0; i--)
+    for (size_t i = n - 1; i > 0; i--)
     {
         fp_fe z_inv;
-        fp_mul(z_inv, inv, products[i - 1]); /* z_inv = inv * products[i-1] = 1/z[i] */
-        fp_mul(inv, inv, z_vals[i]); /* inv = inv * z[i] = 1/(z[0]*...*z[i-1]) */
+        fp_mul(z_inv, inv, products[i - 1].v); /* z_inv = inv * products[i-1] = 1/z[i] */
+        fp_mul(inv, inv, z_vals[i].v); /* inv = inv * z[i] = 1/(z[0]*...*z[i-1]) */
 
         fp_fe z_inv2, z_inv3;
         fp_sq(z_inv2, z_inv);
@@ -126,10 +133,8 @@ static void batch_to_affine(helios_affine *out, const helios_jacobian *in, int n
     }
 
     helioselene_secure_erase(&inv, sizeof(inv));
-    helioselene_secure_erase(z_vals, n * sizeof(fp_fe));
-    helioselene_secure_erase(products, n * sizeof(fp_fe));
-    delete[] z_vals;
-    delete[] products;
+    helioselene_secure_erase(z_vals.data(), n * sizeof(fp_fe_s));
+    helioselene_secure_erase(products.data(), n * sizeof(fp_fe_s));
 }
 
 void helios_scalarmult_portable(helios_jacobian *r, const unsigned char scalar[32], const helios_jacobian *p)
@@ -156,7 +161,7 @@ void helios_scalarmult_portable(helios_jacobian *r, const unsigned char scalar[3
     /* Step 3: Main loop -- start from the top digit */
     /* Initialize with the top digit (branchless abs + sign extraction) */
     int32_t d = (int32_t)digits[63];
-    int32_t sign_mask = d >> 31;
+    int32_t sign_mask = -(int32_t)((uint32_t)d >> 31);
     unsigned int abs_d = (unsigned int)((d ^ sign_mask) - sign_mask);
     unsigned int neg = (unsigned int)(sign_mask & 1);
 
@@ -186,6 +191,7 @@ void helios_scalarmult_portable(helios_jacobian *r, const unsigned char scalar[3
     helios_cmov(r, &from_table, nonzero);
 
     /* Main loop: digits[62] down to digits[0] */
+    helios_jacobian tmp, fresh;
     for (int i = 62; i >= 0; i--)
     {
         /* 4 doublings */
@@ -196,7 +202,7 @@ void helios_scalarmult_portable(helios_jacobian *r, const unsigned char scalar[3
 
         /* Extract digit (branchless) */
         d = (int32_t)digits[i];
-        sign_mask = d >> 31;
+        sign_mask = -(int32_t)((uint32_t)d >> 31);
         abs_d = (unsigned int)((d ^ sign_mask) - sign_mask);
         neg = (unsigned int)(sign_mask & 1);
 
@@ -219,10 +225,8 @@ void helios_scalarmult_portable(helios_jacobian *r, const unsigned char scalar[3
          * If Z==0 (identity), use from_affine instead. */
         unsigned int z_nonzero = (unsigned int)fp_isnonzero(r->Z);
 
-        helios_jacobian tmp;
         helios_madd(&tmp, r, &selected);
 
-        helios_jacobian fresh;
         helios_from_affine(&fresh, &selected);
 
         /* If digit nonzero and accumulator is valid (Z!=0): use madd result */
@@ -232,6 +236,11 @@ void helios_scalarmult_portable(helios_jacobian *r, const unsigned char scalar[3
     }
 
     /* Secure erase */
+    helioselene_secure_erase(&selected, sizeof(selected));
+    helioselene_secure_erase(&from_table, sizeof(from_table));
+    helioselene_secure_erase(&ident, sizeof(ident));
+    helioselene_secure_erase(&tmp, sizeof(tmp));
+    helioselene_secure_erase(&fresh, sizeof(fresh));
     helioselene_secure_erase(table_jac, sizeof(table_jac));
     helioselene_secure_erase(table, sizeof(table));
     helioselene_secure_erase(digits, sizeof(digits));

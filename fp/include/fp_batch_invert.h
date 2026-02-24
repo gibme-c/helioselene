@@ -49,6 +49,11 @@
  * Zero elements produce zero output (not undefined).
  * out and in may alias (in-place inversion is supported).
  *
+ * SECURITY NOTE: The isnonzero() branches are intentionally variable-time.
+ * This function operates on public geometric data (affine coordinates for
+ * batch affine conversion), not secret scalars or secret-derived values.
+ * Timing side-channels on public data are not exploitable.
+ *
  * @param out  Output array of n inverted elements
  * @param in   Input array of n elements
  * @param n    Number of elements

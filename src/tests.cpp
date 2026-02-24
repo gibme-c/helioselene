@@ -4242,10 +4242,9 @@ static void test_ecfft()
 
     /* ---- Fp ECFFT ---- */
     {
-        /* Test init/free */
+        /* Test init */
         ecfft_fp_ctx ctx = {};
         ecfft_fp_init(&ctx);
-        check_int("fp ecfft init", 1, ctx.initialized);
         check_int("fp ecfft domain_size", (int)ECFFT_FP_DOMAIN_SIZE, (int)ctx.domain_size);
         check_int("fp ecfft log_n", (int)ECFFT_FP_LOG_DOMAIN, (int)ctx.log_n);
 
@@ -4362,7 +4361,7 @@ static void test_ecfft()
             pa.coeffs.resize(5);
             pb.coeffs.resize(5);
             pc.coeffs.resize(ecfft_len);
-            for (int i = 0; i < 5; i++)
+            for (size_t i = 0; i < 5; i++)
             {
                 fp_copy(pa.coeffs[i].v, a[i]);
                 fp_copy(pb.coeffs[i].v, b[i]);
@@ -4388,12 +4387,12 @@ static void test_ecfft()
 
         /* Test dispatch integration: init global context, verify poly_mul uses it */
         {
-            ecfft_fp_global_init();
+            ecfft_global_init();
 
             fp_poly pa, pb, pc_ecfft;
             pa.coeffs.resize(9);
             pb.coeffs.resize(9);
-            for (int i = 0; i < 9; i++)
+            for (size_t i = 0; i < 9; i++)
             {
                 unsigned char buf[32] = {};
                 buf[0] = (unsigned char)(i + 1);
@@ -4420,18 +4419,13 @@ static void test_ecfft()
             fp_tobytes(eb, val_ab);
             fp_tobytes(ab, val_c);
             check_bytes("fp ecfft dispatch: C(x) == A(x)*B(x)", eb, ab, 32);
-
-            ecfft_fp_global_free();
         }
-
-        ecfft_fp_free(&ctx);
     }
 
     /* ---- Fq ECFFT ---- */
     {
         ecfft_fq_ctx ctx = {};
         ecfft_fq_init(&ctx);
-        check_int("fq ecfft init", 1, ctx.initialized);
 
         /* Test ECFFT polynomial multiplication: (1 + x)(1 + x) = 1 + 2x + x^2 */
         {
@@ -4482,7 +4476,7 @@ static void test_ecfft()
             pa.coeffs.resize(5);
             pb.coeffs.resize(5);
             pc.coeffs.resize(ecfft_len);
-            for (int i = 0; i < 5; i++)
+            for (size_t i = 0; i < 5; i++)
             {
                 fq_copy(pa.coeffs[i].v, a[i]);
                 fq_copy(pb.coeffs[i].v, b[i]);
@@ -4508,12 +4502,12 @@ static void test_ecfft()
 
         /* Test dispatch integration */
         {
-            ecfft_fq_global_init();
+            ecfft_global_init();
 
             fq_poly pa, pb, pc_ecfft;
             pa.coeffs.resize(9);
             pb.coeffs.resize(9);
-            for (int i = 0; i < 9; i++)
+            for (size_t i = 0; i < 9; i++)
             {
                 unsigned char buf[32] = {};
                 buf[0] = (unsigned char)(i + 1);
@@ -4538,11 +4532,7 @@ static void test_ecfft()
             fq_tobytes(eb, val_ab);
             fq_tobytes(ab, val_c);
             check_bytes("fq ecfft dispatch: C(x) == A(x)*B(x)", eb, ab, 32);
-
-            ecfft_fq_global_free();
         }
-
-        ecfft_fq_free(&ctx);
     }
 }
 #endif /* HELIOSELENE_ECFFT */
@@ -7392,11 +7382,11 @@ static void test_vector_validation()
         for (size_t vi = 0; vi < hdp::fp_count; vi++)
         {
             auto &v = hdp::fp_vectors[vi];
-            int n = v.n_coeffs;
+            size_t n = (size_t)v.n_coeffs;
 
             // Build deterministic polynomials: a[i] = (i+1) mod p, b[i] = (i+n+1) mod p
             std::vector<uint8_t> a_bytes(n * 32, 0), b_bytes(n * 32, 0);
-            for (int i = 0; i < n; i++)
+            for (size_t i = 0; i < n; i++)
             {
                 uint32_t va = (uint32_t)(i + 1);
                 uint32_t vb = (uint32_t)(i + n + 1);
@@ -7410,7 +7400,7 @@ static void test_vector_validation()
             std::string prefix = std::string("tv: highdeg fp ") + v.label;
             check_int((prefix + " result_degree").c_str(), v.result_degree, (int)r.degree());
 
-            for (int ci = 0; ci < 3; ci++)
+            for (size_t ci = 0; ci < 3; ci++)
             {
                 auto &chk = v.checks[ci];
                 // Verify a(x)
@@ -7429,10 +7419,10 @@ static void test_vector_validation()
         for (size_t vi = 0; vi < hdp::fq_count; vi++)
         {
             auto &v = hdp::fq_vectors[vi];
-            int n = v.n_coeffs;
+            size_t n = (size_t)v.n_coeffs;
 
             std::vector<uint8_t> a_bytes(n * 32, 0), b_bytes(n * 32, 0);
-            for (int i = 0; i < n; i++)
+            for (size_t i = 0; i < n; i++)
             {
                 uint32_t va = (uint32_t)(i + 1);
                 uint32_t vb = (uint32_t)(i + n + 1);
@@ -7446,7 +7436,7 @@ static void test_vector_validation()
             std::string prefix = std::string("tv: highdeg fq ") + v.label;
             check_int((prefix + " result_degree").c_str(), v.result_degree, (int)r.degree());
 
-            for (int ci = 0; ci < 3; ci++)
+            for (size_t ci = 0; ci < 3; ci++)
             {
                 auto &chk = v.checks[ci];
                 auto a_at_x = a.evaluate(chk.x);

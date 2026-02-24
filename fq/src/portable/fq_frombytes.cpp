@@ -38,16 +38,16 @@
  */
 void fq_frombytes_portable(fq_fe h, const unsigned char *s)
 {
-    int64_t h0 = load_4(s);
-    int64_t h1 = load_3(s + 4) << 6;
-    int64_t h2 = load_3(s + 7) << 5;
-    int64_t h3 = load_3(s + 10) << 3;
-    int64_t h4 = load_3(s + 13) << 2;
-    int64_t h5 = load_4(s + 16);
-    int64_t h6 = load_3(s + 20) << 7;
-    int64_t h7 = load_3(s + 23) << 5;
-    int64_t h8 = load_3(s + 26) << 4;
-    int64_t h9 = (load_3(s + 29) & 8388607) << 2;
+    int64_t h0 = static_cast<int64_t>(load_4(s));
+    int64_t h1 = static_cast<int64_t>(load_3(s + 4) << 6);
+    int64_t h2 = static_cast<int64_t>(load_3(s + 7) << 5);
+    int64_t h3 = static_cast<int64_t>(load_3(s + 10) << 3);
+    int64_t h4 = static_cast<int64_t>(load_3(s + 13) << 2);
+    int64_t h5 = static_cast<int64_t>(load_4(s + 16));
+    int64_t h6 = static_cast<int64_t>(load_3(s + 20) << 7);
+    int64_t h7 = static_cast<int64_t>(load_3(s + 23) << 5);
+    int64_t h8 = static_cast<int64_t>(load_3(s + 26) << 4);
+    int64_t h9 = static_cast<int64_t>((load_3(s + 29) & 8388607) << 2);
     int64_t carry0, carry1, carry2, carry3, carry4;
     int64_t carry5, carry6, carry7, carry8, carry9;
 

@@ -97,9 +97,9 @@ namespace helioselene
         {
             auto a = to_bytes();
             auto b = other.to_bytes();
-            unsigned char diff = 0;
-            for (int i = 0; i < 32; i++)
-                diff |= a[i] ^ b[i];
+            unsigned diff = 0;
+            for (size_t i = 0; i < 32; i++)
+                diff |= static_cast<unsigned>(a[i] ^ b[i]);
             return diff == 0;
         }
 
@@ -219,9 +219,9 @@ namespace helioselene
         {
             auto a = to_bytes();
             auto b = other.to_bytes();
-            unsigned char diff = 0;
-            for (int i = 0; i < 32; i++)
-                diff |= a[i] ^ b[i];
+            unsigned diff = 0;
+            for (size_t i = 0; i < 32; i++)
+                diff |= static_cast<unsigned>(a[i] ^ b[i]);
             return diff == 0;
         }
 
@@ -302,7 +302,7 @@ namespace helioselene
     {
         const auto bytes = s.to_bytes();
         const auto flags = os.flags();
-        for (int i = 31; i >= 0; --i)
+        for (size_t i = 32; i-- > 0;)
             os << std::hex << std::setfill('0') << std::setw(2) << static_cast<unsigned>(bytes[i]);
         os.flags(flags);
         return os;
@@ -312,7 +312,7 @@ namespace helioselene
     {
         const auto bytes = s.to_bytes();
         const auto flags = os.flags();
-        for (int i = 31; i >= 0; --i)
+        for (size_t i = 32; i-- > 0;)
             os << std::hex << std::setfill('0') << std::setw(2) << static_cast<unsigned>(bytes[i]);
         os.flags(flags);
         return os;

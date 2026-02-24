@@ -36,6 +36,7 @@
  */
 
 #include "fp_batch_invert.h"
+#include "fp_cmov.h"
 #include "fp_mul.h"
 #include "fp_sq.h"
 #include "helios.h"
@@ -57,15 +58,13 @@ static inline void helios_batch_to_affine(helios_affine *out, const helios_jacob
         return;
     if (n == 1)
     {
-        if (helios_is_identity(&points[0]))
-        {
-            fp_0(out[0].x);
-            fp_0(out[0].y);
-        }
-        else
-        {
-            helios_to_affine(&out[0], &points[0]);
-        }
+        /* CT: always compute affine, then cmov to (0,0) if identity */
+        helios_to_affine(&out[0], &points[0]);
+        unsigned int is_ident = 1u - (unsigned int)fp_isnonzero(points[0].Z);
+        fp_fe zero;
+        fp_0(zero);
+        fp_cmov(out[0].x, zero, is_ident);
+        fp_cmov(out[0].y, zero, is_ident);
         return;
     }
 
@@ -81,22 +80,20 @@ static inline void helios_batch_to_affine(helios_affine *out, const helios_jacob
 
     fp_batch_invert(&zinvs[0].v, &zs[0].v, n);
 
-    /* Convert each point using its Z inverse */
+    /* Convert each point using its Z inverse (CT: always compute, cmov to zero if identity) */
+    fp_fe zero;
+    fp_0(zero);
     for (size_t i = 0; i < n; i++)
     {
-        if (!fp_isnonzero(points[i].Z))
-        {
-            fp_0(out[i].x);
-            fp_0(out[i].y);
-        }
-        else
-        {
-            fp_fe zi2, zi3;
-            fp_sq(zi2, zinvs[i].v);
-            fp_mul(zi3, zi2, zinvs[i].v);
-            fp_mul(out[i].x, points[i].X, zi2);
-            fp_mul(out[i].y, points[i].Y, zi3);
-        }
+        fp_fe zi2, zi3;
+        fp_sq(zi2, zinvs[i].v);
+        fp_mul(zi3, zi2, zinvs[i].v);
+        fp_mul(out[i].x, points[i].X, zi2);
+        fp_mul(out[i].y, points[i].Y, zi3);
+
+        unsigned int is_ident = 1u - (unsigned int)fp_isnonzero(points[i].Z);
+        fp_cmov(out[i].x, zero, is_ident);
+        fp_cmov(out[i].y, zero, is_ident);
     }
 }
 

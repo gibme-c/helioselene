@@ -37,6 +37,7 @@
 #include "helios.h"
 #include "helios_msm_vartime.h"
 #include "helios_ops.h"
+#include "helioselene_secure_erase.h"
 
 #include <cstring>
 #include <vector>
@@ -59,6 +60,13 @@ static inline void helios_pedersen_commit(
     const helios_jacobian *generators,
     size_t n)
 {
+    /* Guard against overflow in 32 * (n + 1) */
+    if (n > SIZE_MAX / 32 - 1)
+    {
+        helios_identity(result);
+        return;
+    }
+
     /* Build combined arrays: [blinding, values[0..n-1]] and [H, generators[0..n-1]] */
     std::vector<unsigned char> all_scalars(32 * (n + 1));
     std::vector<helios_jacobian> all_points(n + 1);
@@ -74,6 +82,7 @@ static inline void helios_pedersen_commit(
     }
 
     helios_msm_vartime(result, all_scalars.data(), all_points.data(), n + 1);
+    helioselene_secure_erase(all_scalars.data(), all_scalars.size());
 }
 
 #endif // HELIOSELENE_HELIOS_PEDERSEN_H

@@ -78,6 +78,10 @@ static const uint64_t HELIOS_B_LIMBS[5] =
  * Format: x-coordinate LE with y-parity in bit 255.
  *
  * Returns 0 on success, -1 on invalid input.
+ *
+ * SECURITY NOTE: Early returns on validation failure are intentionally
+ * variable-time. The input bytes are public (untrusted external data),
+ * not secret. Timing side-channels on public data are not exploitable.
  */
 int helios_frombytes_portable(helios_jacobian *r, const unsigned char s[32])
 {

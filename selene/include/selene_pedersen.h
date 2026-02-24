@@ -34,6 +34,7 @@
  * Computes C = r*H + sum(a_i * G_i) using a single MSM call with n+1 pairs.
  */
 
+#include "helioselene_secure_erase.h"
 #include "selene.h"
 #include "selene_msm_vartime.h"
 #include "selene_ops.h"
@@ -59,6 +60,13 @@ static inline void selene_pedersen_commit(
     const selene_jacobian *generators,
     size_t n)
 {
+    /* Guard against overflow in 32 * (n + 1) */
+    if (n > SIZE_MAX / 32 - 1)
+    {
+        selene_identity(result);
+        return;
+    }
+
     /* Build combined arrays: [blinding, values[0..n-1]] and [H, generators[0..n-1]] */
     std::vector<unsigned char> all_scalars(32 * (n + 1));
     std::vector<selene_jacobian> all_points(n + 1);
@@ -74,6 +82,7 @@ static inline void selene_pedersen_commit(
     }
 
     selene_msm_vartime(result, all_scalars.data(), all_points.data(), n + 1);
+    helioselene_secure_erase(all_scalars.data(), all_scalars.size());
 }
 
 #endif // HELIOSELENE_SELENE_PEDERSEN_H

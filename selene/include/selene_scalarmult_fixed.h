@@ -104,7 +104,7 @@ static inline void
 
     /* Start from top digit (window 51) */
     int32_t d = (int32_t)digits[51];
-    int32_t sign_mask = d >> 31;
+    int32_t sign_mask = -(int32_t)((uint32_t)d >> 31);
     unsigned int abs_d = (unsigned int)((d ^ sign_mask) - sign_mask);
     unsigned int neg = (unsigned int)(sign_mask & 1);
 
@@ -131,6 +131,7 @@ static inline void
     selene_cmov(r, &from_table, nonzero);
 
     /* Main loop: windows 50 down to 0 */
+    selene_jacobian tmp, fresh;
     for (int i = 50; i >= 0; i--)
     {
         /* 5 doublings */
@@ -142,7 +143,7 @@ static inline void
 
         /* Extract digit */
         d = (int32_t)digits[i];
-        sign_mask = d >> 31;
+        sign_mask = -(int32_t)((uint32_t)d >> 31);
         abs_d = (unsigned int)((d ^ sign_mask) - sign_mask);
         neg = (unsigned int)(sign_mask & 1);
 
@@ -160,10 +161,7 @@ static inline void
         nonzero = 1u ^ ((abs_d - 1u) >> 31);
         unsigned int z_nonzero = (unsigned int)fq_isnonzero(r->Z);
 
-        selene_jacobian tmp;
         selene_madd(&tmp, r, &selected);
-
-        selene_jacobian fresh;
         selene_from_affine(&fresh, &selected);
 
         selene_cmov(r, &tmp, nonzero & z_nonzero);
@@ -172,6 +170,11 @@ static inline void
 
     /* Secure erase */
     helioselene_secure_erase(digits, sizeof(digits));
+    helioselene_secure_erase(&selected, sizeof(selected));
+    helioselene_secure_erase(&from_table, sizeof(from_table));
+    helioselene_secure_erase(&ident, sizeof(ident));
+    helioselene_secure_erase(&tmp, sizeof(tmp));
+    helioselene_secure_erase(&fresh, sizeof(fresh));
 }
 
 #endif // HELIOSELENE_SELENE_SCALARMULT_FIXED_H
