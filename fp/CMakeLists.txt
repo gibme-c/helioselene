@@ -29,7 +29,10 @@ endif()
 add_library(helioselene-fp STATIC ${FP_SRC})
 
 target_include_directories(helioselene-fp PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
 )
 
-target_link_libraries(helioselene-fp PUBLIC helioselene-common)
+target_link_libraries(helioselene-fp
+    PUBLIC helioselene-common
+    PRIVATE helioselene-build-flags
+)

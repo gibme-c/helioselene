@@ -38,7 +38,8 @@ if(ENABLE_AVX2)
     if(MSVC)
         set_source_files_properties(${SELENE_AVX2_SRC} PROPERTIES COMPILE_FLAGS "/arch:AVX2")
     else()
-        set_source_files_properties(${SELENE_AVX2_SRC} PROPERTIES COMPILE_FLAGS "-mavx2")
+        set_source_files_properties(${SELENE_AVX2_SRC} PROPERTIES
+            COMPILE_FLAGS "-mavx2 ${_MINGW_SIMD_FIX}")
     endif()
 endif()
 
@@ -54,14 +55,18 @@ if(ENABLE_AVX512)
     if(MSVC)
         set_source_files_properties(${SELENE_IFMA_SRC} PROPERTIES COMPILE_FLAGS "/arch:AVX512")
     else()
-        set_source_files_properties(${SELENE_IFMA_SRC} PROPERTIES COMPILE_FLAGS "-mavx512f -mavx512ifma")
+        set_source_files_properties(${SELENE_IFMA_SRC} PROPERTIES
+            COMPILE_FLAGS "-mavx512f -mavx512ifma ${_MINGW_SIMD_FIX}")
     endif()
 endif()
 
 add_library(helioselene-selene STATIC ${SELENE_SRC})
 
 target_include_directories(helioselene-selene PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
 )
 
-target_link_libraries(helioselene-selene PUBLIC helioselene-fq helioselene-common)
+target_link_libraries(helioselene-selene
+    PUBLIC helioselene-fq helioselene-common
+    PRIVATE helioselene-build-flags
+)

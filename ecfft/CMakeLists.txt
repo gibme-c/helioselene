@@ -6,21 +6,20 @@ if(ENABLE_ECFFT)
     )
 
     target_include_directories(helioselene-ecfft PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     )
 
     target_compile_definitions(helioselene-ecfft PUBLIC HELIOSELENE_ECFFT=1)
 
-    target_link_libraries(helioselene-ecfft PUBLIC
-        helioselene-fp
-        helioselene-fq
-        helioselene-common
+    target_link_libraries(helioselene-ecfft
+        PUBLIC helioselene-fp helioselene-fq helioselene-common
+        PRIVATE helioselene-build-flags
     )
 else()
     # Header-only stub so downstream can unconditionally link
     add_library(helioselene-ecfft INTERFACE)
 
     target_include_directories(helioselene-ecfft INTERFACE
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     )
 endif()

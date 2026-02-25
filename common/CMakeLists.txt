@@ -4,8 +4,10 @@ add_library(helioselene-common STATIC
 )
 
 target_include_directories(helioselene-common PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
 )
+
+target_link_libraries(helioselene-common PRIVATE helioselene-build-flags)
 
 if(FORCE_PORTABLE)
     target_compile_definitions(helioselene-common PUBLIC FORCE_PORTABLE=1)

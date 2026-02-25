@@ -33,31 +33,34 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(CMAKE_SKIP_INSTALL_RULES OFF FORCE)
 set(CMAKE_SKIP_PACKAGE_ALL_DEPENDENCY ON FORCE)
 set(CMAKE_SUPPRESS_REGENERATION ON)
-
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# ── Internal build flags (PRIVATE to all helioselene targets) ──
+# Sub-libraries link PRIVATE to this target so compile flags do not leak
+# to downstream consumers via add_subdirectory or FetchContent.
+add_library(helioselene-build-flags INTERFACE)
+target_compile_features(helioselene-build-flags INTERFACE cxx_std_17)
+
+include(CheckCXXCompilerFlag)
+include(CheckCXXSourceCompiles)
+
 if(MSVC)
-    include(CheckCXXCompilerFlag)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std:c++17 /W4 /GS /sdl /guard:cf /wd4267 /wd4804 /D_DLL")
-    string(REPLACE "/Ob0" "/Ob2" CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")
-    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /Oi")
+    target_compile_options(helioselene-build-flags INTERFACE
+        /W4 /GS /sdl /guard:cf /wd4267 /wd4804 /D_DLL
+        # Debug: enable inlining + intrinsics even in debug for usable perf
+        $<$<CONFIG:Debug>:/Ob2 /Oi>
+    )
 
     # Spectre mitigation
     check_cxx_compiler_flag("/Qspectre" HAS_QSPECTRE)
     if(HAS_QSPECTRE)
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /Qspectre")
+        target_compile_options(helioselene-build-flags INTERFACE /Qspectre)
     endif()
-
-    # PE linker hardening — DEP + ASLR
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /DYNAMICBASE /NXCOMPAT /HIGHENTROPYVA")
 
     # CET shadow stack (newer MSVC only)
     check_cxx_compiler_flag("/guard:ehcont" HAS_GUARD_EHCONT)
     if(HAS_GUARD_EHCONT)
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /guard:ehcont")
-        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /guard:ehcont /CETCOMPAT")
+        target_compile_options(helioselene-build-flags INTERFACE /guard:ehcont)
     endif()
 else()
     if("${ARCH}" STREQUAL "default")
@@ -66,26 +69,35 @@ else()
         set(ARCH_FLAG "-march=${ARCH}")
     endif()
 
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17 -Wall -Wextra -Wuninitialized -Wformat-security -Wconversion -Wsign-conversion ${ARCH_FLAG}")
+    target_compile_options(helioselene-build-flags INTERFACE
+        -Wall -Wextra -Wuninitialized -Wformat-security -Wconversion -Wsign-conversion
+        ${ARCH_FLAG}
+        # Debug: full debug info + optimize for debugging
+        $<$<CONFIG:Debug>:-g3 -Og>
+    )
+
+    # _FORTIFY_SOURCE requires optimization; not reliably supported on MinGW
+    if(NOT WIN32)
+        target_compile_options(helioselene-build-flags INTERFACE
+            $<$<NOT:$<CONFIG:Debug>>:-D_FORTIFY_SOURCE=2>
+        )
+    endif()
 
     # Stack protector: try-compile probe (catches any toolchain where
     # libssp / compiler-rt is missing, not just Clang+MinGW).
-    include(CheckCXXSourceCompiles)
     set(CMAKE_REQUIRED_FLAGS "-fstack-protector-strong")
     check_cxx_source_compiles("int main() { char buf[64]; buf[0] = 0; return buf[0]; }" HAS_STACK_PROTECTOR_STRONG)
     unset(CMAKE_REQUIRED_FLAGS)
     if(HAS_STACK_PROTECTOR_STRONG)
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fstack-protector-strong")
+        target_compile_options(helioselene-build-flags INTERFACE -fstack-protector-strong)
     endif()
 
-    # Stack clash protection (GCC 8.3+, Clang 11+)
-    # Exclude AppleClang and Windows Clang: they accept the flag at configure
-    # time but emit "argument unused during compilation" warnings on every TU.
-    include(CheckCXXCompilerFlag)
-    if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang" AND NOT (CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND (WIN32 OR APPLE)))
+    # Stack clash protection (Linux only — not supported on macOS/Apple Clang,
+    # and Windows Clang accepts the flag but emits "argument unused" warnings)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         check_cxx_compiler_flag("-fstack-clash-protection" HAS_STACK_CLASH_PROTECTION)
         if(HAS_STACK_CLASH_PROTECTION)
-            set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fstack-clash-protection")
+            target_compile_options(helioselene-build-flags INTERFACE -fstack-clash-protection)
         endif()
     endif()
 
@@ -93,40 +105,72 @@ else()
     # SIMD instructions that could create data-dependent timing behavior,
     # which would undermine the constant-time guarantees of the crypto code.
     if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-tree-vectorize")
+        target_compile_options(helioselene-build-flags INTERFACE -fno-tree-vectorize)
+        # GCC libstdc++ debug assertions (bounds checks on operator[], iterator validation)
+        target_compile_options(helioselene-build-flags INTERFACE
+            $<$<CONFIG:Debug>:-D_GLIBCXX_ASSERTIONS>
+        )
     elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-vectorize -fno-slp-vectorize")
+        target_compile_options(helioselene-build-flags INTERFACE -fno-vectorize -fno-slp-vectorize)
     endif()
 
     # CET control-flow integrity (Intel CET shadow stack + indirect branch tracking)
     if(CMAKE_SYSTEM_PROCESSOR MATCHES "^([xX]86_64|[aA][mM][dD]64)$")
         check_cxx_compiler_flag("-fcf-protection=full" HAS_CF_PROTECTION)
         if(HAS_CF_PROTECTION)
-            set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fcf-protection=full")
+            target_compile_options(helioselene-build-flags INTERFACE -fcf-protection=full)
+        endif()
+    endif()
+endif()
+
+# ── Linker hardening helper ──
+# Only use CMake's built-in MINGW (set for GCC with MinGW). Clang on Windows can
+# target either MinGW or MSVC ABI, and the linker varies (GNU ld vs lld-link) —
+# applying the wrong linker flags breaks the build. We let Clang on Windows rely
+# on the OS defaults for DEP/ASLR (enabled by default on modern Windows) rather
+# than guessing the linker style.
+function(helioselene_harden_executable target)
+    if(MSVC)
+        # PE linker hardening — DEP + ASLR
+        set_property(TARGET ${target} APPEND_STRING PROPERTY LINK_FLAGS
+            " /DYNAMICBASE /NXCOMPAT /HIGHENTROPYVA")
+        # CET shadow stack compatibility — compile AND link flags must match
+        if(HAS_GUARD_EHCONT)
+            target_compile_options(${target} PRIVATE /guard:ehcont)
+            set_property(TARGET ${target} APPEND_STRING PROPERTY LINK_FLAGS
+                " /guard:ehcont /CETCOMPAT")
+        endif()
+    elseif(MINGW)
+        # MinGW (GCC only) PE linker hardening — DEP + ASLR
+        set_property(TARGET ${target} APPEND_STRING PROPERTY LINK_FLAGS
+            " -Wl,--nxcompat -Wl,--dynamicbase -Wl,--high-entropy-va")
+    elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        # ELF linker hardening
+        set_property(TARGET ${target} APPEND_STRING PROPERTY LINK_FLAGS
+            " -Wl,-z,relro,-z,now -Wl,-z,noexecstack")
+    endif()
+
+    # LTO link flags
+    if(ENABLE_LTO)
+        if(MSVC)
+            set_property(TARGET ${target} APPEND_STRING PROPERTY LINK_FLAGS " /LTCG")
+        else()
+            set_property(TARGET ${target} APPEND_STRING PROPERTY LINK_FLAGS " -flto")
         endif()
     endif()
 
-    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -g3 -Og")
-    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -DNDEBUG -O3")
-    if(NOT WIN32)
-        set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -D_FORTIFY_SOURCE=2")
+    # Sanitizer link flags
+    if(NOT MSVC)
+        if(ENABLE_ASAN)
+            set_property(TARGET ${target} APPEND_STRING PROPERTY LINK_FLAGS
+                " -fsanitize=address")
+        endif()
+        if(ENABLE_UBSAN)
+            set_property(TARGET ${target} APPEND_STRING PROPERTY LINK_FLAGS
+                " -fsanitize=undefined")
+        endif()
     endif()
-
-    # GCC libstdc++ debug assertions (bounds checks on operator[], iterator validation)
-    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-        set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -D_GLIBCXX_ASSERTIONS")
-    endif()
-
-    # ELF linker hardening (not applicable on Apple, Windows, or MSVC)
-    if(NOT APPLE AND NOT WIN32)
-        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-z,relro -Wl,-z,now -Wl,-z,noexecstack")
-    endif()
-
-    # MinGW (GCC) PE linker hardening — DEP + ASLR
-    if(MINGW)
-        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--nxcompat -Wl,--dynamicbase -Wl,--high-entropy-va")
-    endif()
-endif()
+endfunction()
 
 # ── Options ──
 option(FORCE_PORTABLE "Force portable (32-bit) implementation even on 64-bit platforms" OFF)
@@ -159,12 +203,9 @@ option(ENABLE_ECFFT "Enable ECFFT polynomial multiplication" OFF)
 option(ENABLE_LTO "Enable link-time optimization" OFF)
 if(ENABLE_LTO)
     if(MSVC)
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /GL")
-        set(CMAKE_STATIC_LINKER_FLAGS "${CMAKE_STATIC_LINKER_FLAGS} /LTCG")
-        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /LTCG")
+        target_compile_options(helioselene-build-flags INTERFACE /GL)
     else()
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -flto")
-        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -flto")
+        target_compile_options(helioselene-build-flags INTERFACE -flto)
     endif()
     message(STATUS "HELIOSELENE: Link-time optimization enabled")
 endif()
@@ -173,15 +214,26 @@ option(ENABLE_ASAN "Enable AddressSanitizer" OFF)
 option(ENABLE_UBSAN "Enable UndefinedBehaviorSanitizer" OFF)
 if(NOT MSVC)
     if(ENABLE_ASAN)
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address -fno-omit-frame-pointer")
-        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=address")
+        target_compile_options(helioselene-build-flags INTERFACE
+            -fsanitize=address -fno-omit-frame-pointer)
         message(STATUS "HELIOSELENE: AddressSanitizer enabled")
     endif()
     if(ENABLE_UBSAN)
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=undefined -fno-omit-frame-pointer")
-        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=undefined")
+        target_compile_options(helioselene-build-flags INTERFACE
+            -fsanitize=undefined -fno-omit-frame-pointer)
         message(STATUS "HELIOSELENE: UndefinedBehaviorSanitizer enabled")
     endif()
+endif()
+
+# ── MinGW GCC + Debug SIMD alignment fix ──
+# Windows x64 ABI only guarantees 16-byte stack alignment, but YMM/ZMM
+# registers need 32/64-byte alignment.  At -O0, GCC spills AVX registers
+# to the stack with aligned moves (vmovdqa), which SIGSEGV on the
+# misaligned stack.  Force -O1 for SIMD backends in Debug mode so GCC
+# keeps values in registers.
+set(_MINGW_SIMD_FIX "")
+if(MINGW AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    set(_MINGW_SIMD_FIX "$<$<CONFIG:Debug>:-O1>")
 endif()
 
 # ── Sub-libraries ──
@@ -232,7 +284,11 @@ if(ENABLE_ECFFT)
     message(STATUS "HELIOSELENE: ECFFT polynomial multiplication enabled")
 endif()
 
-target_include_directories(helioselene PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+# Public interface for downstream consumers
+target_compile_features(helioselene PUBLIC cxx_std_17)
+target_include_directories(helioselene PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+)
 target_link_libraries(helioselene PUBLIC
     helioselene-ec-divisors
     helioselene-helios
@@ -242,6 +298,9 @@ target_link_libraries(helioselene PUBLIC
     helioselene-ecfft
     helioselene-common
 )
+
+# Internal build flags (PRIVATE — not propagated to downstream)
+target_link_libraries(helioselene PRIVATE helioselene-build-flags)
 
 # ── Tests ──
 option(BUILD_TESTS "Build unit tests" OFF)
@@ -255,10 +314,12 @@ if(BUILD_TESTS)
 
     add_executable(helioselene-tests src/tests.cpp)
     target_link_libraries(helioselene-tests PRIVATE helioselene)
+    helioselene_harden_executable(helioselene-tests)
     add_test(NAME helioselene-tests COMMAND helioselene-tests)
 
     add_executable(helioselene-fuzz-tests src/tests_fuzz.cpp)
     target_link_libraries(helioselene-fuzz-tests PRIVATE helioselene)
+    helioselene_harden_executable(helioselene-fuzz-tests)
     add_test(NAME helioselene-fuzz-tests COMMAND helioselene-fuzz-tests)
 endif()
 
@@ -273,12 +334,15 @@ if(BUILD_BENCHMARKS)
 
     add_executable(helioselene-benchmark src/benchmark.cpp)
     target_link_libraries(helioselene-benchmark PRIVATE helioselene)
+    helioselene_harden_executable(helioselene-benchmark)
 
     add_executable(helioselene-benchmark-contest src/benchmark_contest.cpp)
     target_link_libraries(helioselene-benchmark-contest PRIVATE helioselene)
+    helioselene_harden_executable(helioselene-benchmark-contest)
 
     add_executable(helioselene-benchmark-fcmpp src/benchmark_fcmpp.cpp)
     target_link_libraries(helioselene-benchmark-fcmpp PRIVATE helioselene)
+    helioselene_harden_executable(helioselene-benchmark-fcmpp)
 
     # Benchmarks are developer tools — relax sign-conversion warnings
     if(NOT MSVC)
@@ -292,13 +356,16 @@ endif()
 option(BUILD_TOOLS "Build auxiliary tools (ECFFT curve search)" OFF)
 if(BUILD_TOOLS)
     add_executable(helioselene-find-ecfft tools/find_ecfft_curve.cpp)
-    target_link_libraries(helioselene-find-ecfft helioselene)
+    target_link_libraries(helioselene-find-ecfft PRIVATE helioselene)
+    helioselene_harden_executable(helioselene-find-ecfft)
 
     add_executable(helioselene-gen-ecfft tools/gen_ecfft_data.cpp)
-    target_link_libraries(helioselene-gen-ecfft helioselene)
+    target_link_libraries(helioselene-gen-ecfft PRIVATE helioselene)
+    helioselene_harden_executable(helioselene-gen-ecfft)
 
     add_executable(helioselene-gen-testvectors tools/gen_test_vectors.cpp)
-    target_link_libraries(helioselene-gen-testvectors helioselene)
+    target_link_libraries(helioselene-gen-testvectors PRIVATE helioselene)
+    helioselene_harden_executable(helioselene-gen-testvectors)
 
     # Tools are developer utilities — relax sign-conversion warnings
     if(NOT MSVC)
