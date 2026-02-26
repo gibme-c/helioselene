@@ -8,10 +8,6 @@ endif()
 
 message(STATUS "Mode: ${CMAKE_BUILD_TYPE}")
 
-set(ARCH native CACHE STRING  "CPU to build for: -march value or native")
-
-message(STATUS "Building for target architecture: ${ARCH}")
-
 set(LIB_MAJOR_VERSION "0")
 set(LIB_MINOR_VERSION "1")
 set(LIB_PATCH_VERSION "0")
@@ -19,14 +15,6 @@ set(LIB_VERSION_STRING "${LIB_MAJOR_VERSION}.${LIB_MINOR_VERSION}.${LIB_PATCH_VE
 
 cmake_policy(SET CMP0048 NEW)
 project(helioselene VERSION "${LIB_VERSION_STRING}" LANGUAGES CXX)
-
-if(NOT MSVC)
-    find_program(CCACHE_PROGRAM ccache)
-    if(CCACHE_PROGRAM)
-        message(STATUS "Found ccache package... Activating...")
-        set(CMAKE_CXX_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
-    endif()
-endif()
 
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
@@ -63,15 +51,8 @@ if(MSVC)
         target_compile_options(helioselene-build-flags INTERFACE /guard:ehcont)
     endif()
 else()
-    if("${ARCH}" STREQUAL "default")
-        set(ARCH_FLAG "")
-    else()
-        set(ARCH_FLAG "-march=${ARCH}")
-    endif()
-
     target_compile_options(helioselene-build-flags INTERFACE
         -Wall -Wextra -Wuninitialized -Wformat-security -Wconversion -Wsign-conversion
-        ${ARCH_FLAG}
         # Debug: full debug info + optimize for debugging
         $<$<CONFIG:Debug>:-g3 -Og>
     )
