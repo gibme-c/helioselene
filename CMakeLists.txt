@@ -278,6 +278,7 @@ if(ENABLE_AVX2 OR ENABLE_AVX512)
     endif()
 else()
     add_library(helioselene STATIC ${HELIOSELENE_API_SOURCES})
+    target_compile_definitions(helioselene PUBLIC HELIOSELENE_SIMD=0)
 endif()
 
 if(ENABLE_ECFFT)

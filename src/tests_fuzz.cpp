@@ -2523,7 +2523,7 @@ int main(int argc, char *argv[])
     std::cout << "Helioselene Fuzz Tests" << std::endl;
     std::cout << "======================" << std::endl;
     std::cout << "Dispatch: " << dispatch_label << std::endl;
-#ifdef HELIOSELENE_SIMD
+#if HELIOSELENE_SIMD
     std::cout << "CPU features:";
     if (helioselene_has_avx2())
         std::cout << " AVX2";

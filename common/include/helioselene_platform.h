@@ -38,22 +38,33 @@
 
 #if defined(__x86_64__) || defined(_M_X64)
 #define HELIOSELENE_PLATFORM_X64 1
+#else
+#define HELIOSELENE_PLATFORM_X64 0
 #endif
 
 #if defined(__aarch64__) || defined(_M_ARM64)
 #define HELIOSELENE_PLATFORM_ARM64 1
+#else
+#define HELIOSELENE_PLATFORM_ARM64 0
 #endif
 
 #if (!defined(FORCE_PORTABLE) || !FORCE_PORTABLE) && (HELIOSELENE_PLATFORM_X64 || HELIOSELENE_PLATFORM_ARM64)
 #define HELIOSELENE_PLATFORM_64BIT 1
+#else
+#define HELIOSELENE_PLATFORM_64BIT 0
 #endif
 
 #if defined(__SIZEOF_INT128__)
 #define HELIOSELENE_HAVE_INT128 1
+#define HELIOSELENE_HAVE_UMUL128 0
 typedef unsigned __int128 helioselene_uint128;
 #elif defined(_M_X64)
+#define HELIOSELENE_HAVE_INT128 0
 #define HELIOSELENE_HAVE_UMUL128 1
 #include <intrin.h>
+#else
+#define HELIOSELENE_HAVE_INT128 0
+#define HELIOSELENE_HAVE_UMUL128 0
 #endif
 
 #endif // HELIOSELENE_PLATFORM_H
