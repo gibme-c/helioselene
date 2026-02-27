@@ -32,7 +32,7 @@
 #ifndef HELIOSELENE_FP_UTILS_H
 #define HELIOSELENE_FP_UTILS_H
 
-#include "ct_barrier.h"
+#include "helioselene_ct_barrier.h"
 #include "fp.h"
 #include "fp_tobytes.h"
 
@@ -47,7 +47,7 @@ static inline int fp_isnonzero(const fp_fe h)
     unsigned char d = 0;
     for (int i = 0; i < 32; i++)
         d |= s[i];
-    uint64_t w = ct_barrier_u64((uint64_t)d);
+    uint64_t w = helioselene_ct_barrier_u64((uint64_t)d);
     return (int)((w | (0 - w)) >> 63);
 }
 

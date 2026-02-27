@@ -32,13 +32,13 @@
 #ifndef HELIOSELENE_FP_CMOV_H
 #define HELIOSELENE_FP_CMOV_H
 
-#include "ct_barrier.h"
+#include "helioselene_ct_barrier.h"
 #include "fp.h"
 
 #if HELIOSELENE_PLATFORM_64BIT
 static inline void fp_cmov(fp_fe f, const fp_fe g, unsigned int b)
 {
-    uint64_t mask = 0 - (uint64_t)ct_barrier_u32(b);
+    uint64_t mask = 0 - (uint64_t)helioselene_ct_barrier_u32(b);
     f[0] ^= mask & (f[0] ^ g[0]);
     f[1] ^= mask & (f[1] ^ g[1]);
     f[2] ^= mask & (f[2] ^ g[2]);
@@ -48,7 +48,7 @@ static inline void fp_cmov(fp_fe f, const fp_fe g, unsigned int b)
 #else
 static inline void fp_cmov(fp_fe f, const fp_fe g, unsigned int b)
 {
-    int32_t mask = 0 - (int32_t)ct_barrier_u32(b);
+    int32_t mask = 0 - (int32_t)helioselene_ct_barrier_u32(b);
     for (int i = 0; i < 10; i++)
         f[i] ^= mask & (f[i] ^ g[i]);
 }

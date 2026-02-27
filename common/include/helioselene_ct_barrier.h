@@ -25,7 +25,7 @@
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 /**
- * @file ct_barrier.h
+ * @file helioselene_ct_barrier.h
  * @brief Constant-time barriers to prevent compiler optimization of secret-dependent operations.
  *
  * On GCC/Clang, uses inline asm to make the value opaque to the optimizer.
@@ -40,13 +40,13 @@
 
 #if defined(__GNUC__) || defined(__clang__)
 
-static inline uint32_t ct_barrier_u32(uint32_t x)
+static inline uint32_t helioselene_ct_barrier_u32(uint32_t x)
 {
     __asm__ __volatile__("" : "+r"(x));
     return x;
 }
 
-static inline uint64_t ct_barrier_u64(uint64_t x)
+static inline uint64_t helioselene_ct_barrier_u64(uint64_t x)
 {
     __asm__ __volatile__("" : "+r"(x));
     return x;
@@ -54,13 +54,13 @@ static inline uint64_t ct_barrier_u64(uint64_t x)
 
 #else
 
-static inline uint32_t ct_barrier_u32(uint32_t x)
+static inline uint32_t helioselene_ct_barrier_u32(uint32_t x)
 {
     volatile uint32_t v = x;
     return v;
 }
 
-static inline uint64_t ct_barrier_u64(uint64_t x)
+static inline uint64_t helioselene_ct_barrier_u64(uint64_t x)
 {
     volatile uint64_t v = x;
     return v;

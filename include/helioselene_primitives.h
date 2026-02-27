@@ -59,7 +59,7 @@
 #define HELIOSELENE_PRIMITIVES_H
 
 /* Platform detection, CPUID, dispatch, and secure erase */
-#include "ct_barrier.h"
+#include "helioselene_ct_barrier.h"
 #include "helioselene_cpuid.h"
 #include "helioselene_dispatch.h"
 #include "helioselene_platform.h"

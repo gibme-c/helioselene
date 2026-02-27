@@ -50,7 +50,7 @@
 #ifndef HELIOSELENE_X64_AVX2_FP10_AVX2_H
 #define HELIOSELENE_X64_AVX2_FP10_AVX2_H
 
-#include "ct_barrier.h"
+#include "helioselene_ct_barrier.h"
 #include "fp_ops.h"
 #include "helioselene_platform.h"
 #include "x64/fp51.h"
@@ -282,7 +282,7 @@ static FP10_AVX2_FORCE_INLINE void fp10_copy(fp10 h, const fp10 f)
  */
 static FP10_AVX2_FORCE_INLINE void fp10_cmov(fp10 t, const fp10 u, int64_t b)
 {
-    int64_t mask = -(int64_t)ct_barrier_u64((uint64_t)b);
+    int64_t mask = -(int64_t)helioselene_ct_barrier_u64((uint64_t)b);
     t[0] ^= mask & (t[0] ^ u[0]);
     t[1] ^= mask & (t[1] ^ u[1]);
     t[2] ^= mask & (t[2] ^ u[2]);
