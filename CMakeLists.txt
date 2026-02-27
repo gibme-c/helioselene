@@ -271,6 +271,10 @@ target_compile_features(helioselene PUBLIC cxx_std_17)
 target_include_directories(helioselene PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
 )
+# Downstream consumers get our headers as SYSTEM (suppresses their -Werror on our code)
+target_include_directories(helioselene SYSTEM INTERFACE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+)
 target_link_libraries(helioselene PUBLIC
     helioselene-ec-divisors
     helioselene-helios

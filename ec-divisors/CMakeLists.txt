@@ -45,7 +45,7 @@ target_include_directories(helioselene-ec-divisors PUBLIC
 # Add top-level include dir for helioselene_cpuid.h (needed by SIMD dispatch)
 if(ENABLE_AVX2 OR ENABLE_AVX512)
     target_include_directories(helioselene-ec-divisors PRIVATE
-        ${CMAKE_SOURCE_DIR}/include
+        ${PROJECT_SOURCE_DIR}/include
     )
 endif()
 
