@@ -29,9 +29,9 @@
 #include "fp_cmov.h"
 #include "fp_ops.h"
 #include "fp_tobytes.h"
-#include "ranshaw_secure_erase.h"
 #include "portable/fp25.h"
 #include "portable/fp25_chain.h"
+#include "ranshaw_secure_erase.h"
 
 /* sqrt(-1) mod p — same constant, but in 10-limb representation */
 static const fp_fe SQRT_M1 =

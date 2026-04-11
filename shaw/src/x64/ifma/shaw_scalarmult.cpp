@@ -52,6 +52,8 @@
 #include "fq_sq.h"
 #include "fq_tobytes.h"
 #include "fq_utils.h"
+#include "ranshaw_ct_barrier.h"
+#include "ranshaw_platform.h"
 #include "ranshaw_secure_erase.h"
 #include "shaw.h"
 #include "shaw_ops.h"
@@ -224,7 +226,7 @@ static void scalar_recode_signed4(int8_t digits[64], const unsigned char scalar[
     {
         int val = nibbles[i] + carry;
         carry = (val + 8) >> 4;
-        digits[i] = (int8_t)(val - (carry << 4));
+        digits[i] = (int8_t)(val - (ranshaw_shl_i32(carry, 4)));
     }
     digits[63] = (int8_t)(nibbles[63] + carry);
     ranshaw_secure_erase(nibbles, sizeof(nibbles));
@@ -366,6 +368,7 @@ void shaw_scalarmult_ifma(shaw_jacobian *r, const unsigned char scalar[32], cons
     fq10_cmov(rZ, tableZ, (int64_t)nonzero);
 
     /* Main loop: digits[62] down to digits[0] */
+    RANSHAW_NO_VECTOR
     for (int i = 62; i >= 0; i--)
     {
         /* 4 doublings */

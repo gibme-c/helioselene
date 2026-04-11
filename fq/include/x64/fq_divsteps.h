@@ -247,8 +247,8 @@ static inline int64_t fq_divsteps_62(int64_t delta, uint64_t f0, uint64_t g0, fq
 
         /* g >>= 1 (arithmetic); double f's row to compensate */
         g >>= 1;
-        u <<= 1;
-        v <<= 1;
+        u = ranshaw_shl_i64(u, 1);
+        v = ranshaw_shl_i64(v, 1);
     }
 
     t->u = u;
@@ -316,8 +316,8 @@ static inline void fq_update_de(fq_signed62 *d, fq_signed62 *e, const fq_trans2x
     int64_t ce = (int64_t)((me * (uint64_t)FQ_NEG_QINV62) & FQ_M62);
 
     /* Keep cd, ce in [-2^62, 2^62) by sign-extending from 62 bits */
-    cd = (cd << 2) >> 2;
-    ce = (ce << 2) >> 2;
+    cd = ranshaw_shl_i64(cd, 2) >> 2;
+    ce = ranshaw_shl_i64(ce, 2) >> 2;
 
     /* Compute (u*d + v*e + cd*q) / 2^62, limb by limb.
      * Limb 0 of the numerator is zero by construction (that's the point of cd/ce).
@@ -378,7 +378,7 @@ static inline void fq_divsteps_normalize(uint64_t out[5], fq_signed62 *d, const 
     {
         d->v[i] += carry;
         carry = d->v[i] >> 62;
-        d->v[i] -= carry << 62;
+        d->v[i] -= ranshaw_shl_i64(carry, 62);
     }
     d->v[4] += carry;
 
@@ -391,7 +391,7 @@ static inline void fq_divsteps_normalize(uint64_t out[5], fq_signed62 *d, const 
         carry = d->v[i] >> 62;
         if (i < 4)
         {
-            d->v[i] -= carry << 62;
+            d->v[i] -= ranshaw_shl_i64(carry, 62);
             d->v[i + 1] += carry;
         }
     }

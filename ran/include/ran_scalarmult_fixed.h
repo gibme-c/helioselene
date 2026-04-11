@@ -43,6 +43,7 @@
 #include "ran_dbl.h"
 #include "ran_madd.h"
 #include "ran_ops.h"
+#include "ranshaw_platform.h"
 #include "ranshaw_secure_erase.h"
 
 /**
@@ -82,7 +83,7 @@ static inline void ran_scalar_recode_signed5(int8_t digits[52], const unsigned c
 
         int val = (int)((word >> bit_pos) & 0x1fu) + carry;
         carry = (val + 16) >> 5;
-        digits[i] = (int8_t)(val - (carry << 5));
+        digits[i] = (int8_t)(val - (ranshaw_shl_i32(carry, 5)));
     }
     /* Last window: bit 255 (1 bit) */
     digits[51] = (int8_t)(((scalar[31] >> 7) & 1) + carry);

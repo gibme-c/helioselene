@@ -2544,7 +2544,7 @@ static void emit_ran_divisor()
                 small_scalar_bytes(sb, (uint64_t)i);
                 pts.push_back(G.scalar_mul(*RanScalar::from_bytes(sb)));
             }
-            auto div = RanDivisor::compute(pts.data(), (size_t)n);
+            auto div = RanDivisor::compute(pts.data(), (size_t)n).value();
 
             open_obj();
             emit_string("label", labels[ci]);
@@ -2597,7 +2597,7 @@ static void emit_ran_divisor()
             uint8_t y_bytes_arr[32];
             fp_tobytes(y_bytes_arr, aff.y);
 
-            auto eval_result = div.evaluate(x_bytes.data(), y_bytes_arr);
+            auto eval_result = div.evaluate(x_bytes.data(), y_bytes_arr).value();
 
             emit_hex("eval_point_x", x_bytes.data(), 32);
             emit_hex("eval_point_y", y_bytes_arr, 32);
@@ -2630,7 +2630,7 @@ static void emit_shaw_divisor()
                 small_scalar_bytes(sb, (uint64_t)i);
                 pts.push_back(G.scalar_mul(*ShawScalar::from_bytes(sb)));
             }
-            auto div = ShawDivisor::compute(pts.data(), (size_t)n);
+            auto div = ShawDivisor::compute(pts.data(), (size_t)n).value();
 
             open_obj();
             emit_string("label", labels[ci]);
@@ -2677,7 +2677,7 @@ static void emit_shaw_divisor()
             uint8_t y_bytes_arr[32];
             fq_tobytes(y_bytes_arr, aff.y);
 
-            auto eval_result = div.evaluate(x_bytes.data(), y_bytes_arr);
+            auto eval_result = div.evaluate(x_bytes.data(), y_bytes_arr).value();
 
             emit_hex("eval_point_x", x_bytes.data(), 32);
             emit_hex("eval_point_y", y_bytes_arr, 32);

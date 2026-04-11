@@ -68,4 +68,20 @@ static inline uint64_t ranshaw_ct_barrier_u64(uint64_t x)
 
 #endif
 
+/*
+ * RANSHAW_NO_VECTOR — loop-level "do not auto-vectorize" hint.
+ *
+ * Place immediately before an at-risk for-loop in constant-time code. The
+ * ct_barrier calls above already prevent MSVC from rewriting loop bodies
+ * into SIMD gathers (the compiler can't prove iterations are independent),
+ * but adding the explicit `#pragma loop(no_vector)` is defense-in-depth on
+ * MSVC. On GCC/Clang the global `-fno-tree-vectorize`/`-fno-vectorize` flags
+ * in CMakeLists.txt already handle this, so the macro expands to nothing.
+ */
+#if defined(_MSC_VER) && !defined(__clang__)
+#define RANSHAW_NO_VECTOR __pragma(loop(no_vector))
+#else
+#define RANSHAW_NO_VECTOR
+#endif
+
 #endif // RANSHAW_CT_BARRIER_H

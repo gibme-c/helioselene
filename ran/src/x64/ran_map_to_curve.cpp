@@ -26,14 +26,19 @@
 
 /**
  * @file x64/ran_map_to_curve.cpp
- * @brief Constant-time simplified SWU map-to-curve for Ran (RFC 9380 section 6.6.2).
+ * @brief Constant-time Simplified SWU map-to-curve for Ran.
  *
  * Ran: y^2 = x^3 - 3x + b over F_p (p = 2^255 - 19).
- * A = -3, B = b. Since A != 0 and B != 0, simplified SWU applies directly.
- * Z = 7 (non-square in F_p, g(B/(Z*A)) is square).
+ * A = -3, B = b. Since A != 0 and B != 0, Simplified SWU applies directly.
+ * Z = -2 (non-square in F_p, g(B/(Z*A)) is square).
  *
- * This implementation is fully constant-time as required by RFC 9380 Section 4.
- * All branches on secret-derived data are replaced with cmov selections.
+ * Follows the Wahby-Boneh 2019 construction ("Fast and simple constant-time
+ * hashing to the BLS12-381 elliptic curve", IACR TCHES 2019(4)). Caller
+ * supplies the pre-hashed field element u. Deviations from RFC 9380 Section
+ * 6.6.2 are documented in docs/hash_to_curve_rationale.md: Z is chosen for
+ * Wahby-Boneh soundness (non-square, g(B/(Z*A)) square), not the additional
+ * RFC 9380 cleanness criteria. The constant-time structure (inv0 via Fermat,
+ * branchless sqrt selection, cneg-based sign fix) matches RFC 9380 Section 4.
  */
 
 #include "ran_map_to_curve.h"
@@ -84,13 +89,13 @@ static unsigned int fp_ct_equal(const fp_fe a, const fp_fe b)
 }
 
 /*
- * Constant-time simplified SWU (RFC 9380 section 6.6.2)
+ * Constant-time Simplified SWU (Wahby-Boneh 2019).
  *
  * Input: field element u
  * Output: Jacobian point (x:y:1) on Ran
  *
  * All three original branches eliminated:
- *   Branch 1 (denom==0): Always invert; fp_invert gives inv0 semantics (0→0).
+ *   Branch 1 (denom==0): Always invert; fp_invert gives inv0 semantics (0 -> 0).
  *                         Compute normal-path x1, then cmov to B/(Z*A) if denom was zero.
  *   Branch 2 (gx1 is square): Always compute sqrt(gx1) AND sqrt(gx2), select via cmov.
  *   Branch 3 (sign adjustment): Replace if/negate with fp_cneg.

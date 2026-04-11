@@ -32,6 +32,7 @@
 #ifndef RANSHAW_RAN_SCALAR_H
 #define RANSHAW_RAN_SCALAR_H
 
+#include "fq_cmov.h"
 #include "fq_frombytes.h"
 #include "fq_invert.h"
 #include "fq_mul.h"
@@ -109,6 +110,12 @@ static inline void ran_scalar_zero(fq_fe out)
  * For wide reduction, bit 255 of each half carries value, so we add back:
  *   lo_bit255 * (2^255 mod q) = lo_bit255 * gamma
  *   hi_bit255 * (2^511 mod q) = hi_bit255 * gamma * 2*gamma = hi_bit255 * 2*gamma^2
+ *
+ * Constant-time: the two corrections (bit 255 of each half) are applied via
+ * fq_cmov rather than `if`. The full correction values are always computed
+ * and fq_add always runs; only the selector differs. This prevents a timing
+ * side channel on the high bit of any secret scalar routed through this
+ * function (e.g. hash-to-scalar of a secret nonce).
  */
 static inline void ran_scalar_reduce_wide(fq_fe out, const unsigned char wide[64])
 {
@@ -123,32 +130,37 @@ static inline void ran_scalar_reduce_wide(fq_fe out, const unsigned char wide[64
 #if RANSHAW_PLATFORM_64BIT
     static const fq_fe TWO_TO_256_MOD_Q = {TWO_GAMMA_51[0], TWO_GAMMA_51[1], TWO_GAMMA_51[2], 0, 0};
     static const fq_fe GAMMA_FE = {GAMMA_51[0], GAMMA_51[1], GAMMA_51[2], 0, 0};
+    static const fq_fe FQ_ZERO_FE = {0, 0, 0, 0, 0};
 #else
     static const fq_fe TWO_TO_256_MOD_Q = {
         2 * GAMMA_25[0], 2 * GAMMA_25[1], 2 * GAMMA_25[2], 2 * GAMMA_25[3], 2 * GAMMA_25[4], 0, 0, 0, 0, 0};
     static const fq_fe GAMMA_FE = {GAMMA_25[0], GAMMA_25[1], GAMMA_25[2], GAMMA_25[3], GAMMA_25[4], 0, 0, 0, 0, 0};
+    static const fq_fe FQ_ZERO_FE = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 #endif
 
     fq_mul(hi_shifted, hi, TWO_TO_256_MOD_Q);
     fq_add(out, lo, hi_shifted);
 
-    /* Correct for bit 255 stripped by fq_frombytes from each half. */
-    uint64_t lo_b = (wide[31] >> 7) & 1;
-    uint64_t hi_b = (wide[63] >> 7) & 1;
+    /* Correct for bit 255 stripped by fq_frombytes from each half.
+     * Always compute both correction values and apply via fq_cmov so the
+     * control flow is independent of the (potentially secret) top bits. */
+    unsigned int lo_b = (unsigned int)((wide[31] >> 7) & 1);
+    unsigned int hi_b = (unsigned int)((wide[63] >> 7) & 1);
 
-    if (lo_b)
-    {
-        /* Add gamma (= 2^255 mod q) */
-        fq_add(out, out, GAMMA_FE);
-    }
+    /* two_gamma_sq = 2*gamma^2 = gamma * 2*gamma = 2^511 mod q */
+    fq_fe two_gamma_sq;
+    fq_mul(two_gamma_sq, GAMMA_FE, TWO_TO_256_MOD_Q);
 
-    if (hi_b)
-    {
-        /* Add 2*gamma^2 (= 2^511 mod q = gamma * 2*gamma mod q) */
-        fq_fe gamma_sq;
-        fq_mul(gamma_sq, GAMMA_FE, TWO_TO_256_MOD_Q);
-        fq_add(out, out, gamma_sq);
-    }
+    fq_fe lo_corr, hi_corr;
+    /* lo_corr = lo_b ? GAMMA_FE : 0 */
+    fq_copy(lo_corr, FQ_ZERO_FE);
+    fq_cmov(lo_corr, GAMMA_FE, lo_b);
+    /* hi_corr = hi_b ? two_gamma_sq : 0 */
+    fq_copy(hi_corr, FQ_ZERO_FE);
+    fq_cmov(hi_corr, two_gamma_sq, hi_b);
+
+    fq_add(out, out, lo_corr);
+    fq_add(out, out, hi_corr);
 }
 
 /*

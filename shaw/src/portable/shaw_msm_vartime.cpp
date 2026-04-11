@@ -35,6 +35,7 @@
 #include "fq_ops.h"
 #include "fq_sq.h"
 #include "fq_utils.h"
+#include "ranshaw_platform.h"
 #include "ranshaw_secure_erase.h"
 #include "shaw_add.h"
 #include "shaw_dbl.h"
@@ -43,57 +44,6 @@
 #include <cstdint>
 #include <cstring>
 #include <vector>
-
-// ============================================================================
-// Safe variable-time addition for Jacobian coordinates
-// ============================================================================
-
-static void shaw_add_safe(shaw_jacobian *r, const shaw_jacobian *p, const shaw_jacobian *q)
-{
-    if (shaw_is_identity(p))
-    {
-        shaw_copy(r, q);
-        return;
-    }
-    if (shaw_is_identity(q))
-    {
-        shaw_copy(r, p);
-        return;
-    }
-
-    /* Check if x-coordinates match (projective comparison) */
-    fq_fe z1z1, z2z2, u1, u2, diff;
-    fq_sq(z1z1, p->Z);
-    fq_sq(z2z2, q->Z);
-    fq_mul(u1, p->X, z2z2);
-    fq_mul(u2, q->X, z1z1);
-    fq_sub(diff, u1, u2);
-
-    if (!fq_isnonzero(diff))
-    {
-        /* Same x: check if same or opposite y */
-        fq_fe s1, s2, t;
-        fq_mul(t, q->Z, z2z2);
-        fq_mul(s1, p->Y, t);
-        fq_mul(t, p->Z, z1z1);
-        fq_mul(s2, q->Y, t);
-        fq_sub(diff, s1, s2);
-
-        if (!fq_isnonzero(diff))
-        {
-            /* P == Q: double */
-            shaw_dbl(r, p);
-        }
-        else
-        {
-            /* P == -Q: identity */
-            shaw_identity(r);
-        }
-        return;
-    }
-
-    shaw_add(r, p, q);
-}
 
 // ============================================================================
 // Signed digit encoding (curve-independent)
@@ -106,13 +56,13 @@ static void encode_signed_w4(int16_t *digits, const unsigned char *scalar)
     {
         carry += scalar[i];
         int carry2 = (carry + 8) >> 4;
-        digits[2 * i] = static_cast<int16_t>(carry - (carry2 << 4));
+        digits[2 * i] = static_cast<int16_t>(carry - (ranshaw_shl_i32(carry2, 4)));
         carry = (carry2 + 8) >> 4;
-        digits[2 * i + 1] = static_cast<int16_t>(carry2 - (carry << 4));
+        digits[2 * i + 1] = static_cast<int16_t>(carry2 - (ranshaw_shl_i32(carry, 4)));
     }
     carry += scalar[31];
     int carry2 = (carry + 8) >> 4;
-    digits[62] = static_cast<int16_t>(carry - (carry2 << 4));
+    digits[62] = static_cast<int16_t>(carry - (ranshaw_shl_i32(carry2, 4)));
     digits[63] = static_cast<int16_t>(carry2);
 }
 
@@ -174,7 +124,7 @@ static void msm_straus(shaw_jacobian *result, const unsigned char *scalars, cons
         shaw_dbl(&Ti[1], &points[i]);
         for (int j = 1; j < 7; j++)
         {
-            shaw_add_safe(&Ti[j + 1], &Ti[j], &points[i]);
+            shaw_add(&Ti[j + 1], &Ti[j], &points[i]);
         }
     }
 
@@ -216,7 +166,7 @@ static void msm_straus(shaw_jacobian *result, const unsigned char *scalars, cons
             }
             else
             {
-                shaw_add_safe(&acc, &acc, &pt);
+                shaw_add(&acc, &acc, &pt);
             }
         }
     }
@@ -306,7 +256,7 @@ static void msm_pippenger(shaw_jacobian *result, const unsigned char *scalars, c
             }
             else
             {
-                shaw_add_safe(&bucket_points[bucket_idx], &bucket_points[bucket_idx], &effective_point);
+                shaw_add(&bucket_points[bucket_idx], &bucket_points[bucket_idx], &effective_point);
             }
         }
 
@@ -327,7 +277,7 @@ static void msm_pippenger(shaw_jacobian *result, const unsigned char *scalars, c
                 }
                 else
                 {
-                    shaw_add_safe(&running, &running, &bucket_points[j]);
+                    shaw_add(&running, &running, &bucket_points[j]);
                 }
             }
 
@@ -340,7 +290,7 @@ static void msm_pippenger(shaw_jacobian *result, const unsigned char *scalars, c
                 }
                 else
                 {
-                    shaw_add_safe(&partial, &partial, &running);
+                    shaw_add(&partial, &partial, &running);
                 }
             }
         }
@@ -357,7 +307,7 @@ static void msm_pippenger(shaw_jacobian *result, const unsigned char *scalars, c
             }
             else
             {
-                shaw_add_safe(&total, &total, &partial);
+                shaw_add(&total, &total, &partial);
             }
         }
     }

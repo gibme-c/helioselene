@@ -36,8 +36,8 @@
  */
 
 #include "ranshaw.h"
-#include "ranshaw_primitives.h"
 #include "ranshaw_benchmark.h"
+#include "ranshaw_primitives.h"
 
 #include <cstring>
 #include <iostream>

@@ -33,8 +33,8 @@
 #ifndef RANSHAW_DIVISOR_H
 #define RANSHAW_DIVISOR_H
 
-#include "ran.h"
 #include "poly.h"
+#include "ran.h"
 #include "shaw.h"
 
 /**
@@ -57,20 +57,30 @@ struct shaw_divisor
  * Compute a divisor witness for a set of affine points.
  * The divisor D = a(x) - y*b(x) vanishes at exactly these points.
  *
- * @param d      Output divisor
+ * Validates inputs: every point must be on the curve, and no two points
+ * may share an x-coordinate (Lagrange interpolation requires distinct
+ * x-coordinates; duplicates would yield a well-defined-but-silent wrong
+ * divisor). Returns 0 on success, -1 on validation failure. On failure
+ * the output divisor is not written.
+ *
+ * @param d      Output divisor (unchanged on failure)
  * @param points Array of affine points
  * @param n      Number of points (must be >= 1)
+ * @return       0 on success, -1 on validation failure
  */
-void ran_compute_divisor(ran_divisor *d, const ran_affine *points, size_t n);
+int ran_compute_divisor(ran_divisor *d, const ran_affine *points, size_t n);
 
-void shaw_compute_divisor(shaw_divisor *d, const shaw_affine *points, size_t n);
+int shaw_compute_divisor(shaw_divisor *d, const shaw_affine *points, size_t n);
 
 /**
  * Evaluate a divisor at a point (x, y).
  * result = a(x) - y * b(x)
+ *
+ * Validates that (x, y) is on the associated curve. Returns 0 on success,
+ * -1 if the point is off-curve. On failure the result is not written.
  */
-void ran_evaluate_divisor(fp_fe result, const ran_divisor *d, const fp_fe x, const fp_fe y);
+int ran_evaluate_divisor(fp_fe result, const ran_divisor *d, const fp_fe x, const fp_fe y);
 
-void shaw_evaluate_divisor(fq_fe result, const shaw_divisor *d, const fq_fe x, const fq_fe y);
+int shaw_evaluate_divisor(fq_fe result, const shaw_divisor *d, const fq_fe x, const fq_fe y);
 
 #endif // RANSHAW_DIVISOR_H

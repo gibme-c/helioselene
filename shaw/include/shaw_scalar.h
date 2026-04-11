@@ -32,6 +32,7 @@
 #ifndef RANSHAW_SHAW_SCALAR_H
 #define RANSHAW_SHAW_SCALAR_H
 
+#include "fp_cmov.h"
 #include "fp_frombytes.h"
 #include "fp_invert.h"
 #include "fp_mul.h"
@@ -109,6 +110,12 @@ static inline void shaw_scalar_zero(fp_fe out)
  * For wide reduction, bit 255 of each half carries value, so we add back:
  *   lo_bit255 * (2^255 mod p) = lo_bit255 * 19
  *   hi_bit255 * (2^511 mod p) = hi_bit255 * 19 * 38 = hi_bit255 * 722
+ *
+ * Constant-time: the two corrections (bit 255 of each half) are applied via
+ * fp_cmov rather than `if`. Both correction values are always materialized
+ * and fp_add always runs; only the selector differs. This prevents a timing
+ * side channel on the high bit of any secret scalar routed through this
+ * function (e.g. hash-to-scalar of a secret nonce).
  */
 static inline void shaw_scalar_reduce_wide(fp_fe out, const unsigned char wide[64])
 {
@@ -118,27 +125,33 @@ static inline void shaw_scalar_reduce_wide(fp_fe out, const unsigned char wide[6
 
 #if RANSHAW_PLATFORM_64BIT
     static const fp_fe TWO_TO_256_MOD_P = {38, 0, 0, 0, 0};
+    static const fp_fe CORR_19_FE = {19, 0, 0, 0, 0};
+    static const fp_fe CORR_722_FE = {722, 0, 0, 0, 0};
+    static const fp_fe FP_ZERO_FE = {0, 0, 0, 0, 0};
 #else
     static const fp_fe TWO_TO_256_MOD_P = {38, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    static const fp_fe CORR_19_FE = {19, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    static const fp_fe CORR_722_FE = {722, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    static const fp_fe FP_ZERO_FE = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 #endif
 
     fp_mul(hi_shifted, hi, TWO_TO_256_MOD_P);
     fp_add(out, lo, hi_shifted);
 
-    /* Correct for bit 255 stripped by fp_frombytes from each half. */
-    unsigned int lo_b = (wide[31] >> 7) & 1u;
-    unsigned int hi_b = (wide[63] >> 7) & 1u;
-    unsigned int corr = lo_b * 19u + hi_b * 722u;
+    /* Correct for bit 255 stripped by fp_frombytes from each half.
+     * Always apply both correction terms via fp_cmov so control flow is
+     * independent of the (potentially secret) top bits. */
+    unsigned int lo_b = (unsigned int)((wide[31] >> 7) & 1u);
+    unsigned int hi_b = (unsigned int)((wide[63] >> 7) & 1u);
 
-    if (corr)
-    {
-        unsigned char corr_bytes[32] = {0};
-        corr_bytes[0] = static_cast<unsigned char>(corr & 0xffu);
-        corr_bytes[1] = static_cast<unsigned char>((corr >> 8) & 0xffu);
-        fp_fe correction;
-        fp_frombytes(correction, corr_bytes);
-        fp_add(out, out, correction);
-    }
+    fp_fe lo_corr, hi_corr;
+    fp_copy(lo_corr, FP_ZERO_FE);
+    fp_cmov(lo_corr, CORR_19_FE, lo_b);
+    fp_copy(hi_corr, FP_ZERO_FE);
+    fp_cmov(hi_corr, CORR_722_FE, hi_b);
+
+    fp_add(out, out, lo_corr);
+    fp_add(out, out, hi_corr);
 }
 
 /*

@@ -51,10 +51,17 @@ namespace ranshaw
         b_.raw() = div_.b;
     }
 
-    RanDivisor RanDivisor::compute(const RanPoint *points, size_t n)
+    std::optional<RanDivisor> RanDivisor::compute(const RanPoint *points, size_t n)
     {
-        if (n == 0 || !points || n > MAX_DIVISOR_SIZE)
-            return RanDivisor();
+        if (n == 0)
+        {
+            RanDivisor d;
+            ran_compute_divisor(&d.div_, nullptr, 0);
+            d.sync_wrappers();
+            return d;
+        }
+        if (!points || n > MAX_DIVISOR_SIZE)
+            return std::nullopt;
 
         std::vector<ran_jacobian> jac(n);
         for (size_t i = 0; i < n; i++)
@@ -64,17 +71,38 @@ namespace ranshaw
         ran_batch_to_affine(aff.data(), jac.data(), n);
 
         RanDivisor d;
-        ran_compute_divisor(&d.div_, aff.data(), n);
+        if (ran_compute_divisor(&d.div_, aff.data(), n) != 0)
+            return std::nullopt;
         d.sync_wrappers();
         return d;
     }
 
-    std::array<uint8_t, 32> RanDivisor::evaluate(const uint8_t x_bytes[32], const uint8_t y_bytes[32]) const
+    std::optional<std::array<uint8_t, 32>>
+        RanDivisor::evaluate(const uint8_t x_bytes[32], const uint8_t y_bytes[32]) const
     {
         fp_fe x, y, result;
         fp_frombytes(x, x_bytes);
         fp_frombytes(y, y_bytes);
-        ran_evaluate_divisor(result, &div_, x, y);
+        if (ran_evaluate_divisor(result, &div_, x, y) != 0)
+            return std::nullopt;
+
+        std::array<uint8_t, 32> out;
+        fp_tobytes(out.data(), result);
+        return out;
+    }
+
+    std::array<uint8_t, 32> RanDivisor::evaluate(const RanPoint &p) const
+    {
+        /* Convert the Jacobian point to affine, extract (x, y), evaluate.
+         * The caller holds a valid RanPoint so the coordinates are on-curve
+         * by construction, so the internal on-curve check never fires. */
+        ran_jacobian jac;
+        ran_copy(&jac, &p.raw());
+        ran_affine aff;
+        ran_to_affine(&aff, &jac);
+
+        fp_fe result;
+        (void)ran_evaluate_divisor(result, &div_, aff.x, aff.y);
 
         std::array<uint8_t, 32> out;
         fp_tobytes(out.data(), result);
@@ -89,10 +117,17 @@ namespace ranshaw
         b_.raw() = div_.b;
     }
 
-    ShawDivisor ShawDivisor::compute(const ShawPoint *points, size_t n)
+    std::optional<ShawDivisor> ShawDivisor::compute(const ShawPoint *points, size_t n)
     {
-        if (n == 0 || !points || n > MAX_DIVISOR_SIZE)
-            return ShawDivisor();
+        if (n == 0)
+        {
+            ShawDivisor d;
+            shaw_compute_divisor(&d.div_, nullptr, 0);
+            d.sync_wrappers();
+            return d;
+        }
+        if (!points || n > MAX_DIVISOR_SIZE)
+            return std::nullopt;
 
         std::vector<shaw_jacobian> jac(n);
         for (size_t i = 0; i < n; i++)
@@ -102,17 +137,35 @@ namespace ranshaw
         shaw_batch_to_affine(aff.data(), jac.data(), n);
 
         ShawDivisor d;
-        shaw_compute_divisor(&d.div_, aff.data(), n);
+        if (shaw_compute_divisor(&d.div_, aff.data(), n) != 0)
+            return std::nullopt;
         d.sync_wrappers();
         return d;
     }
 
-    std::array<uint8_t, 32> ShawDivisor::evaluate(const uint8_t x_bytes[32], const uint8_t y_bytes[32]) const
+    std::optional<std::array<uint8_t, 32>>
+        ShawDivisor::evaluate(const uint8_t x_bytes[32], const uint8_t y_bytes[32]) const
     {
         fq_fe x, y, result;
         fq_frombytes(x, x_bytes);
         fq_frombytes(y, y_bytes);
-        shaw_evaluate_divisor(result, &div_, x, y);
+        if (shaw_evaluate_divisor(result, &div_, x, y) != 0)
+            return std::nullopt;
+
+        std::array<uint8_t, 32> out;
+        fq_tobytes(out.data(), result);
+        return out;
+    }
+
+    std::array<uint8_t, 32> ShawDivisor::evaluate(const ShawPoint &p) const
+    {
+        shaw_jacobian jac;
+        shaw_copy(&jac, &p.raw());
+        shaw_affine aff;
+        shaw_to_affine(&aff, &jac);
+
+        fq_fe result;
+        (void)shaw_evaluate_divisor(result, &div_, aff.x, aff.y);
 
         std::array<uint8_t, 32> out;
         fq_tobytes(out.data(), result);

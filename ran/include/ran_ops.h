@@ -86,6 +86,13 @@ static inline void ran_affine_cmov(ran_affine *r, const ran_affine *p, unsigned 
     fp_cmov(r->y, p->y, b);
 }
 
+/* Unconditional copy for affine points */
+static inline void ran_affine_copy(ran_affine *r, const ran_affine *p)
+{
+    fp_copy(r->x, p->x);
+    fp_copy(r->y, p->y);
+}
+
 /* Constant-time conditional negate: if b, negate Y in place */
 static inline void ran_cneg(ran_jacobian *r, unsigned int b)
 {

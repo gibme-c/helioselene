@@ -68,78 +68,6 @@
 
 #include <cstring>
 #include <mutex>
-
-/* Safe addition: handles identity, P==P (doubles), P==-P (returns identity).
- * The raw ran_add/shaw_add formulas produce garbage for these cases. */
-static void ran_add_safe(ran_jacobian *r, const ran_jacobian *p, const ran_jacobian *q)
-{
-    if (ran_is_identity(p))
-    {
-        ran_copy(r, q);
-        return;
-    }
-    if (ran_is_identity(q))
-    {
-        ran_copy(r, p);
-        return;
-    }
-    fp_fe z1z1, z2z2, u1, u2, diff;
-    fp_sq(z1z1, p->Z);
-    fp_sq(z2z2, q->Z);
-    fp_mul(u1, p->X, z2z2);
-    fp_mul(u2, q->X, z1z1);
-    fp_sub(diff, u1, u2);
-    if (!fp_isnonzero(diff))
-    {
-        fp_fe s1, s2, t;
-        fp_mul(t, q->Z, z2z2);
-        fp_mul(s1, p->Y, t);
-        fp_mul(t, p->Z, z1z1);
-        fp_mul(s2, q->Y, t);
-        fp_sub(diff, s1, s2);
-        if (!fp_isnonzero(diff))
-            ran_dbl(r, p);
-        else
-            ran_identity(r);
-        return;
-    }
-    ran_add(r, p, q);
-}
-
-static void shaw_add_safe(shaw_jacobian *r, const shaw_jacobian *p, const shaw_jacobian *q)
-{
-    if (shaw_is_identity(p))
-    {
-        shaw_copy(r, q);
-        return;
-    }
-    if (shaw_is_identity(q))
-    {
-        shaw_copy(r, p);
-        return;
-    }
-    fq_fe z1z1, z2z2, u1, u2, diff;
-    fq_sq(z1z1, p->Z);
-    fq_sq(z2z2, q->Z);
-    fq_mul(u1, p->X, z2z2);
-    fq_mul(u2, q->X, z1z1);
-    fq_sub(diff, u1, u2);
-    if (!fq_isnonzero(diff))
-    {
-        fq_fe s1, s2, t;
-        fq_mul(t, q->Z, z2z2);
-        fq_mul(s1, p->Y, t);
-        fq_mul(t, p->Z, z1z1);
-        fq_mul(s2, q->Y, t);
-        fq_sub(diff, s1, s2);
-        if (!fq_isnonzero(diff))
-            shaw_dbl(r, p);
-        else
-            shaw_identity(r);
-        return;
-    }
-    shaw_add(r, p, q);
-}
 #include <vector>
 
 static const size_t N = EVAL_DOMAIN_SIZE;
@@ -880,11 +808,7 @@ void ran_eval_divisor_to_divisor(ran_divisor *out, const ran_eval_divisor *ed)
     fp_evals_to_poly(&out->b, &ed->b);
 }
 
-void ran_eval_divisor_tree_reduce(
-    ran_eval_divisor *out,
-    ran_eval_divisor *divisors,
-    ran_affine *points,
-    size_t n)
+void ran_eval_divisor_tree_reduce(ran_eval_divisor *out, ran_eval_divisor *divisors, ran_affine *points, size_t n)
 {
     if (n == 0)
         return;
@@ -911,7 +835,7 @@ void ran_eval_divisor_tree_reduce(
             ran_jacobian j1, j2, jsum;
             ran_from_affine(&j1, &sums[2 * i]);
             ran_from_affine(&j2, &sums[2 * i + 1]);
-            ran_add_safe(&jsum, &j1, &j2);
+            ran_add(&jsum, &j1, &j2);
             ran_to_affine(&next_sums[i], &jsum);
 
             ran_eval_divisor_merge(
@@ -1047,11 +971,7 @@ void shaw_eval_divisor_to_divisor(shaw_divisor *out, const shaw_eval_divisor *ed
     fq_evals_to_poly(&out->b, &ed->b);
 }
 
-void shaw_eval_divisor_tree_reduce(
-    shaw_eval_divisor *out,
-    shaw_eval_divisor *divisors,
-    shaw_affine *points,
-    size_t n)
+void shaw_eval_divisor_tree_reduce(shaw_eval_divisor *out, shaw_eval_divisor *divisors, shaw_affine *points, size_t n)
 {
     if (n == 0)
         return;
@@ -1076,7 +996,7 @@ void shaw_eval_divisor_tree_reduce(
             shaw_jacobian j1, j2, jsum;
             shaw_from_affine(&j1, &sums[2 * i]);
             shaw_from_affine(&j2, &sums[2 * i + 1]);
-            shaw_add_safe(&jsum, &j1, &j2);
+            shaw_add(&jsum, &j1, &j2);
             shaw_to_affine(&next_sums[i], &jsum);
 
             shaw_eval_divisor_merge(

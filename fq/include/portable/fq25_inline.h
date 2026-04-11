@@ -34,6 +34,7 @@
 
 #include "fq.h"
 #include "portable/fq25.h"
+#include "ranshaw_platform.h"
 
 #if defined(_MSC_VER)
 #ifndef RANSHAW_FORCE_INLINE
@@ -67,38 +68,38 @@ static RANSHAW_FORCE_INLINE void fq25_carry_reduce(
     /* First carry pass */
     carry = (h0 + (int64_t)(1 << 25)) >> 26;
     h1 += carry;
-    h0 -= carry << 26;
+    h0 -= ranshaw_shl_i64(carry, 26);
     carry = (h4 + (int64_t)(1 << 25)) >> 26;
     h5 += carry;
-    h4 -= carry << 26;
+    h4 -= ranshaw_shl_i64(carry, 26);
     carry = (h1 + (int64_t)(1 << 24)) >> 25;
     h2 += carry;
-    h1 -= carry << 25;
+    h1 -= ranshaw_shl_i64(carry, 25);
     carry = (h5 + (int64_t)(1 << 24)) >> 25;
     h6 += carry;
-    h5 -= carry << 25;
+    h5 -= ranshaw_shl_i64(carry, 25);
     carry = (h2 + (int64_t)(1 << 25)) >> 26;
     h3 += carry;
-    h2 -= carry << 26;
+    h2 -= ranshaw_shl_i64(carry, 26);
     carry = (h6 + (int64_t)(1 << 25)) >> 26;
     h7 += carry;
-    h6 -= carry << 26;
+    h6 -= ranshaw_shl_i64(carry, 26);
     carry = (h3 + (int64_t)(1 << 24)) >> 25;
     h4 += carry;
-    h3 -= carry << 25;
+    h3 -= ranshaw_shl_i64(carry, 25);
     carry = (h7 + (int64_t)(1 << 24)) >> 25;
     h8 += carry;
-    h7 -= carry << 25;
+    h7 -= ranshaw_shl_i64(carry, 25);
     carry = (h4 + (int64_t)(1 << 25)) >> 26;
     h5 += carry;
-    h4 -= carry << 26;
+    h4 -= ranshaw_shl_i64(carry, 26);
     carry = (h8 + (int64_t)(1 << 25)) >> 26;
     h9 += carry;
-    h8 -= carry << 26;
+    h8 -= ranshaw_shl_i64(carry, 26);
 
     /* Gamma fold: carry from h9 wraps as carry * gamma */
     carry = (h9 + (int64_t)(1 << 24)) >> 25;
-    h9 -= carry << 25;
+    h9 -= ranshaw_shl_i64(carry, 25);
     h0 += carry * (int64_t)GAMMA_25[0];
     h1 += carry * (int64_t)GAMMA_25[1];
     h2 += carry * (int64_t)GAMMA_25[2];
@@ -108,33 +109,33 @@ static RANSHAW_FORCE_INLINE void fq25_carry_reduce(
     /* Second carry pass to normalize after gamma fold */
     carry = (h0 + (int64_t)(1 << 25)) >> 26;
     h1 += carry;
-    h0 -= carry << 26;
+    h0 -= ranshaw_shl_i64(carry, 26);
     carry = (h1 + (int64_t)(1 << 24)) >> 25;
     h2 += carry;
-    h1 -= carry << 25;
+    h1 -= ranshaw_shl_i64(carry, 25);
     carry = (h2 + (int64_t)(1 << 25)) >> 26;
     h3 += carry;
-    h2 -= carry << 26;
+    h2 -= ranshaw_shl_i64(carry, 26);
     carry = (h3 + (int64_t)(1 << 24)) >> 25;
     h4 += carry;
-    h3 -= carry << 25;
+    h3 -= ranshaw_shl_i64(carry, 25);
     carry = (h4 + (int64_t)(1 << 25)) >> 26;
     h5 += carry;
-    h4 -= carry << 26;
+    h4 -= ranshaw_shl_i64(carry, 26);
     carry = (h5 + (int64_t)(1 << 24)) >> 25;
     h6 += carry;
-    h5 -= carry << 25;
+    h5 -= ranshaw_shl_i64(carry, 25);
     carry = (h6 + (int64_t)(1 << 25)) >> 26;
     h7 += carry;
-    h6 -= carry << 26;
+    h6 -= ranshaw_shl_i64(carry, 26);
     carry = (h7 + (int64_t)(1 << 24)) >> 25;
     h8 += carry;
-    h7 -= carry << 25;
+    h7 -= ranshaw_shl_i64(carry, 25);
     carry = (h8 + (int64_t)(1 << 25)) >> 26;
     h9 += carry;
-    h8 -= carry << 26;
+    h8 -= ranshaw_shl_i64(carry, 26);
     carry = (h9 + (int64_t)(1 << 24)) >> 25;
-    h9 -= carry << 25;
+    h9 -= ranshaw_shl_i64(carry, 25);
 
     /* Second gamma fold (carry should be very small, often 0) */
     h0 += carry * (int64_t)GAMMA_25[0];
@@ -146,16 +147,16 @@ static RANSHAW_FORCE_INLINE void fq25_carry_reduce(
     /* Final carry for limbs 0-4 */
     carry = (h0 + (int64_t)(1 << 25)) >> 26;
     h1 += carry;
-    h0 -= carry << 26;
+    h0 -= ranshaw_shl_i64(carry, 26);
     carry = (h1 + (int64_t)(1 << 24)) >> 25;
     h2 += carry;
-    h1 -= carry << 25;
+    h1 -= ranshaw_shl_i64(carry, 25);
     carry = (h2 + (int64_t)(1 << 25)) >> 26;
     h3 += carry;
-    h2 -= carry << 26;
+    h2 -= ranshaw_shl_i64(carry, 26);
     carry = (h3 + (int64_t)(1 << 24)) >> 25;
     h4 += carry;
-    h3 -= carry << 25;
+    h3 -= ranshaw_shl_i64(carry, 25);
 
     out[0] = (int32_t)h0;
     out[1] = (int32_t)h1;
@@ -197,60 +198,60 @@ static RANSHAW_FORCE_INLINE void fq25_reduce_full(fq_fe out, int64_t t[19])
      */
     carry = (t[0] + (int64_t)(1 << 25)) >> 26;
     t[1] += carry;
-    t[0] -= carry << 26;
+    t[0] -= ranshaw_shl_i64(carry, 26);
     carry = (t[1] + (int64_t)(1 << 24)) >> 25;
     t[2] += carry;
-    t[1] -= carry << 25;
+    t[1] -= ranshaw_shl_i64(carry, 25);
     carry = (t[2] + (int64_t)(1 << 25)) >> 26;
     t[3] += carry;
-    t[2] -= carry << 26;
+    t[2] -= ranshaw_shl_i64(carry, 26);
     carry = (t[3] + (int64_t)(1 << 24)) >> 25;
     t[4] += carry;
-    t[3] -= carry << 25;
+    t[3] -= ranshaw_shl_i64(carry, 25);
     carry = (t[4] + (int64_t)(1 << 25)) >> 26;
     t[5] += carry;
-    t[4] -= carry << 26;
+    t[4] -= ranshaw_shl_i64(carry, 26);
     carry = (t[5] + (int64_t)(1 << 24)) >> 25;
     t[6] += carry;
-    t[5] -= carry << 25;
+    t[5] -= ranshaw_shl_i64(carry, 25);
     carry = (t[6] + (int64_t)(1 << 25)) >> 26;
     t[7] += carry;
-    t[6] -= carry << 26;
+    t[6] -= ranshaw_shl_i64(carry, 26);
     carry = (t[7] + (int64_t)(1 << 24)) >> 25;
     t[8] += carry;
-    t[7] -= carry << 25;
+    t[7] -= ranshaw_shl_i64(carry, 25);
     carry = (t[8] + (int64_t)(1 << 25)) >> 26;
     t[9] += carry;
-    t[8] -= carry << 26;
+    t[8] -= ranshaw_shl_i64(carry, 26);
     carry = (t[9] + (int64_t)(1 << 24)) >> 25;
     t[10] += carry;
-    t[9] -= carry << 25;
+    t[9] -= ranshaw_shl_i64(carry, 25);
     carry = (t[10] + (int64_t)(1 << 25)) >> 26;
     t[11] += carry;
-    t[10] -= carry << 26;
+    t[10] -= ranshaw_shl_i64(carry, 26);
     carry = (t[11] + (int64_t)(1 << 24)) >> 25;
     t[12] += carry;
-    t[11] -= carry << 25;
+    t[11] -= ranshaw_shl_i64(carry, 25);
     carry = (t[12] + (int64_t)(1 << 25)) >> 26;
     t[13] += carry;
-    t[12] -= carry << 26;
+    t[12] -= ranshaw_shl_i64(carry, 26);
     carry = (t[13] + (int64_t)(1 << 24)) >> 25;
     t[14] += carry;
-    t[13] -= carry << 25;
+    t[13] -= ranshaw_shl_i64(carry, 25);
     carry = (t[14] + (int64_t)(1 << 25)) >> 26;
     t[15] += carry;
-    t[14] -= carry << 26;
+    t[14] -= ranshaw_shl_i64(carry, 26);
     carry = (t[15] + (int64_t)(1 << 24)) >> 25;
     t[16] += carry;
-    t[15] -= carry << 25;
+    t[15] -= ranshaw_shl_i64(carry, 25);
     carry = (t[16] + (int64_t)(1 << 25)) >> 26;
     t[17] += carry;
-    t[16] -= carry << 26;
+    t[16] -= ranshaw_shl_i64(carry, 26);
     carry = (t[17] + (int64_t)(1 << 24)) >> 25;
     t[18] += carry;
-    t[17] -= carry << 25;
+    t[17] -= ranshaw_shl_i64(carry, 25);
     carry = (t[18] + (int64_t)(1 << 25)) >> 26;
-    t[18] -= carry << 26;
+    t[18] -= ranshaw_shl_i64(carry, 26);
     int64_t t19 = carry;
 
     /*
@@ -282,34 +283,34 @@ static RANSHAW_FORCE_INLINE void fq25_reduce_full(fq_fe out, int64_t t[19])
      */
     carry = (h[0] + (int64_t)(1 << 25)) >> 26;
     h[1] += carry;
-    h[0] -= carry << 26;
+    h[0] -= ranshaw_shl_i64(carry, 26);
     carry = (h[1] + (int64_t)(1 << 24)) >> 25;
     h[2] += carry;
-    h[1] -= carry << 25;
+    h[1] -= ranshaw_shl_i64(carry, 25);
     carry = (h[2] + (int64_t)(1 << 25)) >> 26;
     h[3] += carry;
-    h[2] -= carry << 26;
+    h[2] -= ranshaw_shl_i64(carry, 26);
     carry = (h[3] + (int64_t)(1 << 24)) >> 25;
     h[4] += carry;
-    h[3] -= carry << 25;
+    h[3] -= ranshaw_shl_i64(carry, 25);
     carry = (h[4] + (int64_t)(1 << 25)) >> 26;
     h[5] += carry;
-    h[4] -= carry << 26;
+    h[4] -= ranshaw_shl_i64(carry, 26);
     carry = (h[5] + (int64_t)(1 << 24)) >> 25;
     h[6] += carry;
-    h[5] -= carry << 25;
+    h[5] -= ranshaw_shl_i64(carry, 25);
     carry = (h[6] + (int64_t)(1 << 25)) >> 26;
     h[7] += carry;
-    h[6] -= carry << 26;
+    h[6] -= ranshaw_shl_i64(carry, 26);
     carry = (h[7] + (int64_t)(1 << 24)) >> 25;
     h[8] += carry;
-    h[7] -= carry << 25;
+    h[7] -= ranshaw_shl_i64(carry, 25);
     carry = (h[8] + (int64_t)(1 << 25)) >> 26;
     h[9] += carry;
-    h[8] -= carry << 26;
+    h[8] -= ranshaw_shl_i64(carry, 26);
     carry = (h[9] + (int64_t)(1 << 24)) >> 25;
     h[10] += carry;
-    h[9] -= carry << 25;
+    h[9] -= ranshaw_shl_i64(carry, 25);
 
     /*
      * Carry-propagate h[10..9+GAMMA_25_LIMBS-1] to canonical width.
@@ -322,11 +323,11 @@ static RANSHAW_FORCE_INLINE void fq25_reduce_full(fq_fe out, int64_t t[19])
             int width = (i & 1) ? 25 : 26;
             carry = (h[i] + (1LL << (width - 1))) >> width;
             h[i + 1] += carry;
-            h[i] -= carry << width;
+            h[i] -= ranshaw_shl_i64(carry, width);
         }
         int last_width = (last & 1) ? 25 : 26;
         carry = (h[last] + (1LL << (last_width - 1))) >> last_width;
-        h[last] -= carry << last_width;
+        h[last] -= ranshaw_shl_i64(carry, last_width);
         h[last + 1] = carry;
     }
 

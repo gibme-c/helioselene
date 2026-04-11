@@ -67,4 +67,27 @@ typedef unsigned __int128 ranshaw_uint128;
 #define RANSHAW_HAVE_UMUL128 0
 #endif
 
+/*
+ * Signed left shift helper (C++17-compatible).
+ *
+ * Shifting a signed integer whose value is negative is undefined behavior
+ * in C++17 (CWG1457); C++20 defined it as 2's complement. The carry-
+ * propagation idiom `x -= carry << N` used throughout the radix-2^25.5
+ * and signed62 field code relies on arithmetic 2's complement behavior
+ * but is UB per the C++17 standard and is flagged by UBSan's `shift-base`
+ * check. Routing every such shift through this helper performs the shift
+ * in the unsigned domain (fully defined) and casts back, producing
+ * identical codegen on every supported compiler without touching runtime
+ * semantics.
+ */
+#include <cstdint>
+static inline int64_t ranshaw_shl_i64(int64_t x, unsigned n)
+{
+    return (int64_t)((uint64_t)x << n);
+}
+static inline int32_t ranshaw_shl_i32(int32_t x, unsigned n)
+{
+    return (int32_t)((uint32_t)x << n);
+}
+
 #endif // RANSHAW_PLATFORM_H

@@ -1,0 +1,185 @@
+name: Fuzz Nightly
+
+# ---------------------------------------------------------------------------
+# Nightly coverage-guided fuzz runs against the libFuzzer per-target
+# binaries built from tests/fuzz/. Unlike the PR-time ci.yml matrix
+# (which compiles + runs the unit/fuzz test suites), this workflow
+# builds the libFuzzer binaries with ASan+UBSan enabled, runs each
+# one for a per-target wall-clock budget, and persists the corpus
+# across runs via GitHub Actions cache so each night builds on the
+# previous night's coverage.
+#
+# libFuzzer requires Clang and is gated off on Windows in
+# tests/fuzz/CMakeLists.txt, so this workflow runs on a single
+# ubuntu-latest job.
+#
+# Escalation rule: any finding surfaced by this workflow must be
+# triaged before any library or harness code is modified. The
+# workflow automatically files a GitHub issue with a link to the
+# failing run; it does NOT silently patch code.
+# ---------------------------------------------------------------------------
+
+on:
+  schedule:
+    # 05:00 UTC every night. Offset from tinyaes's 04:30 so sibling
+    # fuzz-nightly workflows don't all contend for the same runner slot.
+    - cron: '0 5 * * *'
+  workflow_dispatch:
+    # Manual trigger: lets a developer run a nightly pass on demand
+    # without waiting for the cron slot. Accepts an optional fuzz
+    # budget override for spot-checks.
+    inputs:
+      fuzz_budget_secs:
+        description: 'Per-target wall-clock budget in seconds'
+        required: false
+        default: '300'
+
+jobs:
+  libfuzzer:
+    name: libFuzzer per-target nightly
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    env:
+      # Per-target wall-clock budget. Default 300s (5 min); override
+      # via workflow_dispatch input. 8 targets × 300s = 40 min of fuzz
+      # compute plus build time, comfortably under the 120-min timeout.
+      FUZZ_BUDGET_SECS: ${{ github.event.inputs.fuzz_budget_secs || '300' }}
+      # Cached corpus location — lives across runs via actions/cache.
+      FUZZ_CORPUS_ROOT: ${{ github.workspace }}/fuzz-corpora
+      ASAN_OPTIONS: "halt_on_error=1:strict_string_checks=1:abort_on_error=1"
+      UBSAN_OPTIONS: "halt_on_error=1:print_stacktrace=1:abort_on_error=1"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install LLVM Clang toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-15 lld-15 cmake ninja-build
+          echo "CC=clang-15" >> "$GITHUB_ENV"
+          echo "CXX=clang++-15" >> "$GITHUB_ENV"
+
+      - name: Restore fuzz corpus cache
+        id: corpus-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.FUZZ_CORPUS_ROOT }}
+          # Key bumps every run so the freshest corpus is pushed, but
+          # restore-keys fall back to any previous corpus. This
+          # accumulates coverage across runs without invalidating
+          # everything on a single config change.
+          key: fuzz-corpora-${{ github.run_id }}
+          restore-keys: |
+            fuzz-corpora-
+
+      - name: Configure with RANSHAW_BUILD_FUZZERS + sanitizers
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER="$CC" \
+            -DCMAKE_CXX_COMPILER="$CXX" \
+            -DBUILD_TESTS=ON \
+            -DRANSHAW_BUILD_FUZZERS=ON \
+            -DRANSHAW_TEST_SANITIZERS=address,undefined
+
+      - name: Build fuzz binaries + tests
+        run: cmake --build build -j $(nproc)
+
+      - name: Run unit tests under sanitizers first
+        # Cheap sanity check before spending real wall-clock on libFuzzer.
+        # If the sanitized test suite fails, do not bother running the
+        # expensive per-target fuzz pass — the finding is already in hand.
+        run: cd build && ctest --output-on-failure
+
+      - name: Seed corpora from checked-in seeds
+        # tests/fuzz/corpora/<target>/ holds the checked-in seed
+        # files. Copy them into the cached corpus root so libFuzzer
+        # starts from a known-good baseline even on the very first
+        # nightly run (before the cache has any history to restore).
+        run: |
+          mkdir -p "$FUZZ_CORPUS_ROOT"
+          for dir in tests/fuzz/corpora/*/; do
+            target="$(basename "$dir")"
+            mkdir -p "$FUZZ_CORPUS_ROOT/$target"
+            cp -n "$dir"/* "$FUZZ_CORPUS_ROOT/$target/" 2>/dev/null || true
+          done
+
+      - name: Run per-target libFuzzer binaries
+        id: fuzz
+        run: |
+          set +e
+          FAIL=0
+          FAILURES=""
+          # Fuzz binaries live in build/ per the
+          # RUNTIME_OUTPUT_DIRECTORY=${CMAKE_BINARY_DIR} set in
+          # tests/fuzz/CMakeLists.txt.
+          shopt -s nullglob
+          for bin in build/ranshaw-fuzz_*; do
+            target="$(basename "$bin" | sed 's/^ranshaw-//')"
+            corpus="$FUZZ_CORPUS_ROOT/${target}"
+            mkdir -p "$corpus"
+            echo "---- $target (${FUZZ_BUDGET_SECS}s) ----"
+            "$bin" "$corpus" \
+              -max_total_time=$FUZZ_BUDGET_SECS \
+              -print_final_stats=1 \
+              -rss_limit_mb=4096
+            rc=$?
+            if [ "$rc" -ne 0 ]; then
+              FAIL=1
+              FAILURES="$FAILURES $target(rc=$rc)"
+            fi
+          done
+          if [ "$FAIL" -ne 0 ]; then
+            echo "failures=$FAILURES" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+      - name: Upload corpus artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-corpora-${{ github.run_id }}
+          path: ${{ env.FUZZ_CORPUS_ROOT }}
+          retention-days: 14
+
+      - name: Upload crash artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-crashes-${{ github.run_id }}
+          # libFuzzer writes crash-*, leak-*, oom-*, timeout-* files
+          # into the current working directory when it finds a fault.
+          path: |
+            crash-*
+            leak-*
+            oom-*
+            timeout-*
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Open tracking issue on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # ESCALATION: any fault surfaced by this nightly workflow MUST
+        # be triaged by the repository owner before any library or
+        # harness code is changed. This step opens a GitHub issue with
+        # a direct link to the failing run so the finding is not lost.
+        # It does NOT classify severity or propose a fix.
+        run: |
+          TITLE="Nightly fuzz finding on ${{ github.workflow }} run ${{ github.run_id }}"
+          BODY="A nightly fuzz run produced a finding that needs triage.
+
+          **Workflow run:** <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}>
+          **Failed targets:** ${{ steps.fuzz.outputs.failures }}
+          **Corpus artifact:** fuzz-corpora-${{ github.run_id }}
+          **Crash artifact:** fuzz-crashes-${{ github.run_id }}
+
+          Do NOT silently fix the library. Triage first to decide whether this is a library bug, a harness bug, or accepted behavior, then proceed with remediation."
+          gh issue create \
+            --title "$TITLE" \
+            --body "$BODY" \
+            --label "fuzz-finding,nightly" \
+            || echo "(failed to open issue — check repository labels/permissions)"

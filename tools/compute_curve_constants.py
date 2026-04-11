@@ -274,7 +274,28 @@ for idx, n in enumerate(nibs_inv):
 # ==============================================================================
 
 def find_sswu_z(field_p, a_coeff, b_coeff):
-    """Find SSWU Z: first z in -1, -2, -3, ... that is non-square and g(b/(z*a)) is square."""
+    """Find SSWU Z: first z in -1, -2, -3, ... that is non-square and g(b/(z*a)) is square.
+
+    Enforces only the Wahby-Boneh 2019 soundness requirements for the Simplified
+    SWU map:
+      1. Z is non-square in F_p (so Z*u^2 is non-square for any nonzero u, enabling
+         the x1/x2 dichotomy that guarantees exactly one of g(x1), g(x2) is square).
+      2. g(B/(Z*A)) is square (so the exceptional-input case denom == 0 still yields
+         a valid on-curve y-coordinate via the inv0 branch).
+
+    Intentionally does NOT enforce the additional RFC 9380 Section 6.6.2 cleanness
+    criteria:
+      - Criterion 2 (Z != -1): this is a polynomial-ring simplification to let the
+        reference code share the x1/x2 formula; not a soundness requirement.
+      - Criterion 3 (the quadratic x^2 + Z*x + Z*A/(B) is irreducible over F_p):
+        this avoids a degenerate-but-still-sound case in the reference polynomial
+        derivation; the runtime code paths are unaffected.
+
+    Both deviations are documented in docs/hash_to_curve_rationale.md. The curves
+    selected by this function (Ran: Z = -2, Shaw: Z = -1) are used by the constant-
+    time Simplified SWU implementations in ran/src/*/ran_map_to_curve.cpp and
+    shaw/src/*/shaw_map_to_curve.cpp.
+    """
     for z_cand in range(1, 1000):
         z_int = -z_cand
         z = z_int % field_p

@@ -277,11 +277,6 @@ void ranshaw_autotune(void)
             shaw_msm_vartime_x64,
         };
 
-        // Generate test inputs
-        unsigned char s1[32];
-        for (size_t i = 0; i < 32; i++)
-            s1[i] = static_cast<unsigned char>(i + 1);
-
         // Set up Ran test point (generator)
         ran_jacobian h_point;
         fp_copy(h_point.X, RAN_GX);
@@ -294,8 +289,17 @@ void ranshaw_autotune(void)
         fq_copy(s_point.Y, SHAW_GY);
         fq_1(s_point.Z);
 
+        // Test scalars are declared per-block and erased at the end of each
+        // block so a benchmark scalar never outlives its slot. MSM blocks
+        // additionally erase their msm_scalars array. h_point/s_point/
+        // msm_points defense-in-depth erase is intentionally out of scope.
+
         // ── ran_scalarmult ──
         {
+            unsigned char s1[32];
+            for (size_t i = 0; i < 32; i++)
+                s1[i] = static_cast<unsigned char>(i + 1);
+
             int64_t best_time = bench_scalarmult(ran_scalarmult_x64, s1, &h_point);
             decltype(local.ran_scalarmult) best_fn = ran_scalarmult_x64;
 
@@ -322,10 +326,15 @@ void ranshaw_autotune(void)
             }
 #endif
             local.ran_scalarmult = best_fn;
+            ranshaw_secure_erase(s1, sizeof(s1));
         }
 
         // ── ran_scalarmult_vartime ──
         {
+            unsigned char s1[32];
+            for (size_t i = 0; i < 32; i++)
+                s1[i] = static_cast<unsigned char>(i + 1);
+
             int64_t best_time = bench_scalarmult(ran_scalarmult_vartime_x64, s1, &h_point);
             decltype(local.ran_scalarmult_vartime) best_fn = ran_scalarmult_vartime_x64;
 
@@ -352,6 +361,7 @@ void ranshaw_autotune(void)
             }
 #endif
             local.ran_scalarmult_vartime = best_fn;
+            ranshaw_secure_erase(s1, sizeof(s1));
         }
 
         // ── ran_msm_vartime ──
@@ -398,6 +408,10 @@ void ranshaw_autotune(void)
 
         // ── shaw_scalarmult ──
         {
+            unsigned char s1[32];
+            for (size_t i = 0; i < 32; i++)
+                s1[i] = static_cast<unsigned char>(i + 1);
+
             int64_t best_time = bench_shaw_scalarmult(shaw_scalarmult_x64, s1, &s_point);
             decltype(local.shaw_scalarmult) best_fn = shaw_scalarmult_x64;
 
@@ -424,10 +438,15 @@ void ranshaw_autotune(void)
             }
 #endif
             local.shaw_scalarmult = best_fn;
+            ranshaw_secure_erase(s1, sizeof(s1));
         }
 
         // ── shaw_scalarmult_vartime ──
         {
+            unsigned char s1[32];
+            for (size_t i = 0; i < 32; i++)
+                s1[i] = static_cast<unsigned char>(i + 1);
+
             int64_t best_time = bench_shaw_scalarmult(shaw_scalarmult_vartime_x64, s1, &s_point);
             decltype(local.shaw_scalarmult_vartime) best_fn = shaw_scalarmult_vartime_x64;
 
@@ -454,6 +473,7 @@ void ranshaw_autotune(void)
             }
 #endif
             local.shaw_scalarmult_vartime = best_fn;
+            ranshaw_secure_erase(s1, sizeof(s1));
         }
 
         // ── shaw_msm_vartime ──
@@ -499,9 +519,6 @@ void ranshaw_autotune(void)
         }
 
         (void)features;
-
-        // Defense-in-depth: erase test scalar
-        ranshaw_secure_erase(s1, sizeof(s1));
 
         // Publish: copy complete table, then release fence ensures all
         // writes are visible before any reader sees the updated table.

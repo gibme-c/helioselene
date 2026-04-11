@@ -29,6 +29,7 @@
 #include "load_3.h"
 #include "load_4.h"
 #include "portable/fq25.h"
+#include "ranshaw_platform.h"
 
 /*
  * Deserialize 32 bytes (little-endian) into a 10-limb F_q field element.
@@ -53,7 +54,7 @@ void fq_frombytes_portable(fq_fe h, const unsigned char *s)
 
     /* Carry from limb 9 wraps via gamma (not *19 as in Fp) */
     carry9 = (h9 + (int64_t)(1 << 24)) >> 25;
-    h9 -= carry9 << 25;
+    h9 -= ranshaw_shl_i64(carry9, 25);
     h0 += carry9 * (int64_t)GAMMA_25[0];
     h1 += carry9 * (int64_t)GAMMA_25[1];
     h2 += carry9 * (int64_t)GAMMA_25[2];
@@ -62,32 +63,32 @@ void fq_frombytes_portable(fq_fe h, const unsigned char *s)
 
     carry1 = (h1 + (int64_t)(1 << 24)) >> 25;
     h2 += carry1;
-    h1 -= carry1 << 25;
+    h1 -= ranshaw_shl_i64(carry1, 25);
     carry3 = (h3 + (int64_t)(1 << 24)) >> 25;
     h4 += carry3;
-    h3 -= carry3 << 25;
+    h3 -= ranshaw_shl_i64(carry3, 25);
     carry5 = (h5 + (int64_t)(1 << 24)) >> 25;
     h6 += carry5;
-    h5 -= carry5 << 25;
+    h5 -= ranshaw_shl_i64(carry5, 25);
     carry7 = (h7 + (int64_t)(1 << 24)) >> 25;
     h8 += carry7;
-    h7 -= carry7 << 25;
+    h7 -= ranshaw_shl_i64(carry7, 25);
 
     carry0 = (h0 + (int64_t)(1 << 25)) >> 26;
     h1 += carry0;
-    h0 -= carry0 << 26;
+    h0 -= ranshaw_shl_i64(carry0, 26);
     carry2 = (h2 + (int64_t)(1 << 25)) >> 26;
     h3 += carry2;
-    h2 -= carry2 << 26;
+    h2 -= ranshaw_shl_i64(carry2, 26);
     carry4 = (h4 + (int64_t)(1 << 25)) >> 26;
     h5 += carry4;
-    h4 -= carry4 << 26;
+    h4 -= ranshaw_shl_i64(carry4, 26);
     carry6 = (h6 + (int64_t)(1 << 25)) >> 26;
     h7 += carry6;
-    h6 -= carry6 << 26;
+    h6 -= ranshaw_shl_i64(carry6, 26);
     carry8 = (h8 + (int64_t)(1 << 25)) >> 26;
     h9 += carry8;
-    h8 -= carry8 << 26;
+    h8 -= ranshaw_shl_i64(carry8, 26);
 
     h[0] = (int32_t)h0;
     h[1] = (int32_t)h1;

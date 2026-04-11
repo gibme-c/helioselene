@@ -1,0 +1,9 @@
+# Pinned dependencies for tools/validate_test_vectors.py.
+#
+# Rationale: an unpinned `pip install ecpy` means cross-validation results
+# depend on whatever ecpy version the developer happens to have installed,
+# which can silently drift as ecpy publishes new releases. Pin to the known-
+# good version so CI and fresh-machine runs produce identical results.
+#
+# Install: pip install -r tools/requirements.txt
+ECPy==1.2.5

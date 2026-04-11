@@ -26,18 +26,28 @@
 
 /**
  * @file x64/shaw_map_to_curve.cpp
- * @brief Constant-time simplified SWU map-to-curve for Shaw (RFC 9380 section 6.6.2).
+ * @brief Constant-time Simplified SWU map-to-curve for Shaw.
  *
  * Shaw: y^2 = x^3 - 3x + b over F_q (q = 2^255 - gamma).
- * A = -3, B = b. Since A != 0 and B != 0, simplified SWU applies directly.
+ * A = -3, B = b. Since A != 0 and B != 0, Simplified SWU applies directly.
  * Z = -1 (non-square in F_q, g(B/(Z*A)) is square).
+ *
+ * Follows the Wahby-Boneh 2019 construction ("Fast and simple constant-time
+ * hashing to the BLS12-381 elliptic curve", IACR TCHES 2019(4)). Caller
+ * supplies the pre-hashed field element u. See docs/hash_to_curve_rationale.md
+ * for the deviations from RFC 9380 Section 6.6.2.
+ *
+ * Note on Z = -1: with Z = -1 and A = -3 the normal-path term Z * u^2 * x1
+ * simplifies, and B/(Z*A) = B/3 coincides with -B/A. Wahby-Boneh soundness is
+ * preserved (Z is non-square in F_q and g(B/(Z*A)) is square); this differs
+ * from RFC 9380 Section 6.6.2 cleanness criterion 2 (Z != -1), which is a
+ * polynomial-ring simplification and not a soundness requirement. Because
+ * 0^((q-1)/2) = 0 for the Fermat inversion path, the inv0 codepath is a
+ * no-op when denom happens to be zero.
  *
  * Since q ≡ 3 (mod 4), fq_sqrt computes z^((q+1)/4) which is the principal
  * square root when z is a QR. To check if gx is a QR, we compute sqrt and
  * verify by squaring.
- *
- * This implementation is fully constant-time as required by RFC 9380 Section 4.
- * All branches on secret-derived data are replaced with cmov selections.
  */
 
 #include "shaw_map_to_curve.h"

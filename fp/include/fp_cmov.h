@@ -32,8 +32,8 @@
 #ifndef RANSHAW_FP_CMOV_H
 #define RANSHAW_FP_CMOV_H
 
-#include "ranshaw_ct_barrier.h"
 #include "fp.h"
+#include "ranshaw_ct_barrier.h"
 
 #if RANSHAW_PLATFORM_64BIT
 static inline void fp_cmov(fp_fe f, const fp_fe g, unsigned int b)

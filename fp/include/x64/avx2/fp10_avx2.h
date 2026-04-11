@@ -50,8 +50,8 @@
 #ifndef RANSHAW_X64_AVX2_FP10_AVX2_H
 #define RANSHAW_X64_AVX2_FP10_AVX2_H
 
-#include "ranshaw_ct_barrier.h"
 #include "fp_ops.h"
+#include "ranshaw_ct_barrier.h"
 #include "ranshaw_platform.h"
 #include "x64/fp51.h"
 

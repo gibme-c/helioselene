@@ -25,8 +25,8 @@
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "ranshaw.h"
-#include "ranshaw_primitives.h"
 #include "ranshaw_benchmark.h"
+#include "ranshaw_primitives.h"
 
 #include <cstring>
 #include <iostream>

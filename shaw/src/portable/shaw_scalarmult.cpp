@@ -30,6 +30,8 @@
 #include "fq_mul.h"
 #include "fq_ops.h"
 #include "fq_sq.h"
+#include "ranshaw_ct_barrier.h"
+#include "ranshaw_platform.h"
 #include "ranshaw_secure_erase.h"
 #include "shaw.h"
 #include "shaw_add.h"
@@ -58,7 +60,7 @@ static void scalar_recode_signed4(int8_t digits[64], const unsigned char scalar[
     {
         int val = nibbles[i] + carry;
         carry = (val + 8) >> 4;
-        digits[i] = (int8_t)(val - (carry << 4));
+        digits[i] = (int8_t)(val - (ranshaw_shl_i32(carry, 4)));
     }
     digits[63] = (int8_t)(nibbles[63] + carry);
     ranshaw_secure_erase(nibbles, sizeof(nibbles));
@@ -159,6 +161,7 @@ void shaw_scalarmult_portable(shaw_jacobian *r, const unsigned char scalar[32], 
     shaw_cmov(r, &from_table, nonzero);
 
     shaw_jacobian tmp, fresh;
+    RANSHAW_NO_VECTOR
     for (int i = 62; i >= 0; i--)
     {
         shaw_dbl(r, r);
@@ -171,8 +174,12 @@ void shaw_scalarmult_portable(shaw_jacobian *r, const unsigned char scalar[32], 
         abs_d = (unsigned int)((d ^ sign_mask) - sign_mask);
         neg = (unsigned int)(sign_mask & 1);
 
-        fq_1(selected.x);
-        fq_1(selected.y);
+        /* CT table lookup: init to table[0] (a valid on-curve point, 1*P).
+         * Cosmetic: the subsequent cmov sweep overwrites `selected` whenever
+         * |digit| != 0, and when digit == 0 the madd result is discarded by
+         * the identity-accumulator cmov below. Using a valid curve point here
+         * avoids having off-curve intermediates ever appear in memory. */
+        shaw_affine_copy(&selected, &table[0]);
         for (unsigned int j = 0; j < 8; j++)
         {
             unsigned int eq = ((abs_d ^ (j + 1)) - 1u) >> 31;

@@ -86,6 +86,13 @@ static inline void shaw_affine_cmov(shaw_affine *r, const shaw_affine *p, unsign
     fq_cmov(r->y, p->y, b);
 }
 
+/* Unconditional copy for affine points */
+static inline void shaw_affine_copy(shaw_affine *r, const shaw_affine *p)
+{
+    fq_copy(r->x, p->x);
+    fq_copy(r->y, p->y);
+}
+
 /* Constant-time conditional negate: if b, negate Y in place */
 static inline void shaw_cneg(shaw_jacobian *r, unsigned int b)
 {

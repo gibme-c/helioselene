@@ -56,6 +56,8 @@
 #include "fp_utils.h"
 #include "ran.h"
 #include "ran_ops.h"
+#include "ranshaw_ct_barrier.h"
+#include "ranshaw_platform.h"
 #include "ranshaw_secure_erase.h"
 #include "x64/avx2/fp10_avx2.h"
 #include "x64/ran_add.h"
@@ -96,7 +98,7 @@ static void scalar_recode_signed4(int8_t digits[64], const unsigned char scalar[
     {
         int val = nibbles[i] + carry;
         carry = (val + 8) >> 4;
-        digits[i] = (int8_t)(val - (carry << 4));
+        digits[i] = (int8_t)(val - (ranshaw_shl_i32(carry, 4)));
     }
     digits[63] = (int8_t)(nibbles[63] + carry);
     ranshaw_secure_erase(nibbles, sizeof(nibbles));
@@ -388,6 +390,7 @@ void ran_scalarmult_ifma(ran_jacobian *r, const unsigned char scalar[32], const 
     fp10_cmov(rZ, tableZ, (int64_t)nonzero);
 
     /* Main loop: digits[62] down to digits[0] */
+    RANSHAW_NO_VECTOR
     for (int i = 62; i >= 0; i--)
     {
         /* 4 doublings */

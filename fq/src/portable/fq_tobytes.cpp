@@ -27,6 +27,7 @@
 #include "portable/fq_tobytes.h"
 
 #include "portable/fq25.h"
+#include "ranshaw_platform.h"
 
 /*
  * Canonical reduction mod q = 2^255 - gamma, then serialize to 32 bytes LE.
@@ -51,7 +52,7 @@ void fq_tobytes_portable(unsigned char *s, const fq_fe h)
      * Carry from limb 9 wraps as carry * gamma to limbs 0-4.
      */
     carry9 = (h9 + (1 << 24)) >> 25;
-    h9 -= carry9 << 25;
+    h9 -= ranshaw_shl_i32(carry9, 25);
     h0 += carry9 * GAMMA_25[0];
     h1 += carry9 * GAMMA_25[1];
     h2 += carry9 * GAMMA_25[2];
@@ -60,33 +61,33 @@ void fq_tobytes_portable(unsigned char *s, const fq_fe h)
 
     carry0 = h0 >> 26;
     h1 += carry0;
-    h0 -= carry0 << 26;
+    h0 -= ranshaw_shl_i32(carry0, 26);
     carry1 = h1 >> 25;
     h2 += carry1;
-    h1 -= carry1 << 25;
+    h1 -= ranshaw_shl_i32(carry1, 25);
     carry2 = h2 >> 26;
     h3 += carry2;
-    h2 -= carry2 << 26;
+    h2 -= ranshaw_shl_i32(carry2, 26);
     carry3 = h3 >> 25;
     h4 += carry3;
-    h3 -= carry3 << 25;
+    h3 -= ranshaw_shl_i32(carry3, 25);
     carry4 = h4 >> 26;
     h5 += carry4;
-    h4 -= carry4 << 26;
+    h4 -= ranshaw_shl_i32(carry4, 26);
     carry5 = h5 >> 25;
     h6 += carry5;
-    h5 -= carry5 << 25;
+    h5 -= ranshaw_shl_i32(carry5, 25);
     carry6 = h6 >> 26;
     h7 += carry6;
-    h6 -= carry6 << 26;
+    h6 -= ranshaw_shl_i32(carry6, 26);
     carry7 = h7 >> 25;
     h8 += carry7;
-    h7 -= carry7 << 25;
+    h7 -= ranshaw_shl_i32(carry7, 25);
     carry8 = h8 >> 26;
     h9 += carry8;
-    h8 -= carry8 << 26;
+    h8 -= ranshaw_shl_i32(carry8, 26);
     carry9 = h9 >> 25;
-    h9 -= carry9 << 25;
+    h9 -= ranshaw_shl_i32(carry9, 25);
 
     /* Second gamma fold if needed */
     h0 += carry9 * GAMMA_25[0];
@@ -97,31 +98,31 @@ void fq_tobytes_portable(unsigned char *s, const fq_fe h)
 
     carry0 = h0 >> 26;
     h1 += carry0;
-    h0 -= carry0 << 26;
+    h0 -= ranshaw_shl_i32(carry0, 26);
     carry1 = h1 >> 25;
     h2 += carry1;
-    h1 -= carry1 << 25;
+    h1 -= ranshaw_shl_i32(carry1, 25);
     carry2 = h2 >> 26;
     h3 += carry2;
-    h2 -= carry2 << 26;
+    h2 -= ranshaw_shl_i32(carry2, 26);
     carry3 = h3 >> 25;
     h4 += carry3;
-    h3 -= carry3 << 25;
+    h3 -= ranshaw_shl_i32(carry3, 25);
     carry4 = h4 >> 26;
     h5 += carry4;
-    h4 -= carry4 << 26;
+    h4 -= ranshaw_shl_i32(carry4, 26);
     carry5 = h5 >> 25;
     h6 += carry5;
-    h5 -= carry5 << 25;
+    h5 -= ranshaw_shl_i32(carry5, 25);
     carry6 = h6 >> 26;
     h7 += carry6;
-    h6 -= carry6 << 26;
+    h6 -= ranshaw_shl_i32(carry6, 26);
     carry7 = h7 >> 25;
     h8 += carry7;
-    h7 -= carry7 << 25;
+    h7 -= ranshaw_shl_i32(carry7, 25);
     carry8 = h8 >> 26;
     h9 += carry8;
-    h8 -= carry8 << 26;
+    h8 -= ranshaw_shl_i32(carry8, 26);
 
     /*
      * Canonical reduction: check if value >= q by trial-adding gamma.
@@ -177,32 +178,32 @@ void fq_tobytes_portable(unsigned char *s, const fq_fe h)
     s[0] = (unsigned char)(h0 >> 0);
     s[1] = (unsigned char)(h0 >> 8);
     s[2] = (unsigned char)(h0 >> 16);
-    s[3] = (unsigned char)((h0 >> 24) | (h1 << 2));
+    s[3] = (unsigned char)((h0 >> 24) | (ranshaw_shl_i32(h1, 2)));
     s[4] = (unsigned char)(h1 >> 6);
     s[5] = (unsigned char)(h1 >> 14);
-    s[6] = (unsigned char)((h1 >> 22) | (h2 << 3));
+    s[6] = (unsigned char)((h1 >> 22) | (ranshaw_shl_i32(h2, 3)));
     s[7] = (unsigned char)(h2 >> 5);
     s[8] = (unsigned char)(h2 >> 13);
-    s[9] = (unsigned char)((h2 >> 21) | (h3 << 5));
+    s[9] = (unsigned char)((h2 >> 21) | (ranshaw_shl_i32(h3, 5)));
     s[10] = (unsigned char)(h3 >> 3);
     s[11] = (unsigned char)(h3 >> 11);
-    s[12] = (unsigned char)((h3 >> 19) | (h4 << 6));
+    s[12] = (unsigned char)((h3 >> 19) | (ranshaw_shl_i32(h4, 6)));
     s[13] = (unsigned char)(h4 >> 2);
     s[14] = (unsigned char)(h4 >> 10);
     s[15] = (unsigned char)(h4 >> 18);
     s[16] = (unsigned char)(h5 >> 0);
     s[17] = (unsigned char)(h5 >> 8);
     s[18] = (unsigned char)(h5 >> 16);
-    s[19] = (unsigned char)((h5 >> 24) | (h6 << 1));
+    s[19] = (unsigned char)((h5 >> 24) | (ranshaw_shl_i32(h6, 1)));
     s[20] = (unsigned char)(h6 >> 7);
     s[21] = (unsigned char)(h6 >> 15);
-    s[22] = (unsigned char)((h6 >> 23) | (h7 << 3));
+    s[22] = (unsigned char)((h6 >> 23) | (ranshaw_shl_i32(h7, 3)));
     s[23] = (unsigned char)(h7 >> 5);
     s[24] = (unsigned char)(h7 >> 13);
-    s[25] = (unsigned char)((h7 >> 21) | (h8 << 4));
+    s[25] = (unsigned char)((h7 >> 21) | (ranshaw_shl_i32(h8, 4)));
     s[26] = (unsigned char)(h8 >> 4);
     s[27] = (unsigned char)(h8 >> 12);
-    s[28] = (unsigned char)((h8 >> 20) | (h9 << 6));
+    s[28] = (unsigned char)((h8 >> 20) | (ranshaw_shl_i32(h9, 6)));
     s[29] = (unsigned char)(h9 >> 2);
     s[30] = (unsigned char)(h9 >> 10);
     s[31] = (unsigned char)(h9 >> 18);

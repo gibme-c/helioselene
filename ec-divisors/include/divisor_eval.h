@@ -34,8 +34,8 @@
 #define RANSHAW_DIVISOR_EVAL_H
 
 #include "divisor.h"
-#include "ran.h"
 #include "poly.h"
+#include "ran.h"
 #include "shaw.h"
 
 #include <cstddef>
@@ -159,11 +159,7 @@ void ran_eval_divisor_merge(
 
 void ran_eval_divisor_to_divisor(ran_divisor *out, const ran_eval_divisor *ed);
 
-void ran_eval_divisor_tree_reduce(
-    ran_eval_divisor *out,
-    ran_eval_divisor *divisors,
-    ran_affine *points,
-    size_t n);
+void ran_eval_divisor_tree_reduce(ran_eval_divisor *out, ran_eval_divisor *divisors, ran_affine *points, size_t n);
 
 void ran_scalar_mul_divisor(ran_divisor *d, const unsigned char *scalar, const ran_affine *point);
 
@@ -183,11 +179,7 @@ void shaw_eval_divisor_merge(
 
 void shaw_eval_divisor_to_divisor(shaw_divisor *out, const shaw_eval_divisor *ed);
 
-void shaw_eval_divisor_tree_reduce(
-    shaw_eval_divisor *out,
-    shaw_eval_divisor *divisors,
-    shaw_affine *points,
-    size_t n);
+void shaw_eval_divisor_tree_reduce(shaw_eval_divisor *out, shaw_eval_divisor *divisors, shaw_affine *points, size_t n);
 
 void shaw_scalar_mul_divisor(shaw_divisor *d, const unsigned char *scalar, const shaw_affine *point);
 

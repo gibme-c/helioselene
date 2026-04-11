@@ -2211,7 +2211,11 @@ int main(int argc, char **argv)
 
     if (outpath)
     {
+#if defined(_MSC_VER)
+        if (fopen_s(&g_outfile, outpath, "w") != 0) g_outfile = nullptr;
+#else
         g_outfile = fopen(outpath, "w");
+#endif
         if (!g_outfile)
         {
             fprintf(stderr, "Error: cannot open output file: %s\n", outpath);

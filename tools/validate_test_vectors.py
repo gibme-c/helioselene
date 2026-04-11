@@ -13,11 +13,16 @@ Validates ALL test vector categories against a trusted implementation:
   - Compressed points: G, 2G, 7G via ecpy point arithmetic
   - SSWU vectors: pure Python SSWU cross-check
 
-All inputs are loaded from the JSON test vectors file — no hardcoded values.
+All inputs are loaded from the JSON test vectors file - no hardcoded values.
 
 Usage:
-    pip install ecpy
+    pip install -r tools/requirements.txt
     python validate_test_vectors.py test_vectors/ranshaw_test_vectors.json
+
+The ecpy version is pinned in tools/requirements.txt so fresh-machine and CI
+runs cross-validate against the same reference implementation. Using an
+unpinned `pip install ecpy` risks silent drift if ecpy publishes a new
+release that changes behavior.
 
 Exit code 0 = all tests passed, 1 = failures found.
 """
@@ -29,7 +34,7 @@ from typing import List, Tuple, Optional
 try:
     from ecpy.curves import Point, WeierstrassCurve
 except ImportError:
-    print("ERROR: ecpy not installed. Run: pip install ecpy")
+    print("ERROR: ecpy not installed. Run: pip install -r tools/requirements.txt")
     sys.exit(2)
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────

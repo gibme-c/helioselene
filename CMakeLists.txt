@@ -23,6 +23,52 @@ set(CMAKE_SKIP_PACKAGE_ALL_DEPENDENCY ON FORCE)
 set(CMAKE_SUPPRESS_REGENERATION ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# ── Test / sanitizer options (declared early so build-flag setup can see them) ──
+# BUILD_TESTS is also settable via environment variable for CI convenience.
+option(BUILD_TESTS "Build unit tests" OFF)
+if(DEFINED ENV{BUILD_TESTS})
+    set(BUILD_TESTS $ENV{BUILD_TESTS})
+endif()
+
+# RANSHAW_TEST_SANITIZERS: comma-separated sanitizer list for TEST binaries only.
+# Valid values (csv): address, undefined, thread. Examples:
+#   -DRANSHAW_TEST_SANITIZERS=address,undefined
+#   -DRANSHAW_TEST_SANITIZERS=thread
+# Requires BUILD_TESTS=ON. Rejected on MinGW. MSVC only supports "address".
+set(RANSHAW_TEST_SANITIZERS "" CACHE STRING
+    "CSV sanitizer list for test binaries (address,undefined,thread); requires BUILD_TESTS=ON")
+
+set(_ranshaw_sanitizers "")
+set(_ranshaw_sanitized FALSE)
+if(RANSHAW_TEST_SANITIZERS)
+    if(NOT BUILD_TESTS)
+        message(FATAL_ERROR
+            "RANSHAW_TEST_SANITIZERS=${RANSHAW_TEST_SANITIZERS} requires BUILD_TESTS=ON")
+    endif()
+    if(MINGW)
+        message(FATAL_ERROR "RANSHAW_TEST_SANITIZERS is not supported on MinGW")
+    endif()
+    string(REPLACE "," ";" _ranshaw_sanitizers "${RANSHAW_TEST_SANITIZERS}")
+    foreach(_san IN LISTS _ranshaw_sanitizers)
+        if(NOT _san MATCHES "^(address|undefined|thread)$")
+            message(FATAL_ERROR
+                "RANSHAW_TEST_SANITIZERS: unknown sanitizer '${_san}' (expected address,undefined,thread)")
+        endif()
+    endforeach()
+    if(MSVC)
+        if(NOT _ranshaw_sanitizers STREQUAL "address")
+            message(FATAL_ERROR
+                "MSVC only supports RANSHAW_TEST_SANITIZERS=address (got: ${RANSHAW_TEST_SANITIZERS})")
+        endif()
+        if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+            message(FATAL_ERROR
+                "MSVC ASan is incompatible with /RTC* in Debug builds — use Release or RelWithDebInfo")
+        endif()
+    endif()
+    set(_ranshaw_sanitized TRUE)
+    message(STATUS "RANSHAW: test binaries will be built with sanitizers: ${RANSHAW_TEST_SANITIZERS}")
+endif()
+
 # ── Internal build flags (PRIVATE to all ranshaw targets) ──
 # Sub-libraries link PRIVATE to this target so compile flags do not leak
 # to downstream consumers via add_subdirectory or FetchContent.
@@ -36,26 +82,57 @@ if(MSVC)
     # Replace CMake's default /W3 with /W4 to avoid D9025 override warning
     string(REPLACE "/W3" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
 
+    # Base MSVC warning level (always applied)
     target_compile_options(ranshaw-build-flags INTERFACE
-        /W4 /GS /sdl /guard:cf /wd4267 /wd4804 /D_DLL
+        /W4 /wd4267 /wd4804 /D_DLL
         # Debug: enable inlining + intrinsics even in debug for usable perf
         $<$<CONFIG:Debug>:/Ob2 /Oi>
     )
 
+    # MSVC hardening flags — DISABLED under ASan.
+    # /GS stack cookies, /sdl extra security diagnostics, /guard:cf CFG, and
+    # /guard:ehcont EH continuation metadata all conflict with ASan's
+    # interceptor trampoline dispatch and produce silent
+    # STATUS_STACK_BUFFER_OVERRUN (__fastfail) at startup.
+    if(NOT _ranshaw_sanitized)
+        target_compile_options(ranshaw-build-flags INTERFACE /GS /sdl /guard:cf)
+
+        # CET shadow stack (newer MSVC only)
+        check_cxx_compiler_flag("/guard:ehcont" HAS_GUARD_EHCONT)
+        if(HAS_GUARD_EHCONT)
+            target_compile_options(ranshaw-build-flags INTERFACE /guard:ehcont)
+        endif()
+    else()
+        # Sanitizer build: affirmatively disable hardening so any inherited or
+        # default flags do not override. "Last flag wins" on the command line.
+        target_compile_options(ranshaw-build-flags INTERFACE
+            /GS- /sdl- /guard:cf- /guard:ehcont-)
+        set(HAS_GUARD_EHCONT FALSE)
+    endif()
+
     # Spectre mitigation (opt-in; significantly increases MSVC compile time)
     option(ENABLE_SPECTRE_MITIGATIONS "Enable MSVC Spectre mitigations (/Qspectre)" OFF)
-    if(ENABLE_SPECTRE_MITIGATIONS)
+    if(ENABLE_SPECTRE_MITIGATIONS AND NOT _ranshaw_sanitized)
         check_cxx_compiler_flag("/Qspectre" HAS_QSPECTRE)
         if(HAS_QSPECTRE)
             target_compile_options(ranshaw-build-flags INTERFACE /Qspectre)
         endif()
     endif()
 
-    # CET shadow stack (newer MSVC only)
-    check_cxx_compiler_flag("/guard:ehcont" HAS_GUARD_EHCONT)
-    if(HAS_GUARD_EHCONT)
-        target_compile_options(ranshaw-build-flags INTERFACE /guard:ehcont)
-    endif()
+    # MSVC auto-vectorization defense-in-depth:
+    #
+    # Modern MSVC (VS 2019+) has no documented global flag equivalent to
+    # GCC's -fno-tree-vectorize or Clang's -fno-vectorize / -fno-slp-vectorize.
+    # The MSVC auto-vectorizer only engages inside loops whose iterations are
+    # statically independent; the ranshaw CT code inserts `ct_barrier` calls
+    # (compiler memory clobbers) around every conditional select and field op,
+    # which breaks the independence analysis and prevents vectorization at
+    # the loop-body level regardless of compiler flag state. Each CT scalarmult
+    # translation unit also uses `#pragma loop(no_vector)` (via the portable
+    # RANSHAW_NO_VECTOR macro from ranshaw_ct_barrier.h) on the main loop for
+    # belt-and-braces, so the compiler cannot rewrite the constant-time sweep
+    # into a data-dependent SIMD gather/scatter. This is defense-in-depth; the
+    # primary CT guarantee still lives in ct_barrier.
 else()
     target_compile_options(ranshaw-build-flags INTERFACE
         -Wall -Wextra -Wuninitialized -Wformat-security -Wconversion -Wsign-conversion
@@ -63,15 +140,18 @@ else()
         $<$<CONFIG:Debug>:-g3 -Og>
     )
 
-    # _FORTIFY_SOURCE requires optimization; not reliably supported on MinGW
-    if(NOT WIN32)
+    # _FORTIFY_SOURCE requires optimization and is incompatible with sanitizers
+    # (conflicts with ASan/UBSan runtime interceptors). Only apply when not
+    # building a sanitized test configuration.
+    if(NOT WIN32 AND NOT _ranshaw_sanitized)
         target_compile_options(ranshaw-build-flags INTERFACE
             $<$<NOT:$<CONFIG:Debug>>:-D_FORTIFY_SOURCE=2>
         )
     endif()
 
     # Stack protector: try-compile probe (catches any toolchain where
-    # libssp / compiler-rt is missing, not just Clang+MinGW).
+    # libssp / compiler-rt is missing, not just Clang+MinGW). Stack protection
+    # is compatible with sanitizers; keep it on.
     set(CMAKE_REQUIRED_FLAGS "-fstack-protector-strong")
     check_cxx_source_compiles("int main() { char buf[64]; buf[0] = 0; return buf[0]; }" HAS_STACK_PROTECTOR_STRONG)
     unset(CMAKE_REQUIRED_FLAGS)
@@ -102,11 +182,31 @@ else()
     endif()
 
     # CET control-flow integrity (Intel CET shadow stack + indirect branch tracking)
-    if(CMAKE_SYSTEM_PROCESSOR MATCHES "^([xX]86_64|[aA][mM][dD]64)$")
+    # Incompatible with sanitizer runtimes — skip when building sanitized tests.
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "^([xX]86_64|[aA][mM][dD]64)$" AND NOT _ranshaw_sanitized)
         check_cxx_compiler_flag("-fcf-protection=full" HAS_CF_PROTECTION)
         if(HAS_CF_PROTECTION)
             target_compile_options(ranshaw-build-flags INTERFACE -fcf-protection=full)
         endif()
+    endif()
+endif()
+
+# ── Sanitizer compile flags (test builds only) ──
+# Applied INTERFACE on ranshaw-build-flags so every ranshaw sub-library and the
+# main library are instrumented in a sanitized test build. The shipping library
+# (built without RANSHAW_TEST_SANITIZERS) is unaffected — this code only runs
+# when RANSHAW_TEST_SANITIZERS is set, which requires BUILD_TESTS=ON.
+if(_ranshaw_sanitized)
+    if(MSVC)
+        # MSVC ASan: /Zi generates PDBs the runtime needs for stack traces.
+        target_compile_options(ranshaw-build-flags INTERFACE /fsanitize=address /Zi)
+    else()
+        set(_ranshaw_san_cflags "")
+        foreach(_san IN LISTS _ranshaw_sanitizers)
+            list(APPEND _ranshaw_san_cflags "-fsanitize=${_san}")
+        endforeach()
+        list(APPEND _ranshaw_san_cflags "-fno-omit-frame-pointer" "-g")
+        target_compile_options(ranshaw-build-flags INTERFACE ${_ranshaw_san_cflags})
     endif()
 endif()
 
@@ -118,14 +218,24 @@ endif()
 # than guessing the linker style.
 function(ranshaw_harden_executable target)
     if(MSVC)
-        # PE linker hardening — DEP + ASLR + CFG
-        set_property(TARGET ${target} APPEND_STRING PROPERTY LINK_FLAGS
-            " /DYNAMICBASE /NXCOMPAT /HIGHENTROPYVA /guard:cf")
-        # CET shadow stack compatibility — compile AND link flags must match
-        if(HAS_GUARD_EHCONT)
-            target_compile_options(${target} PRIVATE /guard:ehcont)
+        if(_ranshaw_sanitized)
+            # MSVC ASan: skip /guard:cf / /guard:ehcont / /CETCOMPAT (they conflict
+            # with ASan's interceptor trampoline dispatch). /DYNAMICBASE /NXCOMPAT
+            # /HIGHENTROPYVA are still safe — they are PE image bits, not runtime
+            # hooks. /INCREMENTAL:NO /DEBUG are required so link.exe emits the
+            # PDB ASan needs for symbolized reports.
             set_property(TARGET ${target} APPEND_STRING PROPERTY LINK_FLAGS
-                " /guard:ehcont /CETCOMPAT")
+                " /DYNAMICBASE /NXCOMPAT /HIGHENTROPYVA /INCREMENTAL:NO /DEBUG")
+        else()
+            # PE linker hardening — DEP + ASLR + CFG
+            set_property(TARGET ${target} APPEND_STRING PROPERTY LINK_FLAGS
+                " /DYNAMICBASE /NXCOMPAT /HIGHENTROPYVA /guard:cf")
+            # CET shadow stack compatibility — compile AND link flags must match
+            if(HAS_GUARD_EHCONT)
+                target_compile_options(${target} PRIVATE /guard:ehcont)
+                set_property(TARGET ${target} APPEND_STRING PROPERTY LINK_FLAGS
+                    " /guard:ehcont /CETCOMPAT")
+            endif()
         endif()
     elseif(MINGW)
         # MinGW (GCC only) PE linker hardening — DEP + ASLR
@@ -137,8 +247,9 @@ function(ranshaw_harden_executable target)
             " -Wl,-z,relro,-z,now -Wl,-z,noexecstack")
     endif()
 
-    # LTO link flags
-    if(ENABLE_LTO)
+    # LTO link flags (disabled under sanitizers — LTO + instrumented builds
+    # produce unreliable line tables and slow down builds significantly).
+    if(ENABLE_LTO AND NOT _ranshaw_sanitized)
         if(MSVC)
             set_property(TARGET ${target} APPEND_STRING PROPERTY LINK_FLAGS " /LTCG")
         else()
@@ -146,16 +257,14 @@ function(ranshaw_harden_executable target)
         endif()
     endif()
 
-    # Sanitizer link flags
-    if(NOT MSVC)
-        if(ENABLE_ASAN)
-            set_property(TARGET ${target} APPEND_STRING PROPERTY LINK_FLAGS
-                " -fsanitize=address")
-        endif()
-        if(ENABLE_UBSAN)
-            set_property(TARGET ${target} APPEND_STRING PROPERTY LINK_FLAGS
-                " -fsanitize=undefined")
-        endif()
+    # Sanitizer link flags — GCC/Clang only (MSVC ASan links automatically
+    # from the /fsanitize=address compile flag via clang_rt.asan_dynamic).
+    if(_ranshaw_sanitized AND NOT MSVC)
+        set(_san_ldflags "")
+        foreach(_san IN LISTS _ranshaw_sanitizers)
+            set(_san_ldflags "${_san_ldflags} -fsanitize=${_san}")
+        endforeach()
+        set_property(TARGET ${target} APPEND_STRING PROPERTY LINK_FLAGS "${_san_ldflags}")
     endif()
 endfunction()
 
@@ -188,7 +297,9 @@ endif()
 option(ENABLE_ECFFT "Enable ECFFT polynomial multiplication" OFF)
 
 option(ENABLE_LTO "Enable link-time optimization" OFF)
-if(ENABLE_LTO)
+if(ENABLE_LTO AND _ranshaw_sanitized)
+    message(WARNING "RANSHAW: ENABLE_LTO ignored because RANSHAW_TEST_SANITIZERS is set (LTO + sanitizers produces unreliable debug info)")
+elseif(ENABLE_LTO)
     if(MSVC)
         target_compile_options(ranshaw-build-flags INTERFACE /GL)
     else()
@@ -197,20 +308,9 @@ if(ENABLE_LTO)
     message(STATUS "RANSHAW: Link-time optimization enabled")
 endif()
 
-option(ENABLE_ASAN "Enable AddressSanitizer" OFF)
-option(ENABLE_UBSAN "Enable UndefinedBehaviorSanitizer" OFF)
-if(NOT MSVC)
-    if(ENABLE_ASAN)
-        target_compile_options(ranshaw-build-flags INTERFACE
-            -fsanitize=address -fno-omit-frame-pointer)
-        message(STATUS "RANSHAW: AddressSanitizer enabled")
-    endif()
-    if(ENABLE_UBSAN)
-        target_compile_options(ranshaw-build-flags INTERFACE
-            -fsanitize=undefined -fno-omit-frame-pointer)
-        message(STATUS "RANSHAW: UndefinedBehaviorSanitizer enabled")
-    endif()
-endif()
+# NOTE: Sanitizer options are declared near the top of this file as
+# RANSHAW_TEST_SANITIZERS (comma-separated: address,undefined,thread).
+# Legacy ENABLE_ASAN / ENABLE_UBSAN booleans have been removed.
 
 # ── MinGW GCC + Debug SIMD alignment fix ──
 # Windows x64 ABI only guarantees 16-byte stack alignment, but YMM/ZMM
@@ -296,26 +396,92 @@ target_link_libraries(ranshaw PRIVATE ranshaw-build-flags)
 target_compile_definitions(ranshaw PRIVATE RANSHAW_INTERNAL_ACCESS)
 
 # ── Tests ──
-option(BUILD_TESTS "Build unit tests" OFF)
-if(DEFINED ENV{BUILD_TESTS})
-    set(BUILD_TESTS $ENV{BUILD_TESTS})
-endif()
-
+# BUILD_TESTS option is declared early (before ranshaw-build-flags) so
+# RANSHAW_TEST_SANITIZERS can be validated against it.
 if(BUILD_TESTS)
     enable_testing()
     message(STATUS "RANSHAW: Unit tests enabled")
 
-    add_executable(ranshaw-tests src/tests.cpp)
-    target_link_libraries(ranshaw-tests PRIVATE ranshaw)
+    # Test binaries must also link ranshaw-build-flags so their own TUs
+    # compile with the same flags as the library. In particular, under
+    # RANSHAW_TEST_SANITIZERS=address, MSVC emits `annotate_string` /
+    # `annotate_vector` STL annotations in the library .obj files that the
+    # test TUs must match — a mismatch produces LNK2038 at link time.
+    #
+    # The monolithic src/tests.cpp has been split into per-topic TUs under
+    # src/tests/ (field_fp, field_fq, point_ran, point_shaw, scalar_mul,
+    # msm, sswu, batch_affine, pedersen, polynomial, ecfft, divisor, scalar,
+    # serialization, dispatch, wei25519_bridge, verification) plus a shared
+    # common.cpp and a thin tests_main.cpp dispatcher. This keeps any single
+    # TU well under MSVC's link.exe / ASan instrumentation limits and lets
+    # Phase 3 add new topic files without touching the existing monolith.
+    set(RANSHAW_TEST_SOURCES
+        src/tests_main.cpp
+        src/tests/common.cpp
+        src/tests/field_fp.cpp
+        src/tests/field_fq.cpp
+        src/tests/point_ran.cpp
+        src/tests/point_shaw.cpp
+        src/tests/scalar_mul.cpp
+        src/tests/wei25519_bridge.cpp
+        src/tests/msm.cpp
+        src/tests/sswu.cpp
+        src/tests/batch_affine.cpp
+        src/tests/pedersen.cpp
+        src/tests/polynomial.cpp
+        src/tests/ecfft.cpp
+        src/tests/divisor.cpp
+        src/tests/scalar.cpp
+        src/tests/serialization.cpp
+        src/tests/dispatch.cpp
+        src/tests/verification.cpp
+        src/tests/edge_fields.cpp
+        src/tests/malformed_decoders.cpp
+        src/tests/concurrency.cpp
+    )
+
+    add_executable(ranshaw-tests ${RANSHAW_TEST_SOURCES})
+    target_include_directories(ranshaw-tests PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_link_libraries(ranshaw-tests PRIVATE ranshaw ranshaw-build-flags)
     target_compile_definitions(ranshaw-tests PRIVATE RANSHAW_INTERNAL_ACCESS)
     ranshaw_harden_executable(ranshaw-tests)
     add_test(NAME ranshaw-tests COMMAND ranshaw-tests)
 
-    add_executable(ranshaw-fuzz-tests src/tests_fuzz.cpp)
-    target_link_libraries(ranshaw-fuzz-tests PRIVATE ranshaw)
+    # Same split pattern as ranshaw-tests: per-topic TUs under src/fuzz_tests/
+    # with a shared common.cpp/h + registry.h and a thin tests_fuzz_main.cpp.
+    set(RANSHAW_FUZZ_SOURCES
+        src/tests_fuzz_main.cpp
+        src/fuzz_tests/common.cpp
+        src/fuzz_tests/scalar.cpp
+        src/fuzz_tests/point.cpp
+        src/fuzz_tests/serialization.cpp
+        src/fuzz_tests/cycle.cpp
+        src/fuzz_tests/scalarmult.cpp
+        src/fuzz_tests/msm.cpp
+        src/fuzz_tests/map.cpp
+        src/fuzz_tests/pedersen.cpp
+        src/fuzz_tests/batch.cpp
+        src/fuzz_tests/polynomial.cpp
+        src/fuzz_tests/divisor.cpp
+        src/fuzz_tests/verification.cpp
+        src/fuzz_tests/ecfft.cpp
+    )
+
+    add_executable(ranshaw-fuzz-tests ${RANSHAW_FUZZ_SOURCES})
+    target_include_directories(ranshaw-fuzz-tests PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_link_libraries(ranshaw-fuzz-tests PRIVATE ranshaw ranshaw-build-flags)
     target_compile_definitions(ranshaw-fuzz-tests PRIVATE RANSHAW_INTERNAL_ACCESS)
     ranshaw_harden_executable(ranshaw-fuzz-tests)
     add_test(NAME ranshaw-fuzz-tests COMMAND ranshaw-fuzz-tests)
+
+    # libFuzzer harnesses (Clang + Linux/macOS only, requires address sanitizer).
+    # See tests/fuzz/CMakeLists.txt for the full gate and per-target setup.
+    option(RANSHAW_BUILD_FUZZERS "Build libFuzzer harnesses (Clang + Linux/macOS only; requires RANSHAW_TEST_SANITIZERS to include address)" OFF)
+    if(RANSHAW_BUILD_FUZZERS)
+        add_subdirectory(tests/fuzz)
+    endif()
 endif()
 
 # ── Benchmarks ──
@@ -328,17 +494,17 @@ if(BUILD_BENCHMARKS)
     message(STATUS "RANSHAW: Benchmarks enabled")
 
     add_executable(ranshaw-benchmark src/benchmark.cpp)
-    target_link_libraries(ranshaw-benchmark PRIVATE ranshaw)
+    target_link_libraries(ranshaw-benchmark PRIVATE ranshaw ranshaw-build-flags)
     target_compile_definitions(ranshaw-benchmark PRIVATE RANSHAW_INTERNAL_ACCESS)
     ranshaw_harden_executable(ranshaw-benchmark)
 
     add_executable(ranshaw-benchmark-contest src/benchmark_contest.cpp)
-    target_link_libraries(ranshaw-benchmark-contest PRIVATE ranshaw)
+    target_link_libraries(ranshaw-benchmark-contest PRIVATE ranshaw ranshaw-build-flags)
     target_compile_definitions(ranshaw-benchmark-contest PRIVATE RANSHAW_INTERNAL_ACCESS)
     ranshaw_harden_executable(ranshaw-benchmark-contest)
 
     add_executable(ranshaw-benchmark-fcmpp src/benchmark_fcmpp.cpp)
-    target_link_libraries(ranshaw-benchmark-fcmpp PRIVATE ranshaw)
+    target_link_libraries(ranshaw-benchmark-fcmpp PRIVATE ranshaw ranshaw-build-flags)
     target_compile_definitions(ranshaw-benchmark-fcmpp PRIVATE RANSHAW_INTERNAL_ACCESS)
     ranshaw_harden_executable(ranshaw-benchmark-fcmpp)
 
@@ -356,11 +522,11 @@ if(BUILD_TOOLS)
     # ECFFT tools use uint64_t field elements directly and require the x64 backend
     if(NOT FORCE_PORTABLE)
         add_executable(ranshaw-find-ecfft tools/find_ecfft_curve.cpp)
-        target_link_libraries(ranshaw-find-ecfft PRIVATE ranshaw)
+        target_link_libraries(ranshaw-find-ecfft PRIVATE ranshaw ranshaw-build-flags)
         ranshaw_harden_executable(ranshaw-find-ecfft)
 
         add_executable(ranshaw-gen-ecfft tools/gen_ecfft_data.cpp)
-        target_link_libraries(ranshaw-gen-ecfft PRIVATE ranshaw)
+        target_link_libraries(ranshaw-gen-ecfft PRIVATE ranshaw ranshaw-build-flags)
         ranshaw_harden_executable(ranshaw-gen-ecfft)
 
         if(NOT MSVC)
@@ -371,7 +537,7 @@ if(BUILD_TOOLS)
     endif()
 
     add_executable(ranshaw-gen-testvectors tools/gen_test_vectors.cpp)
-    target_link_libraries(ranshaw-gen-testvectors PRIVATE ranshaw)
+    target_link_libraries(ranshaw-gen-testvectors PRIVATE ranshaw ranshaw-build-flags)
     target_compile_definitions(ranshaw-gen-testvectors PRIVATE RANSHAW_INTERNAL_ACCESS)
     ranshaw_harden_executable(ranshaw-gen-testvectors)
 

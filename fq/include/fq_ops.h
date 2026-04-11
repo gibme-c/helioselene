@@ -36,6 +36,7 @@
 #define RANSHAW_FQ_OPS_H
 
 #include "fq.h"
+#include "ranshaw_platform.h"
 
 #include <cstring>
 
@@ -124,33 +125,33 @@ static inline void fq_sub(fq_fe h, const fq_fe f, const fq_fe g)
     int64_t carry;
     carry = d0 >> 26;
     d1 += carry;
-    d0 -= carry << 26;
+    d0 -= ranshaw_shl_i64(carry, 26);
     carry = d1 >> 25;
     d2 += carry;
-    d1 -= carry << 25;
+    d1 -= ranshaw_shl_i64(carry, 25);
     carry = d2 >> 26;
     d3 += carry;
-    d2 -= carry << 26;
+    d2 -= ranshaw_shl_i64(carry, 26);
     carry = d3 >> 25;
     d4 += carry;
-    d3 -= carry << 25;
+    d3 -= ranshaw_shl_i64(carry, 25);
     carry = d4 >> 26;
     d5 += carry;
-    d4 -= carry << 26;
+    d4 -= ranshaw_shl_i64(carry, 26);
     carry = d5 >> 25;
     d6 += carry;
-    d5 -= carry << 25;
+    d5 -= ranshaw_shl_i64(carry, 25);
     carry = d6 >> 26;
     d7 += carry;
-    d6 -= carry << 26;
+    d6 -= ranshaw_shl_i64(carry, 26);
     carry = d7 >> 25;
     d8 += carry;
-    d7 -= carry << 25;
+    d7 -= ranshaw_shl_i64(carry, 25);
     carry = d8 >> 26;
     d9 += carry;
-    d8 -= carry << 26;
+    d8 -= ranshaw_shl_i64(carry, 26);
     carry = d9 >> 25;
-    d9 -= carry << 25;
+    d9 -= ranshaw_shl_i64(carry, 25);
     /* Fold: carry * 2^255 ≡ carry * gamma (mod q) */
     {
         int64_t *dptrs[] = {&d0, &d1, &d2, &d3, &d4, &d5, &d6, &d7, &d8, &d9};
@@ -160,33 +161,33 @@ static inline void fq_sub(fq_fe h, const fq_fe f, const fq_fe g)
     /* Second carry pass */
     carry = d0 >> 26;
     d1 += carry;
-    d0 -= carry << 26;
+    d0 -= ranshaw_shl_i64(carry, 26);
     carry = d1 >> 25;
     d2 += carry;
-    d1 -= carry << 25;
+    d1 -= ranshaw_shl_i64(carry, 25);
     carry = d2 >> 26;
     d3 += carry;
-    d2 -= carry << 26;
+    d2 -= ranshaw_shl_i64(carry, 26);
     carry = d3 >> 25;
     d4 += carry;
-    d3 -= carry << 25;
+    d3 -= ranshaw_shl_i64(carry, 25);
     carry = d4 >> 26;
     d5 += carry;
-    d4 -= carry << 26;
+    d4 -= ranshaw_shl_i64(carry, 26);
     carry = d5 >> 25;
     d6 += carry;
-    d5 -= carry << 25;
+    d5 -= ranshaw_shl_i64(carry, 25);
     carry = d6 >> 26;
     d7 += carry;
-    d6 -= carry << 26;
+    d6 -= ranshaw_shl_i64(carry, 26);
     carry = d7 >> 25;
     d8 += carry;
-    d7 -= carry << 25;
+    d7 -= ranshaw_shl_i64(carry, 25);
     carry = d8 >> 26;
     d9 += carry;
-    d8 -= carry << 26;
+    d8 -= ranshaw_shl_i64(carry, 26);
     carry = d9 >> 25;
-    d9 -= carry << 25;
+    d9 -= ranshaw_shl_i64(carry, 25);
     {
         int64_t *dptrs[] = {&d0, &d1, &d2, &d3, &d4, &d5, &d6, &d7, &d8, &d9};
         for (int j = 0; j < GAMMA_25_LIMBS; j++)
@@ -194,10 +195,10 @@ static inline void fq_sub(fq_fe h, const fq_fe f, const fq_fe g)
     }
     carry = d0 >> 26;
     d1 += carry;
-    d0 -= carry << 26;
+    d0 -= ranshaw_shl_i64(carry, 26);
     carry = d1 >> 25;
     d2 += carry;
-    d1 -= carry << 25;
+    d1 -= ranshaw_shl_i64(carry, 25);
     h[0] = (int32_t)d0;
     h[1] = (int32_t)d1;
     h[2] = (int32_t)d2;

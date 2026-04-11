@@ -123,7 +123,11 @@ namespace ranshaw
         const RanPoint *generators,
         size_t n)
     {
-        if (n == 0 || !values || !generators || n > SIZE_MAX / 32)
+        /* n == 0 is a valid degenerate case: empty sum, so the commitment
+         * is just blinding * H. Null pointers with non-zero n are rejected. */
+        if (n == 0)
+            return H.scalar_mul(blinding);
+        if (!values || !generators || n > SIZE_MAX / 32)
             return RanPoint();
 
         auto blind_bytes = blinding.to_bytes();
@@ -228,7 +232,11 @@ namespace ranshaw
         const ShawPoint *generators,
         size_t n)
     {
-        if (n == 0 || !values || !generators || n > SIZE_MAX / 32)
+        /* n == 0 is a valid degenerate case: empty sum, so the commitment
+         * is just blinding * H. Null pointers with non-zero n are rejected. */
+        if (n == 0)
+            return H.scalar_mul(blinding);
+        if (!values || !generators || n > SIZE_MAX / 32)
             return ShawPoint();
 
         auto blind_bytes = blinding.to_bytes();

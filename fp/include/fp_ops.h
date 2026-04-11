@@ -33,6 +33,7 @@
 #define RANSHAW_FP_OPS_H
 
 #include "fp.h"
+#include "ranshaw_platform.h"
 
 #include <cstring>
 
@@ -113,37 +114,37 @@ static inline void fp_sub(fp_fe h, const fp_fe f, const fp_fe g)
     int64_t carry;
     carry = d0 >> 26;
     d1 += carry;
-    d0 -= carry << 26;
+    d0 -= ranshaw_shl_i64(carry, 26);
     carry = d1 >> 25;
     d2 += carry;
-    d1 -= carry << 25;
+    d1 -= ranshaw_shl_i64(carry, 25);
     carry = d2 >> 26;
     d3 += carry;
-    d2 -= carry << 26;
+    d2 -= ranshaw_shl_i64(carry, 26);
     carry = d3 >> 25;
     d4 += carry;
-    d3 -= carry << 25;
+    d3 -= ranshaw_shl_i64(carry, 25);
     carry = d4 >> 26;
     d5 += carry;
-    d4 -= carry << 26;
+    d4 -= ranshaw_shl_i64(carry, 26);
     carry = d5 >> 25;
     d6 += carry;
-    d5 -= carry << 25;
+    d5 -= ranshaw_shl_i64(carry, 25);
     carry = d6 >> 26;
     d7 += carry;
-    d6 -= carry << 26;
+    d6 -= ranshaw_shl_i64(carry, 26);
     carry = d7 >> 25;
     d8 += carry;
-    d7 -= carry << 25;
+    d7 -= ranshaw_shl_i64(carry, 25);
     carry = d8 >> 26;
     d9 += carry;
-    d8 -= carry << 26;
+    d8 -= ranshaw_shl_i64(carry, 26);
     carry = d9 >> 25;
     d0 += carry * 19;
-    d9 -= carry << 25;
+    d9 -= ranshaw_shl_i64(carry, 25);
     carry = d0 >> 26;
     d1 += carry;
-    d0 -= carry << 26;
+    d0 -= ranshaw_shl_i64(carry, 26);
     h[0] = (int32_t)d0;
     h[1] = (int32_t)d1;
     h[2] = (int32_t)d2;

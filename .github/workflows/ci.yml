@@ -59,7 +59,48 @@ jobs:
           - { os: windows-latest, name: mingw-gcc, config: x64-avx2,     cmake_flags: "-G \"MinGW Makefiles\" -DCMAKE_CXX_COMPILER=g++ -DENABLE_AVX512=OFF" }
           - { os: windows-latest, name: mingw-gcc, config: x64-full,     cmake_flags: "-G \"MinGW Makefiles\" -DCMAKE_CXX_COMPILER=g++" }
 
+          # ── Linux gcc-12 ASan + UBSan (x64 full, sanitizers) ─────
+          - { os: ubuntu-latest, cc: gcc-12,    cxx: g++-12,      name: gcc-12,    config: asan-ubsan,   cmake_flags: "-DRANSHAW_TEST_SANITIZERS=address,undefined", sanitizers: true }
+
+          # ── Linux clang-15 ASan + UBSan (x64 full, sanitizers) ───
+          - { os: ubuntu-latest, cc: clang-15,  cxx: clang++-15,  name: clang-15,  config: asan-ubsan,   cmake_flags: "-DRANSHAW_TEST_SANITIZERS=address,undefined", sanitizers: true }
+
+          # ── Linux clang-15 TSan (x64 full) ───────────────────────
+          # TSan placeholder: runs --autotune only until --concurrency-only
+          # mode is added in Phase 3. Currently validates the plumbing and
+          # catches any data race surfaced by dispatch/autotune init.
+          - { os: ubuntu-latest, cc: clang-15,  cxx: clang++-15,  name: clang-15,  config: tsan,         cmake_flags: "-DRANSHAW_TEST_SANITIZERS=thread", sanitizers: true, tsan: true }
+
+          # ── macOS AppleClang ASan + UBSan (portable, ARM64) ──────
+          # AppleClang ships the matching compiler-rt runtime; Homebrew LLVM
+          # has occasional ABI drift with Xcode's libc++ that causes spurious
+          # leak reports, so we pin the sanitized macOS job to AppleClang.
+          - { os: macos-latest, name: AppleClang, config: asan-ubsan, cmake_flags: "-DRANSHAW_TEST_SANITIZERS=address,undefined -DFORCE_PORTABLE=ON", sanitizers: true }
+
+          # ── Windows MSVC ASan (Release, portable) ────────────────
+          # MSVC ASan is only supported in Release builds (incompatible with
+          # /RTC* in Debug). Portable config first — AVX2/AVX-512 backends
+          # under MSVC ASan are not yet validated. Skips benchmarks (slow
+          # under ASan) and UBSan (not supported by MSVC).
+          - { os: windows-latest, name: msvc, config: asan, cmake_flags: "-DRANSHAW_TEST_SANITIZERS=address -DFORCE_PORTABLE=ON", sanitizers: true }
+
+          # ── Linux clang-15 libFuzzer smoke (PR-gate) ─────────────
+          # Builds every libFuzzer harness and runs each for -runs=0
+          # against the checked-in seed corpora. Validates harness
+          # wiring on every PR without spending real wall-clock on
+          # coverage-guided fuzzing (that happens in fuzz-nightly.yml).
+          - { os: ubuntu-latest, cc: clang-15,  cxx: clang++-15,  name: clang-15,  config: fuzz-smoke,   cmake_flags: "-DRANSHAW_TEST_SANITIZERS=address,undefined -DRANSHAW_BUILD_FUZZERS=ON", sanitizers: true, fuzz_smoke: true }
+
     name: ${{ matrix.os }} / ${{ matrix.name }} / ${{ matrix.config }}
+
+    # Sanitizer runtime options are safe to set unconditionally — they are
+    # ignored when the binary is not instrumented with the matching sanitizer.
+    # `detect_leaks` is deliberately omitted: Linux ASan detects leaks by
+    # default and MSVC ASan errors on `detect_leaks=1`.
+    env:
+      ASAN_OPTIONS: "halt_on_error=1:strict_string_checks=1:abort_on_error=1"
+      UBSAN_OPTIONS: "halt_on_error=1:print_stacktrace=1:abort_on_error=1"
+      TSAN_OPTIONS: "halt_on_error=1:abort_on_error=1:second_deadlock_stack=1"
 
     steps:
       - uses: actions/checkout@v4
@@ -108,30 +149,62 @@ jobs:
             echo "bench=./build/ranshaw-benchmark" >> "$GITHUB_OUTPUT"
           fi
 
+      # The TSan job only runs --concurrency-only (see concurrency.cpp).
+      # Running the full suite under TSan would take hours and duplicate
+      # coverage that the regular jobs already provide.
       - name: "Tests: default dispatch"
+        if: matrix.tsan != true
         shell: bash
         run: ${{ steps.exe.outputs.tests }}
 
       - name: "Tests: --init dispatch"
+        if: matrix.tsan != true
         shell: bash
         run: ${{ steps.exe.outputs.tests }} --init
 
       - name: "Tests: --autotune dispatch"
+        if: matrix.tsan != true
         shell: bash
         run: ${{ steps.exe.outputs.tests }} --autotune
 
+      - name: "Tests: --concurrency-only (TSan)"
+        if: matrix.tsan == true
+        shell: bash
+        run: ${{ steps.exe.outputs.tests }} --concurrency-only
+
       - name: "Fuzz tests: default dispatch"
+        if: matrix.tsan != true
         shell: bash
         run: ${{ steps.exe.outputs.fuzz }} --quiet
 
       - name: "Fuzz tests: --init dispatch"
+        if: matrix.tsan != true
         shell: bash
         run: ${{ steps.exe.outputs.fuzz }} --init --quiet
 
       - name: "Fuzz tests: --autotune dispatch"
+        if: matrix.tsan != true
         shell: bash
         run: ${{ steps.exe.outputs.fuzz }} --autotune --quiet
 
       - name: Run Benchmark
+        if: matrix.sanitizers != true
         shell: bash
         run: ${{ steps.exe.outputs.bench }} --autotune
+
+      # ── libFuzzer smoke: build once, run each harness briefly ──
+      # Only executes on the clang-15 fuzz-smoke matrix entry. Each
+      # harness runs against its checked-in seed corpus with
+      # `-runs=0` (no mutation) — this asserts the harness links,
+      # loads the corpus, and exits cleanly. Catches harness bitrot
+      # on every PR without spending CI wall-clock on real fuzzing.
+      - name: libFuzzer smoke
+        if: matrix.fuzz_smoke == true
+        shell: bash
+        run: |
+          set -e
+          for bin in build/ranshaw-fuzz_*; do
+            target="$(basename "$bin" | sed 's/^ranshaw-//')"
+            echo "---- $target (smoke) ----"
+            "$bin" "tests/fuzz/corpora/${target}" -runs=0 -print_final_stats=1
+          done

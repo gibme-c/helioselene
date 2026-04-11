@@ -43,6 +43,7 @@
 
 #include <array>
 #include <cstddef>
+#include <optional>
 #include <ostream>
 
 namespace ranshaw
@@ -59,11 +60,18 @@ namespace ranshaw
       public:
         RanDivisor() = default;
 
-        /// Build the divisor whose zeros are the given n points.
-        static RanDivisor compute(const RanPoint *points, size_t n);
+        /// Build the divisor whose zeros are the given n points. Returns nullopt
+        /// if any point is off-curve or two points share an x-coordinate.
+        static std::optional<RanDivisor> compute(const RanPoint *points, size_t n);
 
-        /// Evaluate f(x,y) = a(x) + y*b(x) at the given serialized coordinates.
-        std::array<uint8_t, 32> evaluate(const uint8_t x_bytes[32], const uint8_t y_bytes[32]) const;
+        /// Evaluate f(x,y) at serialized (x, y) bytes. Returns nullopt if the
+        /// point is off-curve.
+        std::optional<std::array<uint8_t, 32>> evaluate(const uint8_t x_bytes[32], const uint8_t y_bytes[32]) const;
+
+        /// Type-safe evaluate overload: the point's coordinates are already
+        /// guaranteed on-curve by RanPoint construction, so this never fails
+        /// for a valid RanPoint.
+        std::array<uint8_t, 32> evaluate(const RanPoint &p) const;
 
         /// The a(x) polynomial component.
         const FpPolynomial &a() const
@@ -107,11 +115,17 @@ namespace ranshaw
       public:
         ShawDivisor() = default;
 
-        /// Build the divisor whose zeros are the given n points.
-        static ShawDivisor compute(const ShawPoint *points, size_t n);
+        /// Build the divisor whose zeros are the given n points. Returns nullopt
+        /// if any point is off-curve or two points share an x-coordinate.
+        static std::optional<ShawDivisor> compute(const ShawPoint *points, size_t n);
 
-        /// Evaluate f(x,y) = a(x) + y*b(x) at the given serialized coordinates.
-        std::array<uint8_t, 32> evaluate(const uint8_t x_bytes[32], const uint8_t y_bytes[32]) const;
+        /// Evaluate f(x,y) at serialized (x, y) bytes. Returns nullopt if the
+        /// point is off-curve.
+        std::optional<std::array<uint8_t, 32>> evaluate(const uint8_t x_bytes[32], const uint8_t y_bytes[32]) const;
+
+        /// Type-safe evaluate overload: ShawPoint construction guarantees the
+        /// coordinates are on-curve, so this never fails for a valid ShawPoint.
+        std::array<uint8_t, 32> evaluate(const ShawPoint &p) const;
 
         /// The a(x) polynomial component.
         const FqPolynomial &a() const

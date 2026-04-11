@@ -38,70 +38,12 @@
 #include "ran_add.h"
 #include "ran_dbl.h"
 #include "ran_ops.h"
+#include "ranshaw_platform.h"
 #include "ranshaw_secure_erase.h"
 
 #include <cstdint>
 #include <cstring>
 #include <vector>
-
-// ============================================================================
-// Safe variable-time addition for Jacobian coordinates
-// ============================================================================
-
-/*
- * Variable-time "safe" addition that handles all edge cases:
- * - p == identity: return q
- * - q == identity: return p
- * - p == q: use doubling
- * - p == -q: return identity
- * - otherwise: standard addition
- */
-static void ran_add_safe(ran_jacobian *r, const ran_jacobian *p, const ran_jacobian *q)
-{
-    if (ran_is_identity(p))
-    {
-        ran_copy(r, q);
-        return;
-    }
-    if (ran_is_identity(q))
-    {
-        ran_copy(r, p);
-        return;
-    }
-
-    /* Check if x-coordinates match (projective comparison) */
-    fp_fe z1z1, z2z2, u1, u2, diff;
-    fp_sq(z1z1, p->Z);
-    fp_sq(z2z2, q->Z);
-    fp_mul(u1, p->X, z2z2);
-    fp_mul(u2, q->X, z1z1);
-    fp_sub(diff, u1, u2);
-
-    if (!fp_isnonzero(diff))
-    {
-        /* Same x: check if same or opposite y */
-        fp_fe s1, s2, t;
-        fp_mul(t, q->Z, z2z2);
-        fp_mul(s1, p->Y, t);
-        fp_mul(t, p->Z, z1z1);
-        fp_mul(s2, q->Y, t);
-        fp_sub(diff, s1, s2);
-
-        if (!fp_isnonzero(diff))
-        {
-            /* P == Q: double */
-            ran_dbl(r, p);
-        }
-        else
-        {
-            /* P == -Q: identity */
-            ran_identity(r);
-        }
-        return;
-    }
-
-    ran_add(r, p, q);
-}
 
 // ============================================================================
 // Signed digit encoding (curve-independent)
@@ -114,13 +56,13 @@ static void encode_signed_w4(int16_t *digits, const unsigned char *scalar)
     {
         carry += scalar[i];
         int carry2 = (carry + 8) >> 4;
-        digits[2 * i] = static_cast<int16_t>(carry - (carry2 << 4));
+        digits[2 * i] = static_cast<int16_t>(carry - (ranshaw_shl_i32(carry2, 4)));
         carry = (carry2 + 8) >> 4;
-        digits[2 * i + 1] = static_cast<int16_t>(carry2 - (carry << 4));
+        digits[2 * i + 1] = static_cast<int16_t>(carry2 - (ranshaw_shl_i32(carry, 4)));
     }
     carry += scalar[31];
     int carry2 = (carry + 8) >> 4;
-    digits[62] = static_cast<int16_t>(carry - (carry2 << 4));
+    digits[62] = static_cast<int16_t>(carry - (ranshaw_shl_i32(carry2, 4)));
     digits[63] = static_cast<int16_t>(carry2);
 }
 
@@ -182,7 +124,7 @@ static void msm_straus(ran_jacobian *result, const unsigned char *scalars, const
         ran_dbl(&Ti[1], &points[i]); // Ti[1] = 2*P (use dbl, not add)
         for (int j = 1; j < 7; j++)
         {
-            ran_add_safe(&Ti[j + 1], &Ti[j], &points[i]); // Ti[j+1] = (j+2)*P
+            ran_add(&Ti[j + 1], &Ti[j], &points[i]); // Ti[j+1] = (j+2)*P
         }
     }
 
@@ -226,7 +168,7 @@ static void msm_straus(ran_jacobian *result, const unsigned char *scalars, const
             }
             else
             {
-                ran_add_safe(&acc, &acc, &pt);
+                ran_add(&acc, &acc, &pt);
             }
         }
     }
@@ -319,7 +261,7 @@ static void msm_pippenger(ran_jacobian *result, const unsigned char *scalars, co
             }
             else
             {
-                ran_add_safe(&bucket_points[bucket_idx], &bucket_points[bucket_idx], &effective_point);
+                ran_add(&bucket_points[bucket_idx], &bucket_points[bucket_idx], &effective_point);
             }
         }
 
@@ -341,7 +283,7 @@ static void msm_pippenger(ran_jacobian *result, const unsigned char *scalars, co
                 }
                 else
                 {
-                    ran_add_safe(&running, &running, &bucket_points[j]);
+                    ran_add(&running, &running, &bucket_points[j]);
                 }
             }
 
@@ -354,7 +296,7 @@ static void msm_pippenger(ran_jacobian *result, const unsigned char *scalars, co
                 }
                 else
                 {
-                    ran_add_safe(&partial, &partial, &running);
+                    ran_add(&partial, &partial, &running);
                 }
             }
         }
@@ -372,7 +314,7 @@ static void msm_pippenger(ran_jacobian *result, const unsigned char *scalars, co
             }
             else
             {
-                ran_add_safe(&total, &total, &partial);
+                ran_add(&total, &total, &partial);
             }
         }
     }
