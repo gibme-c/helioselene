@@ -127,6 +127,9 @@ void shaw_add_x64(shaw_jacobian *r, const shaw_jacobian *p, const shaw_jacobian 
     c = r->X[1] >> 51;
     r->X[1] &= M;
     r->X[2] += c;
+    c = r->X[2] >> 51;
+    r->X[2] &= M;
+    r->X[3] += c;
 
     fq64_to_fq51(r->Y, rY);
     c = r->Y[0] >> 51;
@@ -152,6 +155,9 @@ void shaw_add_x64(shaw_jacobian *r, const shaw_jacobian *p, const shaw_jacobian 
     c = r->Y[1] >> 51;
     r->Y[1] &= M;
     r->Y[2] += c;
+    c = r->Y[2] >> 51;
+    r->Y[2] &= M;
+    r->Y[3] += c;
 
     fq64_to_fq51(r->Z, rZ);
     c = r->Z[0] >> 51;
@@ -177,6 +183,9 @@ void shaw_add_x64(shaw_jacobian *r, const shaw_jacobian *p, const shaw_jacobian 
     c = r->Z[1] >> 51;
     r->Z[1] &= M;
     r->Z[2] += c;
+    c = r->Z[2] >> 51;
+    r->Z[2] &= M;
+    r->Z[3] += c;
 }
 
 #else

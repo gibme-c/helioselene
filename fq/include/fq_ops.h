@@ -85,8 +85,8 @@ static inline void fq_sub(fq_fe h, const fq_fe f, const fq_fe g)
     /* Gamma fold: carry * 2^255 ≡ carry * gamma (mod q) */
     for (int j = 0; j < GAMMA_51_LIMBS; j++)
         h[j] += c * GAMMA_51[j];
-    /* Re-carry limbs touched by gamma fold */
-    for (int j = 0; j < GAMMA_51_LIMBS - 1; j++)
+    /* Re-carry limbs touched by gamma fold (through limb 2→3) */
+    for (int j = 0; j < GAMMA_51_LIMBS; j++)
     {
         uint64_t cc = h[j] >> 51;
         h[j + 1] += cc;

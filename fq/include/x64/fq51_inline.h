@@ -1680,6 +1680,9 @@ static RANSHAW_FORCE_INLINE void fq51_mul_inline(fq_fe h, const fq_fe f, const f
     c = h[1] >> 51;
     h[1] &= M;
     h[2] += c;
+    c = h[2] >> 51;
+    h[2] &= M;
+    h[3] += c;
 }
 
 static RANSHAW_FORCE_INLINE void fq51_sq_inline(fq_fe h, const fq_fe f)
@@ -1707,7 +1710,7 @@ static RANSHAW_FORCE_INLINE void fq51_sq_inline(fq_fe h, const fq_fe f)
     h[4] &= M;
     for (int j = 0; j < GAMMA_51_LIMBS; j++)
         h[j] += c * GAMMA_51[j];
-    for (int j = 0; j < GAMMA_51_LIMBS - 1; j++)
+    for (int j = 0; j < GAMMA_51_LIMBS; j++)
     {
         c = h[j] >> 51;
         h[j] &= M;
@@ -1856,6 +1859,9 @@ static RANSHAW_FORCE_INLINE void fq51_mul_inline(fq_fe h, const fq_fe f, const f
     c = h[1] >> 51;
     h[1] &= FQ51_MASK;
     h[2] += c;
+    c = h[2] >> 51;
+    h[2] &= FQ51_MASK;
+    h[3] += c;
 }
 #endif /* !FQ51_HAVE_ADX_MUL */
 
@@ -1989,6 +1995,9 @@ static RANSHAW_FORCE_INLINE void fq51_sq_inline(fq_fe h, const fq_fe f)
     c = h[1] >> 51;
     h[1] &= FQ51_MASK;
     h[2] += c;
+    c = h[2] >> 51;
+    h[2] &= FQ51_MASK;
+    h[3] += c;
 }
 #endif /* !FQ51_HAVE_ADX_MUL */
 
@@ -2135,6 +2144,9 @@ static RANSHAW_FORCE_INLINE void fq51_mul_inline(fq_fe h, const fq_fe f, const f
     c = h[1] >> 51;
     h[1] &= FQ51_MASK;
     h[2] += c;
+    c = h[2] >> 51;
+    h[2] &= FQ51_MASK;
+    h[3] += c;
 }
 
 static RANSHAW_FORCE_INLINE void fq51_sq_inline(fq_fe h, const fq_fe f)
@@ -2272,6 +2284,9 @@ static RANSHAW_FORCE_INLINE void fq51_sq_inline(fq_fe h, const fq_fe f)
     c = h[1] >> 51;
     h[1] &= FQ51_MASK;
     h[2] += c;
+    c = h[2] >> 51;
+    h[2] &= FQ51_MASK;
+    h[3] += c;
 }
 
 #endif /* RANSHAW_HAVE_INT128 / RANSHAW_HAVE_UMUL128 */

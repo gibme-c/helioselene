@@ -70,13 +70,16 @@ void fq_tobytes_x64(unsigned char *s, const fq_fe h)
     t[0] += carry * GAMMA_51[0];
     t[1] += carry * GAMMA_51[1];
     t[2] += carry * GAMMA_51[2];
-    /* Re-carry */
+    /* Re-carry through all limbs touched by gamma fold */
     carry = t[0] >> 51;
     t[1] += carry;
     t[0] &= FQ51_MASK;
     carry = t[1] >> 51;
     t[2] += carry;
     t[1] &= FQ51_MASK;
+    carry = t[2] >> 51;
+    t[3] += carry;
+    t[2] &= FQ51_MASK;
 
     /*
      * "Add gamma and check overflow" trick for canonicalization.
