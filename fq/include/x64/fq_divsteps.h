@@ -466,6 +466,9 @@ static inline void fq_fe_to_signed62(fq_signed62 *s, const uint64_t fe[5])
     c = h2 >> 51;
     h3 += c;
     h2 &= FQ51_MASK;
+    c = h3 >> 51;
+    h4 += c;
+    h3 &= FQ51_MASK;
 
     /* Reconstruct 4x64 from 5x51 */
     uint64_t w0 = h0 | (h1 << 51);
