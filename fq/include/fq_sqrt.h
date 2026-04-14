@@ -34,17 +34,22 @@
 
 #include "fq.h"
 
+/*
+ * Returns 0 on success (z is a QR; out is set to its principal square root)
+ * and -1 on failure (z is a non-residue; out is zeroed).
+ * Constant-time regardless of whether z is a QR.
+ */
 #if RANSHAW_PLATFORM_64BIT
-void fq_sqrt_x64(fq_fe out, const fq_fe z);
-static inline void fq_sqrt(fq_fe out, const fq_fe z)
+int fq_sqrt_x64(fq_fe out, const fq_fe z);
+static inline int fq_sqrt(fq_fe out, const fq_fe z)
 {
-    fq_sqrt_x64(out, z);
+    return fq_sqrt_x64(out, z);
 }
 #else
-void fq_sqrt_portable(fq_fe out, const fq_fe z);
-static inline void fq_sqrt(fq_fe out, const fq_fe z)
+int fq_sqrt_portable(fq_fe out, const fq_fe z);
+static inline int fq_sqrt(fq_fe out, const fq_fe z)
 {
-    fq_sqrt_portable(out, z);
+    return fq_sqrt_portable(out, z);
 }
 #endif
 

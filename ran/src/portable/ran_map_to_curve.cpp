@@ -37,10 +37,8 @@
  * supplies the pre-hashed field element u; hashing from an arbitrary input
  * bytestring to a field element is intentionally left to the caller.
  *
- * Deviations from RFC 9380 Section 6.6.2 (map-to-curve only, not the full
- * hash_to_curve pipeline) are documented in docs/hash_to_curve_rationale.md.
- * Key points: Z chosen only for Wahby-Boneh soundness (non-square and
- * g(B/(Z*A)) square), not the additional RFC 9380 cleanness criteria; the
+ * Z chosen only for Wahby-Boneh soundness (non-square in F_p and g(B/(Z*A))
+ * square), not the additional RFC 9380 Section 6.6.2 cleanness criteria. The
  * fully constant-time structure (inv0 via Fermat, branchless sqrt selection,
  * cneg-based sign fix) matches RFC 9380 Section 4.
  */

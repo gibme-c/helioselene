@@ -259,6 +259,98 @@ static inline int64_t fq_divsteps_62(int64_t delta, uint64_t f0, uint64_t g0, fq
 }
 
 /* ------------------------------------------------------------------ */
+/* Inner loop (Jacobi variant): pos-divsteps tracking Legendre symbol  */
+/* ------------------------------------------------------------------ */
+
+/*
+ * Perform 62 iterations of "positive divsteps" (Bernstein-Yang variant that
+ * keeps f, g non-negative: swap is a pure swap, no negate of g/q/r). The
+ * transition matrix t has the same form as fq_divsteps_62 and is consumed
+ * by fq_update_fg identically — the only difference is the absence of the
+ * g/q/r negation on swap, which means the per-step transformation is
+ *   (f_new, g_new) = (g_old, (g_old + f_old)/2)   [swap case]
+ *   (f_new, g_new) = (f_old, (g_old + (g_old&1)*f_old)/2)   [no-swap case]
+ *
+ * In addition, each iteration XORs a single Jacobi parity bit into *jac_bits:
+ *   halve:  jac ^= ((f >> 1) ^ (f >> 2)) & 1        [= (2/f), applied every step]
+ *   swap:   jac ^= ((f & g) >> 1) & 1               [= QR reciprocity bit, both odd]
+ *
+ * Rationale: in pos-divsteps, f > 0 always and g >= 0 always (starting from
+ * f = q, g = z in [0, q)). For positive f, bits 1/2 of the simulated value
+ * match bits 1/2 of the full-width value only while those positions haven't
+ * been shifted off the high end by repeated halvings. With 64-bit precision
+ * (caller passes f0, g0 as the low 64 bits of the full f, g — bit 0..61 from
+ * fq_signed62 limb 0 plus bits 62..63 pulled from limb 1), bit k after N
+ * halvings corresponds to bit k+N of the original value and stays valid for
+ * k+N <= 63. In a 62-step batch with checks at N <= 61 using bits 1 and 2,
+ * the worst case is k+N = 2+61 = 63, which is within range.
+ *
+ * The matrix t itself is unchanged from fq_divsteps_62's convention — only
+ * the per-step Jacobi-XOR tracking benefits from the extra precision.
+ *
+ * All operations are constant-time.
+ */
+static inline int64_t
+    fq_posdivsteps_62_jacobi(int64_t delta, uint64_t f0, uint64_t g0, fq_trans2x2 *t, uint32_t *jac_bits)
+{
+    int64_t u = 1, v = 0, q = 0, r = 1;
+    uint64_t f = f0, g = g0;
+    uint32_t jac = *jac_bits;
+
+    for (int i = 0; i < 62; i++)
+    {
+        /* cond = -1 if (delta > 0 AND g is odd), else 0 */
+        int64_t cpos = ~((delta - 1) >> 63);
+        int64_t codd = -(int64_t)(g & 1);
+        int64_t cond = cpos & codd;
+
+        /* Conditional swap f <-> g */
+        uint64_t xfg = (f ^ g) & (uint64_t)cond;
+        f ^= xfg;
+        g ^= xfg;
+
+        /* Conditional swap matrix rows */
+        int64_t xu = (u ^ q) & cond;
+        u ^= xu;
+        q ^= xu;
+        int64_t xv = (v ^ r) & cond;
+        v ^= xv;
+        r ^= xv;
+
+        /* Jacobi swap XOR: when cond set, f & g are both odd after swap;
+         * bit 0 of ((f & g) >> 1) is εf·εg, the quadratic reciprocity bit. */
+        jac ^= ((uint32_t)((f & g) >> 1) & 1u) & (uint32_t)((uint64_t)cond & 1u);
+
+        /* Conditional negate delta only (pos-divsteps: no negate of g/q/r) */
+        delta = (delta ^ cond) - cond;
+
+        /* delta += 1 */
+        delta++;
+
+        /* If g is odd: g += f, q += u, r += v */
+        int64_t c2 = -(int64_t)(g & 1);
+        g += f & (uint64_t)c2;
+        q += u & c2;
+        r += v & c2;
+
+        /* g >>= 1 (unsigned); double f's row to compensate */
+        g >>= 1;
+        u = ranshaw_shl_i64(u, 1);
+        v = ranshaw_shl_i64(v, 1);
+
+        /* Jacobi halve XOR: τ(f) = (2/f) = bit1(f) ^ bit2(f) for f odd positive. */
+        jac ^= (uint32_t)(((f >> 1) ^ (f >> 2)) & 1u);
+    }
+
+    t->u = u;
+    t->v = v;
+    t->q = q;
+    t->r = r;
+    *jac_bits = jac;
+    return delta;
+}
+
+/* ------------------------------------------------------------------ */
 /* Outer loop: apply transition matrix to full-width f,g               */
 /* ------------------------------------------------------------------ */
 
@@ -362,7 +454,7 @@ static inline void fq_update_de(fq_signed62 *d, fq_signed62 *e, const fq_trans2x
  * d contains the modular inverse (negated if f = -1).
  * This function normalizes d to [0, q) and packs into radix-2^51 fq_fe.
  */
-static inline void fq_divsteps_normalize(uint64_t out[5], fq_signed62 *d, const fq_signed62 *f)
+static inline void fq_divsteps_normalize(uint64_t out[4], fq_signed62 *d, const fq_signed62 *f)
 {
     /* Determine sign of f. After convergence f = ±1.
      * The sign is in the highest limb (or we can check limb 0 since f = ±1). */
@@ -412,31 +504,43 @@ static inline void fq_divsteps_normalize(uint64_t out[5], fq_signed62 *d, const 
     for (int i = 0; i < 5; i++)
         d->v[i] = (d->v[i] & ~ge_mask) | (tmp[i] & ge_mask);
 
-    /* Convert signed62 [0, q) to 4 x uint64_t intermediary, then to 5 x 51-bit (fq_fe) */
+#if RANSHAW_FQ_NATIVE64
+    /* Convert signed62 [0, q) directly to the native 4x64 fq_fe (no 5x51 pack). */
+    out[0] = (uint64_t)d->v[0] | ((uint64_t)d->v[1] << 62);
+    out[1] = ((uint64_t)d->v[1] >> 2) | ((uint64_t)d->v[2] << 60);
+    out[2] = ((uint64_t)d->v[2] >> 4) | ((uint64_t)d->v[3] << 58);
+    out[3] = ((uint64_t)d->v[3] >> 6) | ((uint64_t)d->v[4] << 56);
+#else
+    /* signed62 [0, q) -> 4x64 intermediary -> 5x51 fq_fe. */
     uint64_t w0 = (uint64_t)d->v[0] | ((uint64_t)d->v[1] << 62);
     uint64_t w1 = ((uint64_t)d->v[1] >> 2) | ((uint64_t)d->v[2] << 60);
     uint64_t w2 = ((uint64_t)d->v[2] >> 4) | ((uint64_t)d->v[3] << 58);
     uint64_t w3 = ((uint64_t)d->v[3] >> 6) | ((uint64_t)d->v[4] << 56);
-
-    /* Pack 4x64 → 5x51 */
     out[0] = w0 & ((1ULL << 51) - 1);
     out[1] = ((w0 >> 51) | (w1 << 13)) & ((1ULL << 51) - 1);
     out[2] = ((w1 >> 38) | (w2 << 26)) & ((1ULL << 51) - 1);
     out[3] = ((w2 >> 25) | (w3 << 39)) & ((1ULL << 51) - 1);
     out[4] = w3 >> 12;
+#endif
 }
 
 /* ------------------------------------------------------------------ */
 /* Conversion: fq_fe (radix-2^51) -> signed62                         */
 /* ------------------------------------------------------------------ */
 
-static inline void fq_fe_to_signed62(fq_signed62 *s, const uint64_t fe[5])
+static inline void fq_fe_to_signed62(fq_signed62 *s, const fq_fe fe)
 {
+#if RANSHAW_FQ_NATIVE64
     /*
-     * Normalize to canonical 51-bit limbs first.
-     * Lazy add can produce limbs > 51 bits; shifting non-canonical limbs
-     * (e.g. fe[1] << 51) would overflow uint64_t and corrupt the value.
+     * Native 4x64 input. Canonically reduce to [0, q) so the divsteps see a
+     * value < q (the iteration's convergence bound assumes a reduced input),
+     * then re-chunk the 256-bit value into 62-bit signed limbs.
      */
+    uint64_t w[4];
+    fq64_reduce_canonical(w, fe);
+    uint64_t w0 = w[0], w1 = w[1], w2 = w[2], w3 = w[3];
+#else
+    /* Radix-2^51 input: normalize 5x51 (carry + gamma fold), then reconstruct 4x64. */
     uint64_t h0 = fe[0], h1 = fe[1], h2 = fe[2], h3 = fe[3], h4 = fe[4];
     uint64_t c;
     c = h0 >> 51;
@@ -453,7 +557,6 @@ static inline void fq_fe_to_signed62(fq_signed62 *s, const uint64_t fe[5])
     h3 &= FQ51_MASK;
     c = h4 >> 51;
     h4 &= FQ51_MASK;
-    /* Gamma fold: carry from limb 4 wraps as carry * gamma */
     h0 += c * GAMMA_51[0];
     h1 += c * GAMMA_51[1];
     h2 += c * GAMMA_51[2];
@@ -469,14 +572,12 @@ static inline void fq_fe_to_signed62(fq_signed62 *s, const uint64_t fe[5])
     c = h3 >> 51;
     h4 += c;
     h3 &= FQ51_MASK;
-
-    /* Reconstruct 4x64 from 5x51 */
     uint64_t w0 = h0 | (h1 << 51);
     uint64_t w1 = (h1 >> 13) | (h2 << 38);
     uint64_t w2 = (h2 >> 26) | (h3 << 25);
     uint64_t w3 = (h3 >> 39) | (h4 << 12);
+#endif
 
-    /* Extract 62-bit limbs */
     s->v[0] = (int64_t)(w0 & FQ_M62);
     s->v[1] = (int64_t)(((w0 >> 62) | (w1 << 2)) & FQ_M62);
     s->v[2] = (int64_t)(((w1 >> 60) | (w2 << 4)) & FQ_M62);

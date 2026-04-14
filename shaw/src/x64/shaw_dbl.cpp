@@ -28,12 +28,93 @@
 
 #include "fq_ops.h"
 #include "x64/fq51_chain.h"
+#include "x64/shaw_inner_packed.h"
 
 /*
  * Jacobian point doubling with a = -3 optimization.
  * Same formula as ran_dbl but over F_q.
  * Cost: 3M + 5S
  */
+
+#if defined(FQ51_HAVE_ADX_MUL)
+
+/*
+ * 4×64 packed doubling (3M + 5S). Accepts inputs in packed form and produces
+ * outputs in packed form without any 5×51 conversion, so that callers that
+ * already hold packed accumulators (scalarmult inner loop) can chain ops
+ * without the pack/unpack tax.
+ *
+ * Aliasing: rX/rY/rZ may alias pX/pY/pZ element-wise (same contract as the
+ * shaw_add packed path).
+ */
+void shaw_dbl_x64_packed(
+    uint64_t rX[4],
+    uint64_t rY[4],
+    uint64_t rZ[4],
+    const uint64_t pX[4],
+    const uint64_t pY[4],
+    const uint64_t pZ[4])
+{
+    uint64_t delta[4], gamma[4], beta[4], alpha[4];
+    uint64_t t0[4], t1[4], t2[4];
+
+    /* delta = Z1^2 */
+    fq64_sq(delta, pZ);
+
+    /* gamma = Y1^2 */
+    fq64_sq(gamma, pY);
+
+    /* beta = X1 * gamma */
+    fq64_mul(beta, pX, gamma);
+
+    /* alpha = 3 * (X1 - delta) * (X1 + delta) */
+    fq64_sub(t0, pX, delta);
+    fq64_add(t1, pX, delta);
+    fq64_mul(alpha, t0, t1);
+    fq64_add(t0, alpha, alpha);
+    fq64_add(alpha, t0, alpha);
+
+    /* Z3 = (Y1 + Z1)^2 - gamma - delta (destroys pZ via aliasing — no longer needed) */
+    fq64_add(t1, pY, pZ);
+    fq64_sq(t2, t1);
+    fq64_sub(t2, t2, gamma);
+    fq64_sub(rZ, t2, delta);
+
+    /* X3 = alpha^2 - 8*beta (destroys pX via aliasing — already consumed) */
+    fq64_sq(rX, alpha);
+    fq64_add(t0, beta, beta); /* 2*beta */
+    fq64_add(t0, t0, t0); /* 4*beta */
+    fq64_sub(rX, rX, t0); /* alpha^2 - 4*beta */
+    fq64_sub(rX, rX, t0); /* alpha^2 - 8*beta */
+
+    /* Y3 = alpha * (4*beta - X3) - 8*gamma^2 (destroys pY via aliasing — no longer needed) */
+    fq64_sub(t1, t0, rX); /* 4*beta - X3 */
+    fq64_mul(t2, alpha, t1);
+    fq64_sq(t0, gamma); /* gamma^2 */
+    fq64_add(t0, t0, t0); /* 2*gamma^2 */
+    fq64_add(t0, t0, t0); /* 4*gamma^2 */
+    fq64_sub(rY, t2, t0); /* ... - 4*gamma^2 */
+    fq64_sub(rY, rY, t0); /* ... - 8*gamma^2 */
+}
+
+void shaw_dbl_x64(shaw_jacobian *r, const shaw_jacobian *p)
+{
+    uint64_t pX[4], pY[4], pZ[4];
+    fq51_normalize_and_pack(pX, p->X);
+    fq51_normalize_and_pack(pY, p->Y);
+    fq51_normalize_and_pack(pZ, p->Z);
+
+    uint64_t rX[4], rY[4], rZ[4];
+    shaw_dbl_x64_packed(rX, rY, rZ, pX, pY, pZ);
+
+    /* Native 4x64: unpack is a canonical reduce into the fq_fe coordinates. */
+    unpack_and_normalize(r->X, rX);
+    unpack_and_normalize(r->Y, rY);
+    unpack_and_normalize(r->Z, rZ);
+}
+
+#else
+
 void shaw_dbl_x64(shaw_jacobian *r, const shaw_jacobian *p)
 {
     fq_fe delta, gamma, beta, alpha;
@@ -77,3 +158,5 @@ void shaw_dbl_x64(shaw_jacobian *r, const shaw_jacobian *p)
     fq_sub(r->Y, t2, t0); /* ... - 4*gamma^2 */
     fq_sub(r->Y, r->Y, t0); /* ... - 8*gamma^2 */
 }
+
+#endif /* FQ51_HAVE_ADX_MUL */

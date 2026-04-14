@@ -32,9 +32,20 @@
  * @brief Pedersen vector commitment for Ran.
  *
  * Computes C = r*H + sum(a_i * G_i) using a single MSM call with n+1 pairs.
+ *
+ * Two entry points per the CT/vartime dual-path API policy:
+ *   - ran_pedersen_commit — constant-time (CT) MSM. Safe when blinding or
+ *     values are secret, e.g. FCMP++ prover with a secret blinding factor.
+ *   - ran_pedersen_commit_vartime — variable-time MSM. Only safe when every
+ *     scalar fed in (blinding included) is a public value.
+ *
+ * Both surfaces produce byte-identical commitments on any given input; they
+ * differ only in timing characteristics. Callers must choose based on which
+ * of their scalars are secret.
  */
 
 #include "ran.h"
+#include "ran_msm_ct.h"
 #include "ran_msm_vartime.h"
 #include "ran_ops.h"
 #include "ranshaw_secure_erase.h"
@@ -42,32 +53,25 @@
 #include <cstring>
 #include <vector>
 
-/**
- * Compute a Pedersen vector commitment: C = blinding*H + sum(values[i]*generators[i]).
- *
- * @param result     Output: the commitment point (Jacobian)
- * @param blinding   32-byte scalar (blinding factor r)
- * @param H          Blinding generator point (Jacobian)
- * @param values     Array of n 32-byte scalars
- * @param generators Array of n generator points (Jacobian)
- * @param n          Number of value/generator pairs
- */
-static inline void ran_pedersen_commit(
+/* Shared body: pack [blinding, values...] and [H, generators...] into the
+ * combined MSM arrays. The msm_fn parameter (ran_msm_ct or ran_msm_vartime)
+ * is invoked through its inline dispatching wrapper, so both CT and VT
+ * callers benefit from runtime backend selection. */
+static inline void ran_pedersen_commit_impl_(
     ran_jacobian *result,
     const unsigned char *blinding,
     const ran_jacobian *H,
     const unsigned char *values,
     const ran_jacobian *generators,
-    size_t n)
+    size_t n,
+    void (*msm_fn)(ran_jacobian *, const unsigned char *, const ran_jacobian *, size_t))
 {
-    /* Guard against overflow in 32 * (n + 1) */
     if (n > SIZE_MAX / 32 - 1)
     {
         ran_identity(result);
         return;
     }
 
-    /* Build combined arrays: [blinding, values[0..n-1]] and [H, generators[0..n-1]] */
     std::vector<unsigned char> all_scalars(32 * (n + 1));
     std::vector<ran_jacobian> all_points(n + 1);
 
@@ -81,8 +85,38 @@ static inline void ran_pedersen_commit(
             ran_copy(&all_points[i + 1], &generators[i]);
     }
 
-    ran_msm_vartime(result, all_scalars.data(), all_points.data(), n + 1);
+    msm_fn(result, all_scalars.data(), all_points.data(), n + 1);
     ranshaw_secure_erase(all_scalars.data(), all_scalars.size());
+}
+
+/* Constant-time default. Secret blinding / value scalars are safe here. */
+static inline void ran_pedersen_commit(
+    ran_jacobian *result,
+    const unsigned char *blinding,
+    const ran_jacobian *H,
+    const unsigned char *values,
+    const ran_jacobian *generators,
+    size_t n)
+{
+    /* ran_msm_ct is a static-inline dispatcher, not directly function-pointer
+     * compatible; wrap it in a local trampoline so we can pass it through. */
+    auto ct_trampoline = [](ran_jacobian *r, const unsigned char *s, const ran_jacobian *p, size_t m)
+    { ran_msm_ct(r, s, p, m); };
+    ran_pedersen_commit_impl_(result, blinding, H, values, generators, n, ct_trampoline);
+}
+
+/* Variable-time variant for public-input callers. */
+static inline void ran_pedersen_commit_vartime(
+    ran_jacobian *result,
+    const unsigned char *blinding,
+    const ran_jacobian *H,
+    const unsigned char *values,
+    const ran_jacobian *generators,
+    size_t n)
+{
+    auto vt_trampoline = [](ran_jacobian *r, const unsigned char *s, const ran_jacobian *p, size_t m)
+    { ran_msm_vartime(r, s, p, m); };
+    ran_pedersen_commit_impl_(result, blinding, H, values, generators, n, vt_trampoline);
 }
 
 #endif // RANSHAW_RAN_PEDERSEN_H

@@ -162,11 +162,29 @@ namespace ranshaw
         /// Variable-time scalar multiplication using wNAF w=5. Only use with public scalars.
         RanPoint scalar_mul_vartime(const RanScalar &s) const;
 
-        /// Multi-scalar multiplication: sum(scalars[i] * points[i]). Uses Straus (n<=16) or Pippenger.
+        /// Multi-scalar multiplication: sum(scalars[i] * points[i]).
+        /// Constant-time (signed-4 Straus over RCB complete-add). Safe when
+        /// any scalar is secret, e.g. FCMP++ prover workflows. Callers with
+        /// entirely-public scalars should prefer multi_scalar_mul_vartime.
         static RanPoint multi_scalar_mul(const RanScalar *scalars, const RanPoint *points, size_t n);
 
+        /// Variable-time MSM (Straus n<=8 / Pippenger n>8). Only safe when
+        /// every scalar is a public value.
+        static RanPoint multi_scalar_mul_vartime(const RanScalar *scalars, const RanPoint *points, size_t n);
+
         /// Pedersen commitment: blinding*H + sum(values[i]*generators[i]).
+        /// Constant-time default -- Pedersen is typically evaluated with a
+        /// secret blinding factor, so the CT path is the right default.
         static RanPoint pedersen_commit(
+            const RanScalar &blinding,
+            const RanPoint &H,
+            const RanScalar *values,
+            const RanPoint *generators,
+            size_t n);
+
+        /// Variable-time Pedersen commitment. Only safe when blinding and
+        /// every value scalar are public.
+        static RanPoint pedersen_commit_vartime(
             const RanScalar &blinding,
             const RanPoint &H,
             const RanScalar *values,
@@ -175,13 +193,12 @@ namespace ranshaw
 
         /// Hash-to-curve (single field element) via constant-time Simplified SWU
         /// (Wahby-Boneh 2019, "Fast and simple constant-time hashing to the BLS12-381 elliptic curve",
-        /// IACR TCHES 2019(4)). Caller supplies the pre-hashed field element u. See
-        /// docs/hash_to_curve_rationale.md for the deviations from RFC 9380 Section 6.6.2.
+        /// IACR TCHES 2019(4)). Caller supplies the pre-hashed field element u. Uses Z = -2
+        /// (non-square in F_p with g(B/(Z*A)) square), satisfying Wahby-Boneh soundness.
         static RanPoint map_to_curve(const uint8_t u[32]);
 
         /// Hash-to-curve (two field elements): maps u0, u1 independently via Simplified SWU
-        /// and returns the group sum. Follows the Wahby-Boneh 2019 construction; see
-        /// docs/hash_to_curve_rationale.md.
+        /// and returns the group sum. Follows the Wahby-Boneh 2019 construction.
         static RanPoint map_to_curve(const uint8_t u0[32], const uint8_t u1[32]);
 
         const ran_jacobian &raw() const
@@ -302,11 +319,25 @@ namespace ranshaw
         /// Variable-time scalar multiplication using wNAF w=5. Only use with public scalars.
         ShawPoint scalar_mul_vartime(const ShawScalar &s) const;
 
-        /// Multi-scalar multiplication: sum(scalars[i] * points[i]). Uses Straus (n<=16) or Pippenger.
+        /// Multi-scalar multiplication: sum(scalars[i] * points[i]).
+        /// Constant-time default. See RanPoint::multi_scalar_mul for the
+        /// full CT/vartime policy commentary.
         static ShawPoint multi_scalar_mul(const ShawScalar *scalars, const ShawPoint *points, size_t n);
 
+        /// Variable-time MSM (Straus n<=8 / Pippenger n>8). Public-scalar only.
+        static ShawPoint multi_scalar_mul_vartime(const ShawScalar *scalars, const ShawPoint *points, size_t n);
+
         /// Pedersen commitment: blinding*H + sum(values[i]*generators[i]).
+        /// Constant-time default.
         static ShawPoint pedersen_commit(
+            const ShawScalar &blinding,
+            const ShawPoint &H,
+            const ShawScalar *values,
+            const ShawPoint *generators,
+            size_t n);
+
+        /// Variable-time Pedersen commitment. Public-scalar only.
+        static ShawPoint pedersen_commit_vartime(
             const ShawScalar &blinding,
             const ShawPoint &H,
             const ShawScalar *values,
@@ -315,13 +346,13 @@ namespace ranshaw
 
         /// Hash-to-curve (single field element) via constant-time Simplified SWU
         /// (Wahby-Boneh 2019, "Fast and simple constant-time hashing to the BLS12-381 elliptic curve",
-        /// IACR TCHES 2019(4)). Caller supplies the pre-hashed field element u. See
-        /// docs/hash_to_curve_rationale.md for the deviations from RFC 9380 Section 6.6.2.
+        /// IACR TCHES 2019(4)). Caller supplies the pre-hashed field element u. Uses Z = -1
+        /// (non-square in F_q since q ≡ 3 mod 4); Wahby-Boneh sound but deviates from RFC 9380
+        /// §6.6.2 criterion 2 (a cleanness constraint, not a soundness one).
         static ShawPoint map_to_curve(const uint8_t u[32]);
 
         /// Hash-to-curve (two field elements): maps u0, u1 independently via Simplified SWU
-        /// and returns the group sum. Follows the Wahby-Boneh 2019 construction; see
-        /// docs/hash_to_curve_rationale.md.
+        /// and returns the group sum. Follows the Wahby-Boneh 2019 construction.
         static ShawPoint map_to_curve(const uint8_t u0[32], const uint8_t u1[32]);
 
         const shaw_jacobian &raw() const

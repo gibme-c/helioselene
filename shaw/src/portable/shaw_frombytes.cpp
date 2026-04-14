@@ -116,20 +116,10 @@ int shaw_frombytes_portable(shaw_jacobian *r, const unsigned char s[32])
     fq_sub(rhs, x3, three_x);
     fq_add(rhs, rhs, shaw_b);
 
-    /* Compute y = sqrt(rhs) -- for q = 3 mod 4, sqrt = rhs^((q+1)/4) */
+    /* Compute y = sqrt(rhs) -- for q = 3 mod 4, sqrt = rhs^((q+1)/4).
+     * fq_sqrt returns -1 on non-residue (and zeros y). */
     fq_fe y;
-    fq_sqrt(y, rhs);
-
-    /* Verify: y^2 == rhs */
-    fq_fe y2, diff;
-    fq_sq(y2, y);
-    fq_sub(diff, y2, rhs);
-    unsigned char diff_bytes[32];
-    fq_tobytes(diff_bytes, diff);
-    unsigned char d = 0;
-    for (int i = 0; i < 32; i++)
-        d |= diff_bytes[i];
-    if (d != 0)
+    if (fq_sqrt(y, rhs) != 0)
         return -1;
 
     /* Adjust y parity */

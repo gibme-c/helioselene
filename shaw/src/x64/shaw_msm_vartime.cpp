@@ -27,6 +27,15 @@
 /**
  * @file x64/shaw_msm_vartime.cpp
  * @brief x64 multi-scalar multiplication for Shaw: Straus (n<=32) and Pippenger (n>32).
+ *
+ * Two backends compiled side-by-side:
+ *   - msm_straus_packed / msm_pippenger_packed (gated on FQ51_HAVE_ADX_MUL):
+ *     hold Jacobian state in 4x64 across the whole bucket / digit loop;
+ *     pack inputs once, unpack the final result once; edge cases
+ *     (identity, self-double, self-negate) handled by shaw_add_safe_packed.
+ *   - msm_straus_unpacked / msm_pippenger_unpacked: the previous 5x51 path,
+ *     always compiled. Used directly on MSVC / non-BMI2 builds, and exposed
+ *     as shaw_msm_vartime_x64_unpacked for the differential fuzz harness.
  */
 
 #include "shaw_msm_vartime.h"
@@ -40,14 +49,11 @@
 #include "shaw_add.h"
 #include "shaw_dbl.h"
 #include "shaw_ops.h"
+#include "x64/shaw_inner_packed.h"
 
 #include <cstdint>
 #include <cstring>
 #include <vector>
-
-// ============================================================================
-// Safe variable-time addition for Jacobian coordinates
-// ============================================================================
 
 // ============================================================================
 // Signed digit encoding (curve-independent)
@@ -108,10 +114,12 @@ static int encode_signed_wbit(int16_t *digits, const unsigned char *scalar, int 
 }
 
 // ============================================================================
-// Straus (interleaved) method -- used for n <= 32
+// Unpacked 5x51 Straus / Pippenger (fallback on MSVC / non-BMI2; also used
+// verbatim by the shaw_msm_vartime_x64_unpacked test hook).
 // ============================================================================
 
-static void msm_straus(shaw_jacobian *result, const unsigned char *scalars, const shaw_jacobian *points, size_t n)
+static void
+    msm_straus_unpacked(shaw_jacobian *result, const unsigned char *scalars, const shaw_jacobian *points, size_t n)
 {
     std::vector<int16_t> all_digits(n * 64);
     for (size_t i = 0; i < n; i++)
@@ -119,27 +127,24 @@ static void msm_straus(shaw_jacobian *result, const unsigned char *scalars, cons
         encode_signed_w4(all_digits.data() + i * 64, scalars + i * 32);
     }
 
-    // Precompute tables: table[i][j] = (j+1) * points[i]
     std::vector<shaw_jacobian> tables(n * 8);
     for (size_t i = 0; i < n; i++)
     {
         shaw_jacobian *Ti = tables.data() + i * 8;
-        shaw_copy(&Ti[0], &points[i]); // Ti[0] = 1*P
-        shaw_dbl(&Ti[1], &points[i]); // Ti[1] = 2*P (use dbl, not add)
+        shaw_copy(&Ti[0], &points[i]);
+        shaw_dbl(&Ti[1], &points[i]);
         for (int j = 1; j < 7; j++)
         {
-            shaw_add(&Ti[j + 1], &Ti[j], &points[i]); // Ti[j+1] = (j+2)*P
+            shaw_add(&Ti[j + 1], &Ti[j], &points[i]);
         }
     }
 
-    // Main loop: process digits from most significant to least
     shaw_jacobian acc;
     shaw_identity(&acc);
     bool acc_is_identity = true;
 
     for (int d = 63; d >= 0; d--)
     {
-        // 4 doublings
         if (!acc_is_identity)
         {
             shaw_dbl(&acc, &acc);
@@ -148,7 +153,6 @@ static void msm_straus(shaw_jacobian *result, const unsigned char *scalars, cons
             shaw_dbl(&acc, &acc);
         }
 
-        // Add contributions from each scalar
         for (size_t i = 0; i < n; i++)
         {
             int16_t digit = all_digits[i * 64 + (size_t)d];
@@ -177,7 +181,6 @@ static void msm_straus(shaw_jacobian *result, const unsigned char *scalars, cons
         }
     }
 
-    // Defense-in-depth: erase digit encodings and precomputed tables
     ranshaw_secure_erase(all_digits.data(), all_digits.size() * sizeof(all_digits[0]));
     ranshaw_secure_erase(tables.data(), tables.size() * sizeof(tables[0]));
 
@@ -186,10 +189,6 @@ static void msm_straus(shaw_jacobian *result, const unsigned char *scalars, cons
     else
         shaw_copy(result, &acc);
 }
-
-// ============================================================================
-// Pippenger (bucket method) -- used for n > 32
-// ============================================================================
 
 static int pippenger_window_size(size_t n)
 {
@@ -208,7 +207,8 @@ static int pippenger_window_size(size_t n)
     return 11;
 }
 
-static void msm_pippenger(shaw_jacobian *result, const unsigned char *scalars, const shaw_jacobian *points, size_t n)
+static void
+    msm_pippenger_unpacked(shaw_jacobian *result, const unsigned char *scalars, const shaw_jacobian *points, size_t n)
 {
     const int w = pippenger_window_size(n);
     const size_t num_buckets = (size_t)1 << (w - 1);
@@ -226,18 +226,15 @@ static void msm_pippenger(shaw_jacobian *result, const unsigned char *scalars, c
 
     for (size_t win = num_windows; win-- > 0;)
     {
-        // Horner step: multiply accumulated result by 2^w
         if (!total_is_identity)
         {
             for (int d = 0; d < w; d++)
                 shaw_dbl(&total, &total);
         }
 
-        // Initialize buckets
         std::vector<shaw_jacobian> bucket_points(num_buckets);
         std::vector<bool> bucket_is_identity(num_buckets, true);
 
-        // Distribute points into buckets
         for (size_t i = 0; i < n; i++)
         {
             int16_t digit = all_digits[i * num_windows + win];
@@ -269,7 +266,6 @@ static void msm_pippenger(shaw_jacobian *result, const unsigned char *scalars, c
             }
         }
 
-        // Running-sum combination
         shaw_jacobian running;
         bool running_is_identity = true;
 
@@ -305,10 +301,8 @@ static void msm_pippenger(shaw_jacobian *result, const unsigned char *scalars, c
             }
         }
 
-        // Defense-in-depth: erase bucket points
         ranshaw_secure_erase(bucket_points.data(), bucket_points.size() * sizeof(bucket_points[0]));
 
-        // Add this window's result to total
         if (!partial_is_identity)
         {
             if (total_is_identity)
@@ -323,7 +317,6 @@ static void msm_pippenger(shaw_jacobian *result, const unsigned char *scalars, c
         }
     }
 
-    // Defense-in-depth: erase digit encodings
     ranshaw_secure_erase(all_digits.data(), all_digits.size() * sizeof(all_digits[0]));
 
     if (total_is_identity)
@@ -333,12 +326,262 @@ static void msm_pippenger(shaw_jacobian *result, const unsigned char *scalars, c
 }
 
 // ============================================================================
-// Public API (x64)
+// Packed 4x64 Straus / Pippenger (GCC/Clang BMI2+ADX only)
 // ============================================================================
 
-static const size_t STRAUS_PIPPENGER_CROSSOVER = 16;
+#if defined(FQ51_HAVE_ADX_MUL)
 
-void shaw_msm_vartime_x64(shaw_jacobian *result, const unsigned char *scalars, const shaw_jacobian *points, size_t n)
+namespace
+{
+
+    static inline void unpack_jac(shaw_jacobian *out, const packed_jac *in)
+    {
+        unpack_and_normalize(out->X, in->X);
+        unpack_and_normalize(out->Y, in->Y);
+        unpack_and_normalize(out->Z, in->Z);
+    }
+
+    static void
+        msm_straus_packed(shaw_jacobian *result, const unsigned char *scalars, const shaw_jacobian *points, size_t n)
+    {
+        std::vector<int16_t> all_digits(n * 64);
+        for (size_t i = 0; i < n; i++)
+        {
+            encode_signed_w4(all_digits.data() + i * 64, scalars + i * 32);
+        }
+
+        /* Packed precomputed tables: tables[i*8 + k] = (k+1) * points[i] in 4x64. */
+        std::vector<packed_jac> tables(n * 8);
+        for (size_t i = 0; i < n; i++)
+        {
+            packed_jac *Ti = tables.data() + i * 8;
+            pack_jac(&Ti[0], &points[i]); /* 1*P */
+            shaw_dbl_x64_packed(Ti[1].X, Ti[1].Y, Ti[1].Z, Ti[0].X, Ti[0].Y, Ti[0].Z); /* 2*P */
+            for (int j = 1; j < 7; j++)
+            {
+                /* (k+1)*P + P: kP is distinct from P (k >= 2), so raw add is safe. */
+                shaw_add_x64_packed(
+                    Ti[j + 1].X, Ti[j + 1].Y, Ti[j + 1].Z, Ti[j].X, Ti[j].Y, Ti[j].Z, Ti[0].X, Ti[0].Y, Ti[0].Z);
+            }
+        }
+
+        packed_jac acc;
+        bool acc_is_identity = true;
+
+        for (int d = 63; d >= 0; d--)
+        {
+            if (!acc_is_identity)
+            {
+                shaw_dbl_x64_packed(acc.X, acc.Y, acc.Z, acc.X, acc.Y, acc.Z);
+                shaw_dbl_x64_packed(acc.X, acc.Y, acc.Z, acc.X, acc.Y, acc.Z);
+                shaw_dbl_x64_packed(acc.X, acc.Y, acc.Z, acc.X, acc.Y, acc.Z);
+                shaw_dbl_x64_packed(acc.X, acc.Y, acc.Z, acc.X, acc.Y, acc.Z);
+            }
+
+            for (size_t i = 0; i < n; i++)
+            {
+                int16_t digit = all_digits[i * 64 + (size_t)d];
+                if (digit == 0)
+                    continue;
+
+                packed_jac pt;
+                if (digit > 0)
+                {
+                    copy_packed(&pt, &tables[i * 8 + (size_t)(digit - 1)]);
+                }
+                else
+                {
+                    const packed_jac *src = &tables[i * 8 + (size_t)((-digit) - 1)];
+                    shaw_jac_neg_x64_packed(pt.X, pt.Y, pt.Z, src->X, src->Y, src->Z);
+                }
+
+                if (acc_is_identity)
+                {
+                    copy_packed(&acc, &pt);
+                    acc_is_identity = is_identity_packed(&acc);
+                }
+                else
+                {
+                    int is_id = shaw_add_safe_packed(&acc, &acc, &pt);
+                    if (is_id)
+                        acc_is_identity = true;
+                }
+            }
+        }
+
+        ranshaw_secure_erase(all_digits.data(), all_digits.size() * sizeof(all_digits[0]));
+        ranshaw_secure_erase(tables.data(), tables.size() * sizeof(tables[0]));
+
+        if (acc_is_identity)
+            shaw_identity(result);
+        else
+            unpack_jac(result, &acc);
+    }
+
+    static void
+        msm_pippenger_packed(shaw_jacobian *result, const unsigned char *scalars, const shaw_jacobian *points, size_t n)
+    {
+        const int w = pippenger_window_size(n);
+        const size_t num_buckets = (size_t)1 << (w - 1);
+        const size_t num_windows = (size_t)((256 + w - 1) / w);
+
+        std::vector<int16_t> all_digits(n * num_windows);
+        for (size_t i = 0; i < n; i++)
+        {
+            encode_signed_wbit(all_digits.data() + i * num_windows, scalars + i * 32, w);
+        }
+
+        /* Pack the input points once into a parallel packed table. */
+        std::vector<packed_jac> packed_points(n);
+        for (size_t i = 0; i < n; i++)
+        {
+            pack_jac(&packed_points[i], &points[i]);
+        }
+
+        packed_jac total;
+        bool total_is_identity = true;
+
+        for (size_t win = num_windows; win-- > 0;)
+        {
+            if (!total_is_identity)
+            {
+                for (int d = 0; d < w; d++)
+                    shaw_dbl_x64_packed(total.X, total.Y, total.Z, total.X, total.Y, total.Z);
+            }
+
+            std::vector<packed_jac> bucket_points(num_buckets);
+            std::vector<bool> bucket_is_identity(num_buckets, true);
+
+            for (size_t i = 0; i < n; i++)
+            {
+                int16_t digit = all_digits[i * num_windows + win];
+                if (digit == 0)
+                    continue;
+
+                size_t bucket_idx;
+                packed_jac effective_point;
+
+                if (digit > 0)
+                {
+                    bucket_idx = (size_t)(digit - 1);
+                    copy_packed(&effective_point, &packed_points[i]);
+                }
+                else
+                {
+                    bucket_idx = (size_t)((-digit) - 1);
+                    shaw_jac_neg_x64_packed(
+                        effective_point.X,
+                        effective_point.Y,
+                        effective_point.Z,
+                        packed_points[i].X,
+                        packed_points[i].Y,
+                        packed_points[i].Z);
+                }
+
+                if (bucket_is_identity[bucket_idx])
+                {
+                    copy_packed(&bucket_points[bucket_idx], &effective_point);
+                    bucket_is_identity[bucket_idx] = is_identity_packed(&bucket_points[bucket_idx]);
+                }
+                else
+                {
+                    int is_id =
+                        shaw_add_safe_packed(&bucket_points[bucket_idx], &bucket_points[bucket_idx], &effective_point);
+                    if (is_id)
+                        bucket_is_identity[bucket_idx] = true;
+                }
+            }
+
+            packed_jac running;
+            bool running_is_identity = true;
+
+            packed_jac partial;
+            bool partial_is_identity = true;
+
+            for (size_t j = num_buckets; j-- > 0;)
+            {
+                if (!bucket_is_identity[j])
+                {
+                    if (running_is_identity)
+                    {
+                        copy_packed(&running, &bucket_points[j]);
+                        running_is_identity = is_identity_packed(&running);
+                    }
+                    else
+                    {
+                        int is_id = shaw_add_safe_packed(&running, &running, &bucket_points[j]);
+                        if (is_id)
+                            running_is_identity = true;
+                    }
+                }
+
+                if (!running_is_identity)
+                {
+                    if (partial_is_identity)
+                    {
+                        copy_packed(&partial, &running);
+                        partial_is_identity = is_identity_packed(&partial);
+                    }
+                    else
+                    {
+                        int is_id = shaw_add_safe_packed(&partial, &partial, &running);
+                        if (is_id)
+                            partial_is_identity = true;
+                    }
+                }
+            }
+
+            ranshaw_secure_erase(bucket_points.data(), bucket_points.size() * sizeof(bucket_points[0]));
+
+            if (!partial_is_identity)
+            {
+                if (total_is_identity)
+                {
+                    copy_packed(&total, &partial);
+                    total_is_identity = is_identity_packed(&total);
+                }
+                else
+                {
+                    int is_id = shaw_add_safe_packed(&total, &total, &partial);
+                    if (is_id)
+                        total_is_identity = true;
+                }
+            }
+        }
+
+        ranshaw_secure_erase(all_digits.data(), all_digits.size() * sizeof(all_digits[0]));
+        ranshaw_secure_erase(packed_points.data(), packed_points.size() * sizeof(packed_points[0]));
+
+        if (total_is_identity)
+            shaw_identity(result);
+        else
+            unpack_jac(result, &total);
+    }
+
+} /* anonymous namespace */
+
+#endif /* FQ51_HAVE_ADX_MUL */
+
+// ============================================================================
+// Public API (x64) + test-internal unpacked entry point
+// ============================================================================
+
+static const size_t STRAUS_PIPPENGER_CROSSOVER = 8;
+
+/*
+ * Test-internal entry point that always runs the 5x51 unpacked path,
+ * regardless of FQ51_HAVE_ADX_MUL. Used by the msm_vartime_packed_diff
+ * fuzz harness to differentially validate the packed rewrite against the
+ * long-standing unpacked reference on GCC/Clang BMI2 builds. On other
+ * builds (MSVC, portable, non-BMI2 GCC/Clang), it coincides with
+ * shaw_msm_vartime_x64 since no packed path is compiled. Declared extern
+ * "C" so the fuzz harness can reach it without pulling in a C++ header.
+ */
+extern "C" void shaw_msm_vartime_x64_unpacked(
+    shaw_jacobian *result,
+    const unsigned char *scalars,
+    const shaw_jacobian *points,
+    size_t n)
 {
     if (n == 0)
     {
@@ -348,10 +591,39 @@ void shaw_msm_vartime_x64(shaw_jacobian *result, const unsigned char *scalars, c
 
     if (n <= STRAUS_PIPPENGER_CROSSOVER)
     {
-        msm_straus(result, scalars, points, n);
+        msm_straus_unpacked(result, scalars, points, n);
     }
     else
     {
-        msm_pippenger(result, scalars, points, n);
+        msm_pippenger_unpacked(result, scalars, points, n);
     }
+}
+
+void shaw_msm_vartime_x64(shaw_jacobian *result, const unsigned char *scalars, const shaw_jacobian *points, size_t n)
+{
+    if (n == 0)
+    {
+        shaw_identity(result);
+        return;
+    }
+
+#if defined(FQ51_HAVE_ADX_MUL)
+    if (n <= STRAUS_PIPPENGER_CROSSOVER)
+    {
+        msm_straus_packed(result, scalars, points, n);
+    }
+    else
+    {
+        msm_pippenger_packed(result, scalars, points, n);
+    }
+#else
+    if (n <= STRAUS_PIPPENGER_CROSSOVER)
+    {
+        msm_straus_unpacked(result, scalars, points, n);
+    }
+    else
+    {
+        msm_pippenger_unpacked(result, scalars, points, n);
+    }
+#endif
 }

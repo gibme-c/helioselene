@@ -494,7 +494,7 @@ static void msm_pippenger_ifma(ran_jacobian *result, const unsigned char *scalar
 // Public API (IFMA)
 // ============================================================================
 
-static const size_t STRAUS_PIPPENGER_CROSSOVER = 16;
+static const size_t STRAUS_PIPPENGER_CROSSOVER = 8;
 
 void ran_msm_vartime_ifma(ran_jacobian *result, const unsigned char *scalars, const ran_jacobian *points, size_t n)
 {

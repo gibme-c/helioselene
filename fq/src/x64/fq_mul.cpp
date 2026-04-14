@@ -32,5 +32,10 @@
 
 void fq_mul_x64(fq_fe h, const fq_fe f, const fq_fe g)
 {
+#if RANSHAW_FQ_NATIVE64
+    /* Native radix-2^64: fq_fe is already 4x64, multiply in place (no pack/unpack). */
+    fq64_mul(h, f, g);
+#else
     fq51_mul_inline(h, f, g);
+#endif
 }

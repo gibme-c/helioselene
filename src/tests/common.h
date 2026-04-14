@@ -64,4 +64,19 @@ extern const unsigned char one_bytes[32];
 extern const unsigned char zero_bytes[32];
 extern const unsigned char four_bytes[32];
 
+// Force baseline-ISA codegen for a single function even if its translation unit
+// is compiled with AVX-512 flags. Applied to the runtime-dispatch guards that
+// run unconditionally from main(): a guard compiled with AVX-512 enabled can
+// emit an AVX-512 instruction in its own prologue (e.g. clang+ASan zeroes the
+// enlarged, redzone-padded stack frame with 512-bit zmm stores) that executes
+// before the ranshaw_has_avx512ifma() check and faults with SIGILL on a CPU
+// without AVX-512. These guards already live in baseline-ISA TUs; this is the
+// belt-and-suspenders second layer that keeps them safe even if their TU later
+// gains AVX-512 flags.
+#if defined(__GNUC__) || defined(__clang__)
+#define RANSHAW_NO_AVX512_FN __attribute__((target("no-avx512f,no-avx512ifma")))
+#else
+#define RANSHAW_NO_AVX512_FN
+#endif
+
 #endif // RANSHAW_SRC_TESTS_COMMON_H

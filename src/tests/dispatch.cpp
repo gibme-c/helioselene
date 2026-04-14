@@ -63,6 +63,11 @@ void test_dispatch()
         ran_msm_vartime(&result, scalar_7, &G, 1);
         ran_tobytes(result_bytes, &result);
         check_bytes("ran dispatch msm 7*G", result_bytes, tv::compressed_points::ran_7g, 32);
+
+        // CT MSM via dispatch: same 7*G.
+        ran_msm_ct(&result, scalar_7, &G, 1);
+        ran_tobytes(result_bytes, &result);
+        check_bytes("ran dispatch msm_ct 7*G", result_bytes, tv::compressed_points::ran_7g, 32);
     }
 
     // Shaw scalarmult via dispatch
@@ -87,6 +92,20 @@ void test_dispatch()
         shaw_msm_vartime(&result, scalar_7, &G, 1);
         shaw_tobytes(result_bytes, &result);
         check_bytes("shaw dispatch msm 7*G", result_bytes, tv::compressed_points::shaw_7g, 32);
+
+        shaw_msm_ct(&result, scalar_7, &G, 1);
+        shaw_tobytes(result_bytes, &result);
+        check_bytes("shaw dispatch msm_ct 7*G", result_bytes, tv::compressed_points::shaw_7g, 32);
+    }
+
+    // After ranshaw_init, both CT slots must be non-null (the init block
+    // defaults them to the scalar CT MSM driver or, on IFMA hardware, to
+    // the IFMA driver). A null CT slot here means a bad dispatch table,
+    // which would segfault the first caller of ran_msm_ct / shaw_msm_ct.
+    {
+        const ranshaw_dispatch_table &t = ranshaw_get_dispatch();
+        check_nonzero("ran_msm_ct slot non-null after init", t.ran_msm_ct != nullptr);
+        check_nonzero("shaw_msm_ct slot non-null after init", t.shaw_msm_ct != nullptr);
     }
 
     // Test double init is safe (idempotent via call_once)

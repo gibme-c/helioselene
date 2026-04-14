@@ -26,6 +26,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # ── Test / sanitizer options (declared early so build-flag setup can see them) ──
 # BUILD_TESTS is also settable via environment variable for CI convenience.
 option(BUILD_TESTS "Build unit tests" OFF)
+option(ENABLE_TIMING_TESTS "Build the statistical CT-timing harness (nightly/advisory)" OFF)
 if(DEFINED ENV{BUILD_TESTS})
     set(BUILD_TESTS $ENV{BUILD_TESTS})
 endif()
@@ -179,6 +180,24 @@ else()
         )
     elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
         target_compile_options(ranshaw-build-flags INTERFACE -fno-vectorize -fno-slp-vectorize)
+    endif()
+
+    # Enable BMI2 (MULX) and ADX (ADCX/ADOX) for the x64 inline-asm field ops
+    # in fq51_inline.h. These are gated on __BMI2__; without them the codebase
+    # falls through to a 5×5 schoolbook fallback at fq51_inline.h:1715+ which
+    # is measurably slower. BMI2 is universally available on Haswell+ (2013+)
+    # and Excavator+ (2015+). Non-x86 targets and FORCE_PORTABLE skip this.
+    # Sanitized builds still get the flags — the asm is CT-safe and the
+    # sanitizers do not need to see different codegen.
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "^([xX]86_64|[aA][mM][dD]64)$" AND NOT FORCE_PORTABLE)
+        check_cxx_compiler_flag("-mbmi2" HAS_MBMI2)
+        check_cxx_compiler_flag("-madx" HAS_MADX)
+        if(HAS_MBMI2)
+            target_compile_options(ranshaw-build-flags INTERFACE -mbmi2)
+        endif()
+        if(HAS_MADX)
+            target_compile_options(ranshaw-build-flags INTERFACE -madx)
+        endif()
     endif()
 
     # CET control-flow integrity (Intel CET shadow stack + indirect branch tracking)
@@ -420,11 +439,15 @@ if(BUILD_TESTS)
         src/tests/common.cpp
         src/tests/field_fp.cpp
         src/tests/field_fq.cpp
+        src/tests/field_fq51x2_ifma.cpp
         src/tests/point_ran.cpp
         src/tests/point_shaw.cpp
         src/tests/scalar_mul.cpp
         src/tests/wei25519_bridge.cpp
         src/tests/msm.cpp
+        src/tests/complete_add.cpp
+        src/tests/complete_add_ifma.cpp
+        src/tests/msm_ct.cpp
         src/tests/sswu.cpp
         src/tests/batch_affine.cpp
         src/tests/pedersen.cpp
@@ -448,6 +471,39 @@ if(BUILD_TESTS)
     ranshaw_harden_executable(ranshaw-tests)
     add_test(NAME ranshaw-tests COMMAND ranshaw-tests)
 
+    if(ENABLE_TIMING_TESTS)
+        # ranshaw-tests-timing: standalone executable running a dudect-style
+        # timing-leak statistical test on the CT Pedersen path. Advisory only
+        # (the main() returns 0 even on statistical failure); the PR gate is
+        # the disasm branch-grep, not this. Build opt-in because it takes
+        # several minutes and jitters wildly on shared CI runners.
+        add_executable(ranshaw-tests-timing src/tests_timing.cpp)
+        target_link_libraries(ranshaw-tests-timing PRIVATE ranshaw ranshaw-build-flags)
+        target_compile_definitions(ranshaw-tests-timing PRIVATE RANSHAW_INTERNAL_ACCESS)
+        ranshaw_harden_executable(ranshaw-tests-timing)
+        message(STATUS "RANSHAW: CT timing harness enabled (ranshaw-tests-timing)")
+    endif()
+
+    # IFMA test TUs need AVX-512F + IFMA to activate their bodies. In IFMA-
+    # enabled builds we grant the flags; otherwise each TU compiles as a no-op
+    # (its body is gated on __AVX512F__ && __AVX512IFMA__). Only a TU whose
+    # AVX-512 code is reached behind a runtime ranshaw_has_avx512ifma() check
+    # may carry these flags. complete_add.cpp is deliberately excluded: its
+    # scalar complete-add tests run unconditionally, so it must build for the
+    # baseline ISA or the compiler may emit AVX-512 into always-run code that
+    # faults on CPUs without the feature. Its IFMA cross-checks were moved to
+    # complete_add_ifma.cpp, which self-gates at runtime.
+    if(ENABLE_AVX512)
+        if(MSVC)
+            set_source_files_properties(src/tests/field_fq51x2_ifma.cpp
+                PROPERTIES COMPILE_FLAGS "/arch:AVX512")
+        else()
+            set_source_files_properties(src/tests/field_fq51x2_ifma.cpp
+                src/tests/complete_add_ifma.cpp
+                PROPERTIES COMPILE_FLAGS "-mavx512f -mavx512ifma ${_MINGW_SIMD_FIX}")
+        endif()
+    endif()
+
     # Same split pattern as ranshaw-tests: per-topic TUs under src/fuzz_tests/
     # with a shared common.cpp/h + registry.h and a thin tests_fuzz_main.cpp.
     set(RANSHAW_FUZZ_SOURCES
@@ -460,6 +516,12 @@ if(BUILD_TESTS)
         src/fuzz_tests/scalarmult.cpp
         src/fuzz_tests/msm.cpp
         src/fuzz_tests/map.cpp
+        src/fuzz_tests/is_qr.cpp
+        src/fuzz_tests/fq_mul_diff.cpp
+        src/fuzz_tests/fq_invert_diff.cpp
+        src/fuzz_tests/fp_invert_diff.cpp
+        src/fuzz_tests/msm_vartime_packed_diff.cpp
+        src/fuzz_tests/scalarmult_vartime_packed_diff.cpp
         src/fuzz_tests/pedersen.cpp
         src/fuzz_tests/batch.cpp
         src/fuzz_tests/polynomial.cpp

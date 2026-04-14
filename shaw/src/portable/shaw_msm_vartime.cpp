@@ -325,7 +325,7 @@ static void msm_pippenger(shaw_jacobian *result, const unsigned char *scalars, c
 // Public API (portable)
 // ============================================================================
 
-static const size_t STRAUS_PIPPENGER_CROSSOVER = 16;
+static const size_t STRAUS_PIPPENGER_CROSSOVER = 8;
 
 void shaw_msm_vartime_portable(
     shaw_jacobian *result,

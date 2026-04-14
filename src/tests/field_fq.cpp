@@ -24,6 +24,7 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+#include "ranshaw_cpuid.h"
 #include "tests/common.h"
 #include "tests/registry.h"
 
@@ -231,33 +232,82 @@ void test_fq_extended()
         check_bytes("cmov(a, 1, 1) == 1", one_bytes, buf, 32);
     }
 
-    /* fq_sqrt(0) == 0 */
+    /* fq_sqrt(0) == 0, returns 0 */
     {
         fq_fe result;
-        fq_sqrt(result, zero_fe);
+        int rc = fq_sqrt(result, zero_fe);
+        check_int("sqrt(0) returns 0", 0, rc);
         fq_tobytes(buf, result);
         check_bytes("sqrt(0) == 0", zero_bytes, buf, 32);
     }
 
-    /* fq_sqrt(1)^2 == 1 */
+    /* fq_sqrt(1)^2 == 1, returns 0 */
     {
         fq_fe sqrt1, sq_check;
-        fq_sqrt(sqrt1, one_fe);
+        int rc = fq_sqrt(sqrt1, one_fe);
+        check_int("sqrt(1) returns 0", 0, rc);
         fq_sq(sq_check, sqrt1);
         fq_tobytes(buf, sq_check);
         check_bytes("sqrt(1)^2 == 1", one_bytes, buf, 32);
     }
 
-    /* fq_sqrt(a^2)^2 == a^2 */
+    /* fq_sqrt(a^2)^2 == a^2, returns 0 */
     {
         fq_fe a_sq, sqrt_asq, sq_check;
         fq_sq(a_sq, a);
-        fq_sqrt(sqrt_asq, a_sq);
+        int rc = fq_sqrt(sqrt_asq, a_sq);
+        check_int("sqrt(a^2) returns 0", 0, rc);
         fq_sq(sq_check, sqrt_asq);
         unsigned char asq_bytes[32];
         fq_tobytes(asq_bytes, a_sq);
         fq_tobytes(buf, sq_check);
         check_bytes("sqrt(a^2)^2 == a^2", asq_bytes, buf, 32);
+    }
+
+    /* fq_sqrt on non-residue: returns -1, zeros out. For q ≡ 3 (mod 4),
+     * −1 is a non-residue since (q−1)/2 is odd. Build q−1 = RAN_ORDER − 1. */
+    {
+        unsigned char neg_one_bytes[32];
+        std::memcpy(neg_one_bytes, RAN_ORDER, 32);
+        for (int i = 0; i < 32; i++)
+        {
+            if (neg_one_bytes[i] > 0)
+            {
+                neg_one_bytes[i]--;
+                break;
+            }
+            neg_one_bytes[i] = 0xff;
+        }
+        fq_fe neg_one, result;
+        fq_frombytes(neg_one, neg_one_bytes);
+        int rc = fq_sqrt(result, neg_one);
+        check_int("sqrt(-1) returns -1 (non-residue)", -1, rc);
+        fq_tobytes(buf, result);
+        check_bytes("sqrt(-1) zeros out on non-residue", zero_bytes, buf, 32);
+    }
+
+    /* fq_sqrt: for any non-QR n, n * a^2 is also NR. Combine -1 with a^2
+     * to build a different NR and re-verify. */
+    {
+        unsigned char neg_one_bytes[32];
+        std::memcpy(neg_one_bytes, RAN_ORDER, 32);
+        for (int i = 0; i < 32; i++)
+        {
+            if (neg_one_bytes[i] > 0)
+            {
+                neg_one_bytes[i]--;
+                break;
+            }
+            neg_one_bytes[i] = 0xff;
+        }
+        fq_fe neg_one, a_sq, nr, result;
+        fq_frombytes(neg_one, neg_one_bytes);
+        fq_sq(a_sq, a);
+        fq_mul(nr, neg_one, a_sq);
+        int rc = fq_sqrt(result, nr);
+        check_int("sqrt(-a^2) returns -1 (non-residue)", -1, rc);
+        fq_tobytes(buf, result);
+        check_bytes("sqrt(-a^2) zeros out on non-residue", zero_bytes, buf, 32);
     }
 
     /* Edge: (q-1)*(q-1) == 1 */
@@ -326,4 +376,138 @@ void test_fq_extended()
         fq_tobytes(buf, result);
         check_bytes("frombytes(q) == 0", zero_bytes, buf, 32);
     }
+
+    /* Curve constant: SHAW_B3 == 3 * SHAW_B mod q (precomputed for RCB complete addition) */
+    {
+        fq_fe sum, diff;
+        fq_add(sum, SHAW_B, SHAW_B);
+        fq_add(sum, sum, SHAW_B);
+        fq_sub(diff, sum, SHAW_B3);
+        fq_tobytes(buf, diff);
+        check_bytes("SHAW_B3 == 3 * SHAW_B mod q", zero_bytes, buf, 32);
+    }
+}
+
+
+void test_fq_is_qr()
+{
+    std::cout << std::endl << "=== F_q is_qr (Legendre symbol) ===" << std::endl;
+
+    fq_fe one_fe, zero_fe;
+    fq_1(one_fe);
+    fq_0(zero_fe);
+
+    /* Edge cases */
+    check_int("is_qr(0) == 1 (convention: sqrt(0)=0)", 1, fq_is_qr(zero_fe));
+    check_int("is_qr(1) == 1", 1, fq_is_qr(one_fe));
+
+    /* q - 1 is a non-residue for q ≡ 3 (mod 4) since (q-1)/2 is odd. */
+    {
+        unsigned char qm1[32];
+        std::memcpy(qm1, RAN_ORDER, 32);
+        for (int i = 0; i < 32; i++)
+        {
+            if (qm1[i] > 0)
+            {
+                qm1[i]--;
+                break;
+            }
+            qm1[i] = 0xff;
+        }
+        fq_fe neg_one;
+        fq_frombytes(neg_one, qm1);
+        check_int("is_qr(q-1) == 0 (-1 is NR when q ≡ 3 mod 4)", 0, fq_is_qr(neg_one));
+    }
+
+    /* For any a != 0, a^2 is a QR. For any NR n, n*a^2 is a NR. */
+    {
+        fq_fe a, a_sq, neg_a_sq;
+        fq_frombytes(a, test_a_bytes);
+        fq_sq(a_sq, a);
+        check_int("is_qr(a^2) == 1", 1, fq_is_qr(a_sq));
+
+        unsigned char qm1[32];
+        std::memcpy(qm1, RAN_ORDER, 32);
+        for (int i = 0; i < 32; i++)
+        {
+            if (qm1[i] > 0)
+            {
+                qm1[i]--;
+                break;
+            }
+            qm1[i] = 0xff;
+        }
+        fq_fe neg_one;
+        fq_frombytes(neg_one, qm1);
+        fq_mul(neg_a_sq, a_sq, neg_one);
+        check_int("is_qr(-a^2) == 0", 0, fq_is_qr(neg_a_sq));
+    }
+
+    /* Small-value scan 0..63: every small value's is_qr must agree with fq_sqrt. */
+    {
+        int small_diffs = 0;
+        for (int v = 0; v < 64; v++)
+        {
+            unsigned char sb[32];
+            std::memset(sb, 0, 32);
+            sb[0] = (unsigned char)v;
+            fq_fe z;
+            fq_frombytes(z, sb);
+            int iq = fq_is_qr(z);
+            fq_fe tmp;
+            int rc = fq_sqrt(tmp, z);
+            int iq_ref = (rc == 0) ? 1 : 0;
+            if (iq != iq_ref)
+                small_diffs++;
+        }
+        check_int("is_qr small-value scan 0..63 mismatches", 0, small_diffs);
+    }
+
+    /* Differential test: for N random inputs, is_qr must match fq_sqrt's return. */
+    {
+        const int N = 256;
+        int mismatches = 0;
+        for (int k = 0; k < N; k++)
+        {
+            unsigned char seed[32];
+            for (unsigned i = 0; i < 32; i++)
+                seed[i] = (unsigned char)(((unsigned)k * 2654435761u + i * 97u) >> (i & 7u));
+            seed[31] &= 0x7f; /* force into [0, 2^255) so frombytes is canonical */
+            fq_fe z;
+            fq_frombytes(z, seed);
+
+            int iq = fq_is_qr(z);
+
+            fq_fe sq_tmp;
+            int rc = fq_sqrt(sq_tmp, z);
+            int iq_ref = (rc == 0) ? 1 : 0;
+
+            if (iq != iq_ref)
+                mismatches++;
+        }
+        check_int("is_qr vs fq_sqrt: 0 mismatches across 256 random inputs", 0, mismatches);
+    }
+}
+
+// Baseline-ISA entry for the AVX-512 IFMA fq51x2 tests. The worker
+// (ranshaw_run_fq51x2_ifma_tests) lives in field_fq51x2_ifma.cpp, a TU compiled
+// with -mavx512f/-mavx512ifma. The runtime guard MUST live here in a baseline
+// TU: compiled into the AVX-512 TU, the guard's own prologue emits AVX-512
+// (clang+ASan zeroes the enlarged stack frame with zmm stores) that faults with
+// SIGILL on a baseline CPU before the check runs. Calling across the TU
+// boundary is safe — only the callee's body uses AVX-512, and only after the
+// check passes. RANSHAW_NO_AVX512_FN is the second safeguard layer.
+RANSHAW_NO_AVX512_FN void test_fq51x2_ifma()
+{
+#if RANSHAW_SIMD && !defined(RANSHAW_NO_AVX512)
+    extern void ranshaw_run_fq51x2_ifma_tests();
+
+    std::cout << std::endl << "=== F_q 2-way IFMA primitives (fq51x2) ===" << std::endl;
+    if (!ranshaw_has_avx512ifma())
+    {
+        std::cout << "Host CPU lacks AVX512IFMA — skipping fq51x2 tests." << std::endl;
+        return;
+    }
+    ranshaw_run_fq51x2_ifma_tests();
+#endif
 }

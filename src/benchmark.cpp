@@ -28,6 +28,7 @@
 #include "ranshaw_benchmark.h"
 #include "ranshaw_primitives.h"
 
+#include <cstdio>
 #include <cstring>
 #include <iostream>
 #include <string>
@@ -59,6 +60,27 @@ int main(int argc, char *argv[])
             ranshaw_init();
             dispatch_label = "init (CPUID heuristic)";
         }
+        else if (std::strncmp(argv[i], "--backend=", 10) == 0)
+        {
+#if RANSHAW_SIMD
+            const char *name = argv[i] + 10;
+            if (ranshaw_force_backend(name) != 0)
+            {
+                std::cerr << "Backend '" << name
+                          << "' not available (not compiled or unknown name). "
+                             "Valid: x64, avx2 (if ENABLE_AVX2), ifma (if ENABLE_AVX512)."
+                          << std::endl;
+                return 1;
+            }
+            static char label_buf[64];
+            std::snprintf(label_buf, sizeof(label_buf), "forced (%s)", name);
+            dispatch_label = label_buf;
+#else
+            std::cerr << "--backend= ignored: SIMD dispatch not compiled in (FORCE_PORTABLE or no-SIMD build)."
+                      << std::endl;
+            return 1;
+#endif
+        }
         else if (std::strcmp(argv[i], "--all") == 0)
         {
             /* handled below */
@@ -66,7 +88,7 @@ int main(int argc, char *argv[])
         else
         {
             std::cerr << "Unknown option: " << argv[i] << std::endl;
-            std::cerr << "Usage: ranshaw-benchmark [--init|--autotune] [--all]" << std::endl;
+            std::cerr << "Usage: ranshaw-benchmark [--init|--autotune|--backend=<name>] [--all]" << std::endl;
             return 1;
         }
     }
@@ -234,6 +256,14 @@ int main(int argc, char *argv[])
         },
         "fq_sqrt");
 
+    benchmark(
+        [&]()
+        {
+            int r = fq_is_qr(fq_a);
+            benchmark_do_not_optimize(r);
+        },
+        "fq_is_qr");
+
     std::cout << std::endl;
     std::cout << "--- Ran (over F_p) ---" << std::endl;
 
@@ -387,6 +417,23 @@ int main(int argc, char *argv[])
                     },
                     label.c_str());
             }
+
+            /* CT MSM rows alongside the VT ones so the ratio is visible in
+             * the same report. Dispatched through ran_msm_ct (runtime
+             * autotune / CPUID-selected backend). RCB 2016 projects CT/VT
+             * ~ 1.7x at n=16; wider ratios are expected on larger n. */
+            for (size_t sz : ran_msm_sizes)
+            {
+                make_ran_msm_data(sz, sc, pts);
+                std::string label = "ran_msm_ct n=" + std::to_string(sz);
+                benchmark(
+                    [&]()
+                    {
+                        ran_msm_ct(&h_result, sc.data(), pts.data(), sz);
+                        benchmark_do_not_optimize(h_result);
+                    },
+                    label.c_str());
+            }
         }
 
         std::cout << std::endl;
@@ -417,6 +464,20 @@ int main(int argc, char *argv[])
                     [&]()
                     {
                         shaw_msm_vartime(&s_result, sc.data(), pts.data(), sz);
+                        benchmark_do_not_optimize(s_result);
+                    },
+                    label.c_str());
+            }
+
+            /* CT MSM rows — mirror of the Ran block above. */
+            for (size_t sz : shaw_msm_sizes)
+            {
+                make_shaw_msm_data(sz, sc, pts);
+                std::string label = "shaw_msm_ct n=" + std::to_string(sz);
+                benchmark(
+                    [&]()
+                    {
+                        shaw_msm_ct(&s_result, sc.data(), pts.data(), sz);
                         benchmark_do_not_optimize(s_result);
                     },
                     label.c_str());

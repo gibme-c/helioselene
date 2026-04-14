@@ -24,6 +24,19 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+/**
+ * @file x64/shaw_scalarmult_vartime.cpp
+ * @brief x64 variable-time scalar multiplication for Shaw using wNAF w=5.
+ *
+ * Under FQ51_HAVE_ADX_MUL, hold the 8-entry precomputed odd-multiples
+ * table and the running accumulator in 4x64 packed form across the
+ * whole wNAF main loop; pack the input point once at entry, unpack the
+ * final result once at exit. Falls back to the 5x51 unpacked reference
+ * on MSVC / non-BMI2 builds. The unpacked body is also always compiled
+ * and exposed as shaw_scalarmult_vartime_x64_unpacked for differential
+ * fuzz.
+ */
+
 #include "shaw_scalarmult_vartime.h"
 
 #include "fq_ops.h"
@@ -34,12 +47,19 @@
 #include "shaw_dbl.h"
 #include "shaw_madd.h"
 #include "shaw_ops.h"
+#include "x64/shaw_inner_packed.h"
+
+#include <cstdint>
+#include <cstring>
 
 /*
- * Variable-time scalar multiplication for Shaw using wNAF w=5.
- * Same algorithm as ran_scalarmult_vartime but over F_q.
+ * Signed 5-bit wNAF recoding of a 256-bit scalar. Returns the number of
+ * valid digits in naf[] (the highest 1 + position that was written).
+ *
+ * naf[i] is in {-15, -13, ..., -1, 0, +1, +3, ..., +15}. Nonzero entries
+ * are spaced at least 5 positions apart so that each can be applied as
+ * a single table lookup after an intervening run of doublings.
  */
-
 static int wnaf_encode(int8_t naf[257], const unsigned char scalar[32])
 {
     uint32_t bits[9] = {0};
@@ -108,7 +128,12 @@ static int wnaf_encode(int8_t naf[257], const unsigned char scalar[32])
     return highest;
 }
 
-void shaw_scalarmult_vartime_x64(shaw_jacobian *r, const unsigned char scalar[32], const shaw_jacobian *p)
+// ============================================================================
+// Unpacked 5x51 wNAF (fallback on MSVC / non-BMI2; also used verbatim by the
+// shaw_scalarmult_vartime_x64_unpacked test hook).
+// ============================================================================
+
+static void scalarmult_vartime_unpacked(shaw_jacobian *r, const unsigned char scalar[32], const shaw_jacobian *p)
 {
     shaw_jacobian table[8];
     shaw_jacobian p2;
@@ -172,4 +197,161 @@ void shaw_scalarmult_vartime_x64(shaw_jacobian *r, const unsigned char scalar[32
     ranshaw_secure_erase(naf, sizeof(naf));
     ranshaw_secure_erase(table, sizeof(table));
     ranshaw_secure_erase(&p2, sizeof(p2));
+}
+
+// ============================================================================
+// Packed 4x64 wNAF (GCC/Clang BMI2+ADX only)
+// ============================================================================
+
+#if defined(FQ51_HAVE_ADX_MUL)
+
+namespace
+{
+
+    static inline void unpack_jac(shaw_jacobian *out, const packed_jac *in)
+    {
+        unpack_and_normalize(out->X, in->X);
+        unpack_and_normalize(out->Y, in->Y);
+        unpack_and_normalize(out->Z, in->Z);
+    }
+
+    static void scalarmult_vartime_packed(shaw_jacobian *r, const unsigned char scalar[32], const shaw_jacobian *p)
+    {
+        /* Packed precomputed table of odd multiples: table[k] = (2k+1)*P
+         * for k=0..7, i.e. {P, 3P, 5P, 7P, 9P, 11P, 13P, 15P}. Built as
+         * table[0]=P, p2=2P, table[k]=table[k-1]+p2. On a prime-order curve
+         * each intermediate sum is between non-identity distinct points
+         * (the only torsion is identity itself), so the raw incomplete
+         * shaw_add_x64_packed is safe for construction. If P is identity
+         * the raw formula returns identity for every operand combination;
+         * the main loop's shaw_add_safe_packed then handles it. */
+        packed_jac table[8];
+        packed_jac p2;
+
+        pack_jac(&table[0], p);
+        shaw_dbl_x64_packed(p2.X, p2.Y, p2.Z, table[0].X, table[0].Y, table[0].Z);
+
+        for (int i = 1; i < 8; i++)
+        {
+            shaw_add_x64_packed(
+                table[i].X, table[i].Y, table[i].Z, table[i - 1].X, table[i - 1].Y, table[i - 1].Z, p2.X, p2.Y, p2.Z);
+        }
+
+        int8_t naf[257];
+        int top = wnaf_encode(naf, scalar);
+
+        if (top == 0)
+        {
+            ranshaw_secure_erase(naf, sizeof(naf));
+            ranshaw_secure_erase(table, sizeof(table));
+            ranshaw_secure_erase(&p2, sizeof(p2));
+            shaw_identity(r);
+            return;
+        }
+
+        int start = top - 1;
+        while (start >= 0 && naf[start] == 0)
+            start--;
+
+        if (start < 0)
+        {
+            ranshaw_secure_erase(naf, sizeof(naf));
+            ranshaw_secure_erase(table, sizeof(table));
+            ranshaw_secure_erase(&p2, sizeof(p2));
+            shaw_identity(r);
+            return;
+        }
+
+        packed_jac acc;
+        bool acc_is_identity = false;
+
+        int8_t d = naf[start];
+        int idx = ((d < 0) ? -d : d) / 2;
+        if (d > 0)
+        {
+            copy_packed(&acc, &table[idx]);
+        }
+        else
+        {
+            shaw_jac_neg_x64_packed(acc.X, acc.Y, acc.Z, table[idx].X, table[idx].Y, table[idx].Z);
+        }
+        /* If the starting table entry is identity (only when input P is
+         * identity), propagate the flag so the shaw_add_safe_packed calls in
+         * the main loop take the identity shortcut. */
+        if (is_identity_packed(&acc))
+            acc_is_identity = true;
+
+        for (int i = start - 1; i >= 0; i--)
+        {
+            if (!acc_is_identity)
+                shaw_dbl_x64_packed(acc.X, acc.Y, acc.Z, acc.X, acc.Y, acc.Z);
+
+            if (naf[i] != 0)
+            {
+                d = naf[i];
+                idx = ((d < 0) ? -d : d) / 2;
+
+                packed_jac pt;
+                if (d > 0)
+                {
+                    copy_packed(&pt, &table[idx]);
+                }
+                else
+                {
+                    shaw_jac_neg_x64_packed(pt.X, pt.Y, pt.Z, table[idx].X, table[idx].Y, table[idx].Z);
+                }
+
+                if (acc_is_identity)
+                {
+                    copy_packed(&acc, &pt);
+                    acc_is_identity = is_identity_packed(&acc);
+                }
+                else
+                {
+                    int is_id = shaw_add_safe_packed(&acc, &acc, &pt);
+                    if (is_id)
+                        acc_is_identity = true;
+                }
+            }
+        }
+
+        ranshaw_secure_erase(naf, sizeof(naf));
+        ranshaw_secure_erase(table, sizeof(table));
+        ranshaw_secure_erase(&p2, sizeof(p2));
+
+        if (acc_is_identity)
+            shaw_identity(r);
+        else
+            unpack_jac(r, &acc);
+    }
+
+} /* anonymous namespace */
+
+#endif /* FQ51_HAVE_ADX_MUL */
+
+// ============================================================================
+// Public API (x64) + test-internal unpacked entry point
+// ============================================================================
+
+/*
+ * Test-internal entry point that always runs the 5x51 unpacked path,
+ * regardless of FQ51_HAVE_ADX_MUL. Used by
+ * fuzz_scalarmult_vartime_packed_diff to differentially validate the
+ * packed rewrite. On MSVC / non-BMI2 builds it coincides with
+ * shaw_scalarmult_vartime_x64. Declared extern "C" so the fuzz harness
+ * can reach it without pulling in a C++ header.
+ */
+extern "C" void
+    shaw_scalarmult_vartime_x64_unpacked(shaw_jacobian *r, const unsigned char scalar[32], const shaw_jacobian *p)
+{
+    scalarmult_vartime_unpacked(r, scalar, p);
+}
+
+void shaw_scalarmult_vartime_x64(shaw_jacobian *r, const unsigned char scalar[32], const shaw_jacobian *p)
+{
+#if defined(FQ51_HAVE_ADX_MUL)
+    scalarmult_vartime_packed(r, scalar, p);
+#else
+    scalarmult_vartime_unpacked(r, scalar, p);
+#endif
 }

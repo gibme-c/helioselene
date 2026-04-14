@@ -167,18 +167,23 @@ for i, v in enumerate(bias_q51):
 
 section("ran/include/ran_constants.h")
 
+ran_b3 = (3 * ran_b) % p
 print("/* 64-bit (radix-2^51) */")
 print(f"static const fp_fe RAN_B = {fmt_hex_ull(limbs_51(ran_b))};")
+print(f"static const fp_fe RAN_B3 = {fmt_hex_ull(limbs_51(ran_b3))};")
 print(f"static const fp_fe RAN_GX = {fmt_hex_ull(limbs_51(ran_gx))};")
 print(f"static const fp_fe RAN_GY = {fmt_hex_ull(limbs_51(ran_gy))};")
 print()
 print("/* 32-bit (radix-2^25.5) */")
 print(f"static const fp_fe RAN_B = {fmt_dec(limbs_25_5(ran_b))};")
+print(f"static const fp_fe RAN_B3 = {fmt_dec(limbs_25_5(ran_b3))};")
 print(f"static const fp_fe RAN_GX = {fmt_dec(limbs_25_5(ran_gx))};")
 print(f"static const fp_fe RAN_GY = {fmt_dec(limbs_25_5(ran_gy))};")
 print()
 print("/* RAN_ORDER (q as 32 bytes LE) */")
 print(f"static const unsigned char RAN_ORDER[32] = {fmt_bytes(le_bytes_32(q))};")
+print()
+print(f"/* ran_b3 = 3*b mod p = {ran_b3} */")
 
 # ==============================================================================
 # SHAW CONSTANTS
@@ -186,18 +191,23 @@ print(f"static const unsigned char RAN_ORDER[32] = {fmt_bytes(le_bytes_32(q))};"
 
 section("shaw/include/shaw_constants.h")
 
+shaw_b3 = (3 * shaw_b) % q
 print("/* 64-bit (radix-2^51) */")
 print(f"static const fq_fe SHAW_B = {fmt_hex_ull(limbs_51(shaw_b))};")
+print(f"static const fq_fe SHAW_B3 = {fmt_hex_ull(limbs_51(shaw_b3))};")
 print(f"static const fq_fe SHAW_GX = {fmt_hex_ull(limbs_51(shaw_gx))};")
 print(f"static const fq_fe SHAW_GY = {fmt_hex_ull(limbs_51(shaw_gy))};")
 print()
 print("/* 32-bit (radix-2^25.5) */")
 print(f"static const fq_fe SHAW_B = {fmt_dec(limbs_25_5(shaw_b))};")
+print(f"static const fq_fe SHAW_B3 = {fmt_dec(limbs_25_5(shaw_b3))};")
 print(f"static const fq_fe SHAW_GX = {fmt_dec(limbs_25_5(shaw_gx))};")
 print(f"static const fq_fe SHAW_GY = {fmt_dec(limbs_25_5(shaw_gy))};")
 print()
 print("/* SHAW_ORDER = p = 2^255 - 19 (unchanged) */")
 print(f"static const unsigned char SHAW_ORDER[32] = {fmt_bytes(le_bytes_32(p))};")
+print()
+print(f"/* shaw_b3 = 3*b mod q = {shaw_b3} */")
 
 # ==============================================================================
 # FQ_DIVSTEPS
@@ -291,10 +301,9 @@ def find_sswu_z(field_p, a_coeff, b_coeff):
         this avoids a degenerate-but-still-sound case in the reference polynomial
         derivation; the runtime code paths are unaffected.
 
-    Both deviations are documented in docs/hash_to_curve_rationale.md. The curves
-    selected by this function (Ran: Z = -2, Shaw: Z = -1) are used by the constant-
-    time Simplified SWU implementations in ran/src/*/ran_map_to_curve.cpp and
-    shaw/src/*/shaw_map_to_curve.cpp.
+    The curves selected by this function (Ran: Z = -2, Shaw: Z = -1) are used by
+    the constant-time Simplified SWU implementations in ran/src/*/ran_map_to_curve.cpp
+    and shaw/src/*/shaw_map_to_curve.cpp.
     """
     for z_cand in range(1, 1000):
         z_int = -z_cand

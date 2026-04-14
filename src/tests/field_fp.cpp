@@ -350,4 +350,14 @@ void test_fp_extended()
         fp_tobytes(buf, result);
         check_bytes("frombytes(p) == 0", zero_bytes, buf, 32);
     }
+
+    /* Curve constant: RAN_B3 == 3 * RAN_B mod p (precomputed for RCB complete addition) */
+    {
+        fp_fe sum, diff;
+        fp_add(sum, RAN_B, RAN_B);
+        fp_add(sum, sum, RAN_B);
+        fp_sub(diff, sum, RAN_B3);
+        fp_tobytes(buf, diff);
+        check_bytes("RAN_B3 == 3 * RAN_B mod p", zero_bytes, buf, 32);
+    }
 }

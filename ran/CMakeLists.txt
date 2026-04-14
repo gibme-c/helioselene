@@ -26,6 +26,14 @@ else()
     )
 endif()
 
+# RCB constant-time complete-addition driver (same source on every backend; uses
+# dispatched fp_mul / fp_sq / fp_add / fp_sub / fp_neg so it picks up whatever
+# backend the enclosing library was built against).
+list(APPEND RAN_SRC src/ran_complete_add.cpp)
+
+# CT MSM driver (signed-4 Straus over RCB). Shared across backends.
+list(APPEND RAN_SRC src/ran_msm_ct.cpp)
+
 # AVX2 backend sources
 if(ENABLE_AVX2)
     set(RAN_AVX2_SRC
@@ -49,6 +57,8 @@ if(ENABLE_AVX512)
         src/x64/ifma/ran_scalarmult.cpp
         src/x64/ifma/ran_scalarmult_vartime.cpp
         src/x64/ifma/ran_msm_vartime.cpp
+        src/x64/ifma/ran_complete_add_ifma.cpp
+        src/x64/ifma/ran_msm_ct.cpp
     )
     list(APPEND RAN_SRC ${RAN_IFMA_SRC})
 

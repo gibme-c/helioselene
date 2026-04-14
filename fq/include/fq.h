@@ -40,7 +40,37 @@
 
 #include <cstdint>
 
-#if RANSHAW_PLATFORM_64BIT
+/*
+ * F_q representation gate.
+ *
+ * RANSHAW_FQ_NATIVE64: native radix-2^64 (uint64_t[4]). Selected only on the
+ * GNU/Clang + BMI2 + __int128 toolchains that provide the hand-written 4x64
+ * fq64_* primitives (ADX MULX/ADCX/ADOX, with __int128 fallbacks). On those
+ * targets fq_fe IS the packed 4x64 form, so every standalone F_q op runs
+ * native with no 5x51<->4x64 pack/unpack tax; value invariant < 2^256
+ * (mul/sq fold to < 2q, add/sub stay < 2^256), canonicalized only at the
+ * tobytes / iszero boundaries.
+ *
+ * Everything else (MSVC, ARM64, non-BMI2 x86, the forced-portable build)
+ * keeps the original radix-2^51 uint64_t[5] (64-bit) or radix-2^25.5
+ * int32_t[10] (portable) representation, which does not depend on the 4x64
+ * primitives. The condition mirrors FQ51_HAVE_ADX_MUL in fq51_inline.h.
+ */
+#if defined(RANSHAW_FORCE_5X51) && RANSHAW_FORCE_5X51
+/* Test override: force the radix-2^51 uint64_t[5] path on a 64-bit toolchain
+ * that would otherwise use native 4x64, to exercise the non-native code on a
+ * debuggable compiler. */
+#define RANSHAW_FQ_NATIVE64 0
+#elif RANSHAW_PLATFORM_64BIT && (defined(__GNUC__) || defined(__clang__)) && defined(__BMI2__) \
+    && defined(__SIZEOF_INT128__)
+#define RANSHAW_FQ_NATIVE64 1
+#else
+#define RANSHAW_FQ_NATIVE64 0
+#endif
+
+#if RANSHAW_FQ_NATIVE64
+typedef uint64_t fq_fe[4];
+#elif RANSHAW_PLATFORM_64BIT
 typedef uint64_t fq_fe[5];
 #else
 typedef int32_t fq_fe[10];

@@ -26,6 +26,13 @@ else()
     )
 endif()
 
+# RCB constant-time complete-addition driver (shared across backends; see the
+# Ran mirror in ran/CMakeLists.txt for the rationale).
+list(APPEND SHAW_SRC src/shaw_complete_add.cpp)
+
+# CT MSM driver (signed-4 Straus over RCB). Shared across backends.
+list(APPEND SHAW_SRC src/shaw_msm_ct.cpp)
+
 # AVX2 backend sources
 if(ENABLE_AVX2)
     set(SHAW_AVX2_SRC
@@ -49,6 +56,8 @@ if(ENABLE_AVX512)
         src/x64/ifma/shaw_scalarmult.cpp
         src/x64/ifma/shaw_scalarmult_vartime.cpp
         src/x64/ifma/shaw_msm_vartime.cpp
+        src/x64/ifma/shaw_complete_add_ifma.cpp
+        src/x64/ifma/shaw_msm_ct.cpp
     )
     list(APPEND SHAW_SRC ${SHAW_IFMA_SRC})
 

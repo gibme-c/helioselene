@@ -99,6 +99,7 @@ int main(int argc, char *argv[])
 
     test_fp();
     test_fq();
+    test_fq51x2_ifma();
     test_fp_sqrt();
     test_ran_points();
     test_shaw_points();
@@ -107,6 +108,8 @@ int main(int argc, char *argv[])
     test_wei25519();
     test_ran_msm();
     test_shaw_msm();
+    test_complete_add();
+    test_msm_ct_cross_check();
     test_fp_sqrt_sswu();
     test_ran_sswu();
     test_shaw_sswu();
@@ -120,6 +123,7 @@ int main(int argc, char *argv[])
     test_shaw_divisor();
     test_fp_extended();
     test_fq_extended();
+    test_fq_is_qr();
     test_serialization_edges();
     test_ran_point_edges();
     test_shaw_point_edges();

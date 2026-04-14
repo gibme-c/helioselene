@@ -680,25 +680,30 @@ static FQ51X8_FORCE_INLINE void fq51x8_sq2(fq51x8 *h, const fq51x8 *f)
 
 static FQ51X8_FORCE_INLINE void fq51x8_insert_lane(fq51x8 *out, const fq_fe in, int lane)
 {
-    /* fq_fe is already 5x51 radix-2^51, same as fq51x8 lane format — direct copy */
+    /* fq_fe -> 5x51 lane format (expand on native 4x64; direct copy otherwise). */
+    uint64_t in5[5];
+    fq_fe_to_5x51(in5, in);
     alignas(64) long long tmp[8];
     for (int i = 0; i < 5; i++)
     {
         _mm512_store_si512((__m512i *)tmp, out->v[i]);
-        tmp[lane] = (long long)in[i];
+        tmp[lane] = (long long)in5[i];
         out->v[i] = _mm512_load_si512((const __m512i *)tmp);
     }
 }
 
 static FQ51X8_FORCE_INLINE void fq51x8_extract_lane(fq_fe out, const fq51x8 *in, int lane)
 {
-    /* fq_fe is already 5x51 radix-2^51, same as fq51x8 lane format — direct extract */
+    /* 5x51 lane (limbs < 2^52 from lazy SIMD output) -> fq_fe (normalize+pack
+     * on native 4x64; direct copy of the lazy 5x51 limbs otherwise). */
     alignas(64) long long tmp[8];
+    uint64_t out5[5];
     for (int i = 0; i < 5; i++)
     {
         _mm512_store_si512((__m512i *)tmp, in->v[i]);
-        out[i] = (uint64_t)tmp[lane];
+        out5[i] = (uint64_t)tmp[lane];
     }
+    fq_fe_from_5x51(out, out5);
 }
 
 #endif // RANSHAW_X64_IFMA_FQ51X8_IFMA_H

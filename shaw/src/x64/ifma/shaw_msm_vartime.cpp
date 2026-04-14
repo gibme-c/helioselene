@@ -481,7 +481,7 @@ static void
 // Public API (IFMA)
 // ============================================================================
 
-static const size_t STRAUS_PIPPENGER_CROSSOVER = 16;
+static const size_t STRAUS_PIPPENGER_CROSSOVER = 8;
 
 void shaw_msm_vartime_ifma(shaw_jacobian *result, const unsigned char *scalars, const shaw_jacobian *points, size_t n)
 {

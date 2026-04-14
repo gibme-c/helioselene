@@ -26,57 +26,39 @@
 
 #include "portable/fp_invert.h"
 
-#include "fp_mul.h"
-#include "fp_sq.h"
+#include "portable/fp_divsteps.h"
 #include "ranshaw_secure_erase.h"
 
+/*
+ * z^(-1) mod p via Bernstein-Yang safegcd/divsteps. 25 outer rounds of 30
+ * divsteps = 750 iterations, above the 738 bound for a 255-bit modulus.
+ * Constant-time: fixed iteration count, no secret-dependent branches.
+ */
 void fp_invert_portable(fp_fe out, const fp_fe z)
 {
-    fp_fe t0, t1, t2, t3;
-    int i;
+    fp_signed30 f, g, d, e;
+    f = FP_MODULUS_S30;
+    fp_fe_to_signed30(&g, z);
+    for (int i = 0; i < 9; i++)
+        d.v[i] = 0;
+    e.v[0] = 1;
+    for (int i = 1; i < 9; i++)
+        e.v[i] = 0;
 
-    fp_sq(t0, z);
-    fp_sq(t1, t0);
-    fp_sq(t1, t1);
-    fp_mul(t1, z, t1);
-    fp_mul(t0, t0, t1);
-    fp_sq(t2, t0);
-    fp_mul(t1, t1, t2);
-    fp_sq(t2, t1);
-    for (i = 0; i < 4; ++i)
-        fp_sq(t2, t2);
-    fp_mul(t1, t2, t1);
-    fp_sq(t2, t1);
-    for (i = 0; i < 9; ++i)
-        fp_sq(t2, t2);
-    fp_mul(t2, t2, t1);
-    fp_sq(t3, t2);
-    for (i = 0; i < 19; ++i)
-        fp_sq(t3, t3);
-    fp_mul(t2, t3, t2);
-    fp_sq(t2, t2);
-    for (i = 0; i < 9; ++i)
-        fp_sq(t2, t2);
-    fp_mul(t1, t2, t1);
-    fp_sq(t2, t1);
-    for (i = 0; i < 49; ++i)
-        fp_sq(t2, t2);
-    fp_mul(t2, t2, t1);
-    fp_sq(t3, t2);
-    for (i = 0; i < 99; ++i)
-        fp_sq(t3, t3);
-    fp_mul(t2, t3, t2);
-    fp_sq(t2, t2);
-    for (i = 0; i < 49; ++i)
-        fp_sq(t2, t2);
-    fp_mul(t1, t2, t1);
-    fp_sq(t1, t1);
-    for (i = 0; i < 4; ++i)
-        fp_sq(t1, t1);
-    fp_mul(out, t1, t0);
+    int32_t delta = 1;
 
-    ranshaw_secure_erase(t0, sizeof(fp_fe));
-    ranshaw_secure_erase(t1, sizeof(fp_fe));
-    ranshaw_secure_erase(t2, sizeof(fp_fe));
-    ranshaw_secure_erase(t3, sizeof(fp_fe));
+    for (int i = 0; i < 25; i++)
+    {
+        fp_trans2x2_30 t;
+        delta = fp_divsteps_30(delta, (uint32_t)f.v[0], (uint32_t)g.v[0], &t);
+        fp_update_fg_30(&f, &g, &t);
+        fp_update_de_30(&d, &e, &t);
+    }
+
+    fp_divsteps_normalize_30(out, &d, &f);
+
+    ranshaw_secure_erase(&f, sizeof(f));
+    ranshaw_secure_erase(&g, sizeof(g));
+    ranshaw_secure_erase(&d, sizeof(d));
+    ranshaw_secure_erase(&e, sizeof(e));
 }

@@ -63,6 +63,12 @@ void shaw_scalarmult_x64(shaw_jacobian *r, const unsigned char scalar[32], const
 void shaw_scalarmult_vartime_x64(shaw_jacobian *r, const unsigned char scalar[32], const shaw_jacobian *p);
 void shaw_msm_vartime_x64(shaw_jacobian *result, const unsigned char *scalars, const shaw_jacobian *points, size_t n);
 
+// Backend-agnostic scalar CT MSM (one shared TU per curve; the underlying
+// field ops pick the active backend via the compile-time dispatch in fp_mul /
+// fq_mul). Available on every platform.
+void ran_msm_ct_scalar(ran_jacobian *result, const unsigned char *scalars, const ran_jacobian *points, size_t n);
+void shaw_msm_ct_scalar(shaw_jacobian *result, const unsigned char *scalars, const shaw_jacobian *points, size_t n);
+
 // AVX2 (compiled when ENABLE_AVX2=ON)
 #if !RANSHAW_NO_AVX2
 void ran_scalarmult_avx2(ran_jacobian *r, const unsigned char scalar[32], const ran_jacobian *p);
@@ -78,9 +84,11 @@ void shaw_msm_vartime_avx2(shaw_jacobian *result, const unsigned char *scalars, 
 void ran_scalarmult_ifma(ran_jacobian *r, const unsigned char scalar[32], const ran_jacobian *p);
 void ran_scalarmult_vartime_ifma(ran_jacobian *r, const unsigned char scalar[32], const ran_jacobian *p);
 void ran_msm_vartime_ifma(ran_jacobian *result, const unsigned char *scalars, const ran_jacobian *points, size_t n);
+void ran_msm_ct_ifma(ran_jacobian *result, const unsigned char *scalars, const ran_jacobian *points, size_t n);
 void shaw_scalarmult_ifma(shaw_jacobian *r, const unsigned char scalar[32], const shaw_jacobian *p);
 void shaw_scalarmult_vartime_ifma(shaw_jacobian *r, const unsigned char scalar[32], const shaw_jacobian *p);
 void shaw_msm_vartime_ifma(shaw_jacobian *result, const unsigned char *scalars, const shaw_jacobian *points, size_t n);
+void shaw_msm_ct_ifma(shaw_jacobian *result, const unsigned char *scalars, const shaw_jacobian *points, size_t n);
 #endif
 
 // ── File-local dispatch table — initialized to x64 baseline ──
@@ -88,9 +96,11 @@ static ranshaw_dispatch_table dispatch_table = {
     ran_scalarmult_x64,
     ran_scalarmult_vartime_x64,
     ran_msm_vartime_x64,
+    ran_msm_ct_scalar,
     shaw_scalarmult_x64,
     shaw_scalarmult_vartime_x64,
     shaw_msm_vartime_x64,
+    shaw_msm_ct_scalar,
 };
 
 const ranshaw_dispatch_table &ranshaw_get_dispatch()
@@ -109,14 +119,19 @@ void ranshaw_init(void)
     bool expected = false;
     if (init_done.compare_exchange_strong(expected, true))
     {
-        // Build complete table in a local, then publish atomically
+        // Build complete table in a local, then publish atomically.
+        // CT MSM slots default to the backend-agnostic scalar implementation;
+        // the IFMA branch below upgrades them on capable hardware. AVX2 has no
+        // lane-parallel CT add, so its branch leaves CT slots at scalar.
         ranshaw_dispatch_table local = {
             ran_scalarmult_x64,
             ran_scalarmult_vartime_x64,
             ran_msm_vartime_x64,
+            ran_msm_ct_scalar,
             shaw_scalarmult_x64,
             shaw_scalarmult_vartime_x64,
             shaw_msm_vartime_x64,
+            shaw_msm_ct_scalar,
         };
 
         const uint32_t features = ranshaw_cpu_features();
@@ -128,14 +143,18 @@ void ranshaw_init(void)
             local.ran_scalarmult = ran_scalarmult_ifma;
             local.ran_scalarmult_vartime = ran_scalarmult_vartime_ifma;
             local.ran_msm_vartime = ran_msm_vartime_ifma;
+            local.ran_msm_ct = ran_msm_ct_ifma;
             local.shaw_scalarmult = shaw_scalarmult_ifma;
             local.shaw_scalarmult_vartime = shaw_scalarmult_vartime_ifma;
             local.shaw_msm_vartime = shaw_msm_vartime_ifma;
+            local.shaw_msm_ct = shaw_msm_ct_ifma;
         }
         else
 #endif
         {
-            // AVX2 available for all 6 slots.
+            // AVX2 available for the 6 VT/scalarmult slots. CT MSM has no
+            // AVX2-specific variant (no lane-parallel RCB), so it stays at
+            // the scalar default set above.
 #if !RANSHAW_NO_AVX2
             if (features & RANSHAW_CPU_AVX2)
             {
@@ -156,6 +175,65 @@ void ranshaw_init(void)
         dispatch_table = local;
         std::atomic_thread_fence(std::memory_order_release);
     }
+}
+
+// ── Force a specific backend (for benchmarking / diagnostic runs) ──
+int ranshaw_force_backend(const char *name)
+{
+    if (name == nullptr)
+        return -1;
+
+    ranshaw_dispatch_table local = {
+        ran_scalarmult_x64,
+        ran_scalarmult_vartime_x64,
+        ran_msm_vartime_x64,
+        ran_msm_ct_scalar,
+        shaw_scalarmult_x64,
+        shaw_scalarmult_vartime_x64,
+        shaw_msm_vartime_x64,
+        shaw_msm_ct_scalar,
+    };
+
+    if (std::strcmp(name, "x64") == 0)
+    {
+        // Already initialized to x64 above.
+    }
+    else if (std::strcmp(name, "avx2") == 0)
+    {
+#if !RANSHAW_NO_AVX2
+        local.ran_scalarmult = ran_scalarmult_avx2;
+        local.ran_scalarmult_vartime = ran_scalarmult_vartime_avx2;
+        local.ran_msm_vartime = ran_msm_vartime_avx2;
+        local.shaw_scalarmult = shaw_scalarmult_avx2;
+        local.shaw_scalarmult_vartime = shaw_scalarmult_vartime_avx2;
+        local.shaw_msm_vartime = shaw_msm_vartime_avx2;
+#else
+        return -1;
+#endif
+    }
+    else if (std::strcmp(name, "ifma") == 0)
+    {
+#if !RANSHAW_NO_AVX512
+        local.ran_scalarmult = ran_scalarmult_ifma;
+        local.ran_scalarmult_vartime = ran_scalarmult_vartime_ifma;
+        local.ran_msm_vartime = ran_msm_vartime_ifma;
+        local.ran_msm_ct = ran_msm_ct_ifma;
+        local.shaw_scalarmult = shaw_scalarmult_ifma;
+        local.shaw_scalarmult_vartime = shaw_scalarmult_vartime_ifma;
+        local.shaw_msm_vartime = shaw_msm_vartime_ifma;
+        local.shaw_msm_ct = shaw_msm_ct_ifma;
+#else
+        return -1;
+#endif
+    }
+    else
+    {
+        return -1;
+    }
+
+    dispatch_table = local;
+    std::atomic_thread_fence(std::memory_order_release);
+    return 0;
 }
 
 // ── Auto-tune implementation ──
@@ -267,14 +345,20 @@ void ranshaw_autotune(void)
 
         const uint32_t features = ranshaw_cpu_features();
 
-        // Build complete table in a local, then publish atomically
+        // Build complete table in a local, then publish atomically. CT MSM
+        // slots start at the scalar backend; the autotune block below may
+        // upgrade them to ran_msm_ct_ifma / shaw_msm_ct_ifma if that is
+        // faster on this host. Autotune considers CT candidates only for
+        // the CT slots (no VT candidates in the CT race).
         ranshaw_dispatch_table local = {
             ran_scalarmult_x64,
             ran_scalarmult_vartime_x64,
             ran_msm_vartime_x64,
+            ran_msm_ct_scalar,
             shaw_scalarmult_x64,
             shaw_scalarmult_vartime_x64,
             shaw_msm_vartime_x64,
+            shaw_msm_ct_scalar,
         };
 
         // Set up Ran test point (generator)
@@ -366,7 +450,7 @@ void ranshaw_autotune(void)
 
         // ── ran_msm_vartime ──
         {
-            constexpr size_t MSM_N = 16;
+            constexpr size_t MSM_N = 64;
             unsigned char msm_scalars[MSM_N * 32];
             ran_jacobian msm_points[MSM_N];
             for (size_t i = 0; i < MSM_N; i++)
@@ -478,7 +562,7 @@ void ranshaw_autotune(void)
 
         // ── shaw_msm_vartime ──
         {
-            constexpr size_t MSM_N = 16;
+            constexpr size_t MSM_N = 64;
             unsigned char msm_scalars[MSM_N * 32];
             shaw_jacobian msm_points[MSM_N];
             for (size_t i = 0; i < MSM_N; i++)
@@ -514,6 +598,72 @@ void ranshaw_autotune(void)
             }
 #endif
             local.shaw_msm_vartime = best_fn;
+
+            ranshaw_secure_erase(msm_scalars, sizeof(msm_scalars));
+        }
+
+        // ── ran_msm_ct ──
+        // CT slot benches CT candidates only (scalar vs IFMA). A VT
+        // candidate would win on timing because it is faster by design,
+        // but slotting it into the CT slot would defeat the whole point
+        // of the constant-time dual-path API. Keep the CT slot pure.
+        {
+            constexpr size_t MSM_N = 64;
+            unsigned char msm_scalars[MSM_N * 32];
+            ran_jacobian msm_points[MSM_N];
+            for (size_t i = 0; i < MSM_N; i++)
+            {
+                for (size_t j = 0; j < 32; j++)
+                    msm_scalars[i * 32 + j] = static_cast<unsigned char>(j + i + 1);
+                msm_points[i] = h_point;
+            }
+
+            int64_t best_time = bench_msm(ran_msm_ct_scalar, msm_scalars, msm_points, MSM_N);
+            decltype(local.ran_msm_ct) best_fn = ran_msm_ct_scalar;
+
+#if !RANSHAW_NO_AVX512
+            if (features & RANSHAW_CPU_AVX512IFMA)
+            {
+                auto t = bench_msm(ran_msm_ct_ifma, msm_scalars, msm_points, MSM_N);
+                if (t < best_time)
+                {
+                    best_time = t;
+                    best_fn = ran_msm_ct_ifma;
+                }
+            }
+#endif
+            local.ran_msm_ct = best_fn;
+
+            ranshaw_secure_erase(msm_scalars, sizeof(msm_scalars));
+        }
+
+        // ── shaw_msm_ct ──
+        {
+            constexpr size_t MSM_N = 64;
+            unsigned char msm_scalars[MSM_N * 32];
+            shaw_jacobian msm_points[MSM_N];
+            for (size_t i = 0; i < MSM_N; i++)
+            {
+                for (size_t j = 0; j < 32; j++)
+                    msm_scalars[i * 32 + j] = static_cast<unsigned char>(j + i + 1);
+                msm_points[i] = s_point;
+            }
+
+            int64_t best_time = bench_shaw_msm(shaw_msm_ct_scalar, msm_scalars, msm_points, MSM_N);
+            decltype(local.shaw_msm_ct) best_fn = shaw_msm_ct_scalar;
+
+#if !RANSHAW_NO_AVX512
+            if (features & RANSHAW_CPU_AVX512IFMA)
+            {
+                auto t = bench_shaw_msm(shaw_msm_ct_ifma, msm_scalars, msm_points, MSM_N);
+                if (t < best_time)
+                {
+                    best_time = t;
+                    best_fn = shaw_msm_ct_ifma;
+                }
+            }
+#endif
+            local.shaw_msm_ct = best_fn;
 
             ranshaw_secure_erase(msm_scalars, sizeof(msm_scalars));
         }

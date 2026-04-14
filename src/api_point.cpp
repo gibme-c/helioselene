@@ -95,6 +95,7 @@ namespace ranshaw
         return r;
     }
 
+    /* CT default: signed-4 Straus over RCB, safe with secret scalars. */
     RanPoint RanPoint::multi_scalar_mul(const RanScalar *scalars, const RanPoint *points, size_t n)
     {
         if (n == 0 || !scalars || !points || n > SIZE_MAX / 32)
@@ -102,7 +103,27 @@ namespace ranshaw
 
         std::vector<unsigned char> scalar_bytes(32 * n);
         std::vector<ran_jacobian> jac_points(n);
+        for (size_t i = 0; i < n; i++)
+        {
+            auto sb = scalars[i].to_bytes();
+            std::memcpy(scalar_bytes.data() + 32 * i, sb.data(), 32);
+            ran_copy(&jac_points[i], &points[i].raw());
+        }
 
+        RanPoint r;
+        ran_msm_ct(&r.jac_, scalar_bytes.data(), jac_points.data(), n);
+        ranshaw_secure_erase(scalar_bytes.data(), scalar_bytes.size());
+        return r;
+    }
+
+    /* Variable-time variant; callers must guarantee all scalars are public. */
+    RanPoint RanPoint::multi_scalar_mul_vartime(const RanScalar *scalars, const RanPoint *points, size_t n)
+    {
+        if (n == 0 || !scalars || !points || n > SIZE_MAX / 32)
+            return RanPoint();
+
+        std::vector<unsigned char> scalar_bytes(32 * n);
+        std::vector<ran_jacobian> jac_points(n);
         for (size_t i = 0; i < n; i++)
         {
             auto sb = scalars[i].to_bytes();
@@ -123,8 +144,7 @@ namespace ranshaw
         const RanPoint *generators,
         size_t n)
     {
-        /* n == 0 is a valid degenerate case: empty sum, so the commitment
-         * is just blinding * H. Null pointers with non-zero n are rejected. */
+        /* n == 0: empty sum, commitment is blinding * H. */
         if (n == 0)
             return H.scalar_mul(blinding);
         if (!values || !generators || n > SIZE_MAX / 32)
@@ -133,7 +153,6 @@ namespace ranshaw
         auto blind_bytes = blinding.to_bytes();
         std::vector<unsigned char> val_bytes(32 * n);
         std::vector<ran_jacobian> gen_points(n);
-
         for (size_t i = 0; i < n; i++)
         {
             auto vb = values[i].to_bytes();
@@ -143,6 +162,35 @@ namespace ranshaw
 
         RanPoint r;
         ran_pedersen_commit(&r.jac_, blind_bytes.data(), &H.raw(), val_bytes.data(), gen_points.data(), n);
+        ranshaw_secure_erase(blind_bytes.data(), 32);
+        ranshaw_secure_erase(val_bytes.data(), val_bytes.size());
+        return r;
+    }
+
+    RanPoint RanPoint::pedersen_commit_vartime(
+        const RanScalar &blinding,
+        const RanPoint &H,
+        const RanScalar *values,
+        const RanPoint *generators,
+        size_t n)
+    {
+        if (n == 0)
+            return H.scalar_mul_vartime(blinding);
+        if (!values || !generators || n > SIZE_MAX / 32)
+            return RanPoint();
+
+        auto blind_bytes = blinding.to_bytes();
+        std::vector<unsigned char> val_bytes(32 * n);
+        std::vector<ran_jacobian> gen_points(n);
+        for (size_t i = 0; i < n; i++)
+        {
+            auto vb = values[i].to_bytes();
+            std::memcpy(val_bytes.data() + 32 * i, vb.data(), 32);
+            ran_copy(&gen_points[i], &generators[i].raw());
+        }
+
+        RanPoint r;
+        ran_pedersen_commit_vartime(&r.jac_, blind_bytes.data(), &H.raw(), val_bytes.data(), gen_points.data(), n);
         ranshaw_secure_erase(blind_bytes.data(), 32);
         ranshaw_secure_erase(val_bytes.data(), val_bytes.size());
         return r;
@@ -211,7 +259,26 @@ namespace ranshaw
 
         std::vector<unsigned char> scalar_bytes(32 * n);
         std::vector<shaw_jacobian> jac_points(n);
+        for (size_t i = 0; i < n; i++)
+        {
+            auto sb = scalars[i].to_bytes();
+            std::memcpy(scalar_bytes.data() + 32 * i, sb.data(), 32);
+            shaw_copy(&jac_points[i], &points[i].raw());
+        }
 
+        ShawPoint r;
+        shaw_msm_ct(&r.jac_, scalar_bytes.data(), jac_points.data(), n);
+        ranshaw_secure_erase(scalar_bytes.data(), scalar_bytes.size());
+        return r;
+    }
+
+    ShawPoint ShawPoint::multi_scalar_mul_vartime(const ShawScalar *scalars, const ShawPoint *points, size_t n)
+    {
+        if (n == 0 || !scalars || !points || n > SIZE_MAX / 32)
+            return ShawPoint();
+
+        std::vector<unsigned char> scalar_bytes(32 * n);
+        std::vector<shaw_jacobian> jac_points(n);
         for (size_t i = 0; i < n; i++)
         {
             auto sb = scalars[i].to_bytes();
@@ -232,8 +299,6 @@ namespace ranshaw
         const ShawPoint *generators,
         size_t n)
     {
-        /* n == 0 is a valid degenerate case: empty sum, so the commitment
-         * is just blinding * H. Null pointers with non-zero n are rejected. */
         if (n == 0)
             return H.scalar_mul(blinding);
         if (!values || !generators || n > SIZE_MAX / 32)
@@ -242,7 +307,6 @@ namespace ranshaw
         auto blind_bytes = blinding.to_bytes();
         std::vector<unsigned char> val_bytes(32 * n);
         std::vector<shaw_jacobian> gen_points(n);
-
         for (size_t i = 0; i < n; i++)
         {
             auto vb = values[i].to_bytes();
@@ -252,6 +316,35 @@ namespace ranshaw
 
         ShawPoint r;
         shaw_pedersen_commit(&r.jac_, blind_bytes.data(), &H.raw(), val_bytes.data(), gen_points.data(), n);
+        ranshaw_secure_erase(blind_bytes.data(), 32);
+        ranshaw_secure_erase(val_bytes.data(), val_bytes.size());
+        return r;
+    }
+
+    ShawPoint ShawPoint::pedersen_commit_vartime(
+        const ShawScalar &blinding,
+        const ShawPoint &H,
+        const ShawScalar *values,
+        const ShawPoint *generators,
+        size_t n)
+    {
+        if (n == 0)
+            return H.scalar_mul_vartime(blinding);
+        if (!values || !generators || n > SIZE_MAX / 32)
+            return ShawPoint();
+
+        auto blind_bytes = blinding.to_bytes();
+        std::vector<unsigned char> val_bytes(32 * n);
+        std::vector<shaw_jacobian> gen_points(n);
+        for (size_t i = 0; i < n; i++)
+        {
+            auto vb = values[i].to_bytes();
+            std::memcpy(val_bytes.data() + 32 * i, vb.data(), 32);
+            shaw_copy(&gen_points[i], &generators[i].raw());
+        }
+
+        ShawPoint r;
+        shaw_pedersen_commit_vartime(&r.jac_, blind_bytes.data(), &H.raw(), val_bytes.data(), gen_points.data(), n);
         ranshaw_secure_erase(blind_bytes.data(), 32);
         ranshaw_secure_erase(val_bytes.data(), val_bytes.size());
         return r;

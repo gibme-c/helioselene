@@ -127,7 +127,11 @@ static inline void ran_scalar_reduce_wide(fq_fe out, const unsigned char wide[64
      * 2^256 mod q = 2*gamma.
      * TWO_GAMMA_51 / (2*GAMMA_25) are the radix representations of 2*gamma.
      */
-#if RANSHAW_PLATFORM_64BIT
+#if RANSHAW_FQ_NATIVE64
+    static const fq_fe TWO_TO_256_MOD_Q = {TWO_GAMMA_64[0], TWO_GAMMA_64[1], TWO_GAMMA_64[2], TWO_GAMMA_64[3]};
+    static const fq_fe GAMMA_FE = {GAMMA_64[0], GAMMA_64[1], GAMMA_64[2], GAMMA_64[3]};
+    static const fq_fe FQ_ZERO_FE = {0, 0, 0, 0};
+#elif RANSHAW_PLATFORM_64BIT
     static const fq_fe TWO_TO_256_MOD_Q = {TWO_GAMMA_51[0], TWO_GAMMA_51[1], TWO_GAMMA_51[2], 0, 0};
     static const fq_fe GAMMA_FE = {GAMMA_51[0], GAMMA_51[1], GAMMA_51[2], 0, 0};
     static const fq_fe FQ_ZERO_FE = {0, 0, 0, 0, 0};

@@ -64,7 +64,22 @@ Copy limb arrays from the Phase 1 output into these files. The output labels mat
 | `TWO_GAMMA_51_LIMBS` | Same |
 | `TWO_GAMMA_64_LIMBS` | Same |
 
-If `TWO_GAMMA_64_LIMBS` changes, verify `fq/include/x64/fq51_inline.h` has a `#if` branch for the new count. Missing branches produce a `#error` at compile time.
+**If `TWO_GAMMA_64_LIMBS` or `GAMMA_51_LIMBS` changes, read this carefully:**
+
+The inline asm in `fq/include/x64/fq51_inline.h` (four asm bodies: `fq64_add`, `fq64_sub`, `fq64_mul`, `fq64_sq`) is hand-derived for `TWO_GAMMA_64_LIMBS == 3` (gamma ≤ 128 bits). The 5×51 fold chains (`fq51_mul_inline`, `fq51_sq_inline`) are hand-unrolled for `GAMMA_51_LIMBS == 3`.
+
+Two `static_assert`s in `fq/include/x64/fq51.h` enforce this at compile time. Any swap that changes these limb counts will fail to compile with a clear error pointing back to fq51.h, where the asserts live.
+
+- **Swap to SMALLER gamma (e.g. `TWO_GAMMA_64_LIMBS < 3`)**: the existing 3-limb asm is mathematically correct as-is — unused gamma limbs contribute zero to the convolution. Performance is slightly suboptimal (a few unused MULX cycles per reduction). Tightening for the new smaller gamma is a **subtractive edit**: remove the `mulxq %[G2], ...` block from each fold iteration and adjust the final CT correction. Update the static_asserts.
+
+- **Swap to LARGER gamma (e.g. `TWO_GAMMA_64_LIMBS > 3`)**: the existing asm is INCORRECT for the new curve — the fold loop has only 3 iterations and cannot absorb a wider overflow. You must re-derive the asm from first principles:
+  1. Add new `mulxq %[G3], ...` blocks to every fold iteration.
+  2. Add a fourth fold iteration to absorb the widened overflow.
+  3. Re-verify carry-propagation between all fold iterations (see commit `795ccd7` for the pattern: preserve each iteration's final CF into the next overflow reg before the next iteration's fresh `addq` overwrites CF; accumulate rather than zero in the next iter's tail).
+  4. Run a fold-bound probe (130M+ random + adversarial inputs) and a differential-fuzz oracle against the C reference `fq64_mul_c` to empirically validate bounds before shipping. See the commit message of `795ccd7` for how this was done on the current curve.
+  5. Update the static_asserts.
+
+The C reference `fq64_mul_c` / `fq64_sub` / `fq64_add` (the non-ADX fallbacks in the same header) handle any limb count correctly because their loops are parameterized by the macros. Only the asm and the hand-unrolled 5×51 fold paths need re-derivation.
 
 ### `fq/include/portable/fq25.h`
 

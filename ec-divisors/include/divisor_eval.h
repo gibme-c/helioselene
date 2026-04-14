@@ -38,6 +38,10 @@
 #include "ran.h"
 #include "shaw.h"
 
+#if RANSHAW_PLATFORM_64BIT
+#include "x64/fq51.h" /* fq64_expand_5x51 / fq51_normalize5_pack4 for the 4x64<->5x51 eval-domain boundary */
+#endif
+
 #include <cstddef>
 
 static const size_t EVAL_DOMAIN_SIZE = 256;
@@ -84,16 +88,35 @@ static inline void fp_evals_set(fp_evals *ev, size_t i, const fp_fe val)
         ev->limbs[j][i] = val[j];
 }
 
+/* The fq eval-domain SoA stays in radix-2^51 (FQ_EVALS_NLIMBS limbs) so the
+ * scalar/AVX2/IFMA eval-domain field ops are unchanged. On 64-bit the native
+ * fq_fe is radix-2^64 (4 limbs), so get/set convert at this boundary; copying
+ * fq_fe limbs straight into the 5-limb SoA would both misread the radix and
+ * read/write fq_fe[4] out of bounds. */
 static inline void fq_evals_get(fq_fe out, const fq_evals *ev, size_t i)
 {
+#if RANSHAW_FQ_NATIVE64
+    uint64_t t5[5];
+    for (int j = 0; j < FQ_EVALS_NLIMBS; j++)
+        t5[j] = ev->limbs[j][i];
+    fq51_normalize5_pack4(out, t5);
+#else
     for (int j = 0; j < FQ_EVALS_NLIMBS; j++)
         out[j] = ev->limbs[j][i];
+#endif
 }
 
 static inline void fq_evals_set(fq_evals *ev, size_t i, const fq_fe val)
 {
+#if RANSHAW_FQ_NATIVE64
+    uint64_t t5[5];
+    fq64_expand_5x51(t5, val);
+    for (int j = 0; j < FQ_EVALS_NLIMBS; j++)
+        ev->limbs[j][i] = t5[j];
+#else
     for (int j = 0; j < FQ_EVALS_NLIMBS; j++)
         ev->limbs[j][i] = val[j];
+#endif
 }
 
 /**

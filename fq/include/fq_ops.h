@@ -40,14 +40,35 @@
 
 #include <cstring>
 
-#if RANSHAW_PLATFORM_64BIT
+#if RANSHAW_FQ_NATIVE64
 #include "x64/fq51.h"
+#include "x64/fq51_inline.h"
 
 /*
- * Addition in radix-2^51: 5 independent limb adds, no carry propagation.
- * Lazy reduction — identical to fp_add. Limbs may exceed 51 bits; mul/sq
- * handles the extra width (column accumulation has >21 bits headroom).
+ * Native radix-2^64 add/sub: thin wrappers over the fq64_* primitives, which
+ * keep the result < 2^256 with Crandall correction (2^256 ≡ 2*gamma mod q).
+ * No 5x51<->4x64 pack/unpack: fq_fe is already 4x64.
  */
+static inline void fq_add(fq_fe h, const fq_fe f, const fq_fe g)
+{
+    fq64_add(h, f, g);
+}
+
+static inline void fq_sub(fq_fe h, const fq_fe f, const fq_fe g)
+{
+    fq64_sub(h, f, g);
+}
+
+static inline void fq_neg(fq_fe h, const fq_fe f)
+{
+    static const uint64_t FQ64_ZERO[4] = {0, 0, 0, 0};
+    fq64_sub(h, FQ64_ZERO, f);
+}
+
+#elif RANSHAW_PLATFORM_64BIT
+#include "x64/fq51.h"
+
+/* Non-native 64-bit (MSVC / ARM64 / non-BMI2): original radix-2^51 ops. */
 static inline void fq_add(fq_fe h, const fq_fe f, const fq_fe g)
 {
     h[0] = f[0] + g[0];
@@ -57,13 +78,6 @@ static inline void fq_add(fq_fe h, const fq_fe f, const fq_fe g)
     h[4] = f[4] + g[4];
 }
 
-/*
- * Subtraction in radix-2^51: add 128*q bias, subtract, carry chain with
- * gamma fold of top carry. Uses 128q bias (not 8q or 4q) because q's lower
- * limbs are << 2^51 (gamma ≈ 2^128), so even 8q limbs can fall below 2^53.
- * The 128q bias ensures all limbs exceed 2^53, handling 53-bit inputs from
- * chained adds.
- */
 static inline void fq_sub(fq_fe h, const fq_fe f, const fq_fe g)
 {
     uint64_t c;
@@ -82,10 +96,8 @@ static inline void fq_sub(fq_fe h, const fq_fe f, const fq_fe g)
     h[4] = f[4] + BIAS_Q_51[4] - g[4] + c;
     c = h[4] >> 51;
     h[4] &= FQ51_MASK;
-    /* Gamma fold: carry * 2^255 ≡ carry * gamma (mod q) */
     for (int j = 0; j < GAMMA_51_LIMBS; j++)
         h[j] += c * GAMMA_51[j];
-    /* Re-carry all limbs after gamma fold (through limb 3→4) */
     for (int j = 0; j < GAMMA_51_LIMBS + 1; j++)
     {
         uint64_t cc = h[j] >> 51;
@@ -237,8 +249,10 @@ static inline void fq_1(fq_fe h)
     h[1] = 0;
     h[2] = 0;
     h[3] = 0;
-#if RANSHAW_PLATFORM_64BIT
-    h[4] = 0;
+#if RANSHAW_FQ_NATIVE64
+    /* fq_fe is uint64_t[4]; limbs 0..3 fully specify the value. */
+#elif RANSHAW_PLATFORM_64BIT
+    h[4] = 0; /* radix-2^51 uint64_t[5] */
 #else
     h[4] = 0;
     h[5] = 0;

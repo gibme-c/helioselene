@@ -27,41 +27,46 @@
 #include "x64/fp_invert.h"
 
 #include "ranshaw_secure_erase.h"
-#include "x64/fp51_chain.h"
+#include "x64/fp_divsteps.h"
 
+/*
+ * Compute z^(-1) mod p via Bernstein-Yang safegcd/divsteps.
+ *
+ * Replaces the Fermat exponentiation (z^(p-2)) addition chain (254 sq + 11 mul)
+ * with ~12 rounds of 62 divsteps each, using cheap 256-bit integer ops instead
+ * of field multiplications with Crandall reduction.
+ *
+ * Constant-time: fixed 12 x 62 = 744 iterations (>= 738 bound for 255-bit prime).
+ */
 void fp_invert_x64(fp_fe out, const fp_fe z)
 {
-    fp_fe t0;
-    fp_fe t1;
-    fp_fe t2;
-    fp_fe t3;
+    /* Initialize: f = p (modulus), g = z (input), d = 0, e = 1, delta = 1 */
+    fp_signed62 f, g, d, e;
+    f = FP_MODULUS_S62;
+    fp_fe_to_signed62(&g, z);
+    for (int i = 0; i < 5; i++)
+        d.v[i] = 0;
+    e.v[0] = 1;
+    for (int i = 1; i < 5; i++)
+        e.v[i] = 0;
 
-    fp51_chain_sq(t0, z);
-    fp51_chain_sq(t1, t0);
-    fp51_chain_sq(t1, t1);
-    fp51_chain_mul(t1, z, t1);
-    fp51_chain_mul(t0, t0, t1);
-    fp51_chain_sq(t2, t0);
-    fp51_chain_mul(t1, t1, t2);
-    fp51_chain_sqn(t2, t1, 5);
-    fp51_chain_mul(t1, t2, t1);
-    fp51_chain_sqn(t2, t1, 10);
-    fp51_chain_mul(t2, t2, t1);
-    fp51_chain_sqn(t3, t2, 20);
-    fp51_chain_mul(t2, t3, t2);
-    fp51_chain_sqn(t2, t2, 10);
-    fp51_chain_mul(t1, t2, t1);
-    fp51_chain_sqn(t2, t1, 50);
-    fp51_chain_mul(t2, t2, t1);
-    fp51_chain_sqn(t3, t2, 100);
-    fp51_chain_mul(t2, t3, t2);
-    fp51_chain_sqn(t2, t2, 50);
-    fp51_chain_mul(t1, t2, t1);
-    fp51_chain_sqn(t1, t1, 5);
-    fp51_chain_mul(out, t1, t0);
+    int64_t delta = 1;
 
-    ranshaw_secure_erase(t0, sizeof(fp_fe));
-    ranshaw_secure_erase(t1, sizeof(fp_fe));
-    ranshaw_secure_erase(t2, sizeof(fp_fe));
-    ranshaw_secure_erase(t3, sizeof(fp_fe));
+    /* 12 outer iterations x 62 divsteps = 744 total (>= 738 needed for 255-bit prime) */
+    for (int i = 0; i < 12; i++)
+    {
+        fp_trans2x2 t;
+        delta = fp_divsteps_62(delta, (uint64_t)f.v[0], (uint64_t)g.v[0], &t);
+        fp_update_fg(&f, &g, &t);
+        fp_update_de(&d, &e, &t);
+    }
+
+    /* Normalize: conditionally negate d based on sign of f, reduce to [0, p) */
+    fp_divsteps_normalize(out, &d, &f);
+
+    /* Secure erase all temporaries */
+    ranshaw_secure_erase(&f, sizeof(f));
+    ranshaw_secure_erase(&g, sizeof(g));
+    ranshaw_secure_erase(&d, sizeof(d));
+    ranshaw_secure_erase(&e, sizeof(e));
 }

@@ -36,38 +36,31 @@
 
 #include "ranshaw_secure_erase.h"
 #include "shaw.h"
+#include "shaw_msm_ct.h"
 #include "shaw_msm_vartime.h"
 #include "shaw_ops.h"
 
 #include <cstring>
 #include <vector>
 
-/**
- * Compute a Pedersen vector commitment: C = blinding*H + sum(values[i]*generators[i]).
- *
- * @param result     Output: the commitment point (Jacobian)
- * @param blinding   32-byte scalar (blinding factor r)
- * @param H          Blinding generator point (Jacobian)
- * @param values     Array of n 32-byte scalars
- * @param generators Array of n generator points (Jacobian)
- * @param n          Number of value/generator pairs
- */
-static inline void shaw_pedersen_commit(
+/* Shaw mirror of ran_pedersen.h; see that file for the CT/vartime API
+ * policy commentary. */
+
+static inline void shaw_pedersen_commit_impl_(
     shaw_jacobian *result,
     const unsigned char *blinding,
     const shaw_jacobian *H,
     const unsigned char *values,
     const shaw_jacobian *generators,
-    size_t n)
+    size_t n,
+    void (*msm_fn)(shaw_jacobian *, const unsigned char *, const shaw_jacobian *, size_t))
 {
-    /* Guard against overflow in 32 * (n + 1) */
     if (n > SIZE_MAX / 32 - 1)
     {
         shaw_identity(result);
         return;
     }
 
-    /* Build combined arrays: [blinding, values[0..n-1]] and [H, generators[0..n-1]] */
     std::vector<unsigned char> all_scalars(32 * (n + 1));
     std::vector<shaw_jacobian> all_points(n + 1);
 
@@ -81,8 +74,34 @@ static inline void shaw_pedersen_commit(
             shaw_copy(&all_points[i + 1], &generators[i]);
     }
 
-    shaw_msm_vartime(result, all_scalars.data(), all_points.data(), n + 1);
+    msm_fn(result, all_scalars.data(), all_points.data(), n + 1);
     ranshaw_secure_erase(all_scalars.data(), all_scalars.size());
+}
+
+static inline void shaw_pedersen_commit(
+    shaw_jacobian *result,
+    const unsigned char *blinding,
+    const shaw_jacobian *H,
+    const unsigned char *values,
+    const shaw_jacobian *generators,
+    size_t n)
+{
+    auto ct_trampoline = [](shaw_jacobian *r, const unsigned char *s, const shaw_jacobian *p, size_t m)
+    { shaw_msm_ct(r, s, p, m); };
+    shaw_pedersen_commit_impl_(result, blinding, H, values, generators, n, ct_trampoline);
+}
+
+static inline void shaw_pedersen_commit_vartime(
+    shaw_jacobian *result,
+    const unsigned char *blinding,
+    const shaw_jacobian *H,
+    const unsigned char *values,
+    const shaw_jacobian *generators,
+    size_t n)
+{
+    auto vt_trampoline = [](shaw_jacobian *r, const unsigned char *s, const shaw_jacobian *p, size_t m)
+    { shaw_msm_vartime(r, s, p, m); };
+    shaw_pedersen_commit_impl_(result, blinding, H, values, generators, n, vt_trampoline);
 }
 
 #endif // RANSHAW_SHAW_PEDERSEN_H

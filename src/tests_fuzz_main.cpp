@@ -105,6 +105,12 @@ int main(int argc, char *argv[])
     fuzz_msm_random();
     fuzz_msm_sparse();
     fuzz_map_to_curve();
+    fuzz_is_qr();
+    fuzz_fq_mul_diff();
+    fuzz_fq_invert_diff();
+    fuzz_fp_invert_diff();
+    fuzz_msm_vartime_packed_diff();
+    fuzz_scalarmult_vartime_packed_diff();
     fuzz_wei25519_bridge();
     fuzz_pedersen();
     fuzz_batch_affine();

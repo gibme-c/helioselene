@@ -43,7 +43,9 @@ static inline void fq_cmov(fq_fe f, const fq_fe g, unsigned int b)
     f[1] ^= mask & (f[1] ^ g[1]);
     f[2] ^= mask & (f[2] ^ g[2]);
     f[3] ^= mask & (f[3] ^ g[3]);
-    f[4] ^= mask & (f[4] ^ g[4]);
+#if !RANSHAW_FQ_NATIVE64
+    f[4] ^= mask & (f[4] ^ g[4]); /* radix-2^51 uint64_t[5] */
+#endif
 }
 #else
 static inline void fq_cmov(fq_fe f, const fq_fe g, unsigned int b)

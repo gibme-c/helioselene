@@ -44,6 +44,10 @@ void test_fp_extended();
 // ── field_fq.cpp ──
 void test_fq();
 void test_fq_extended();
+void test_fq_is_qr();
+
+// ── field_fq51x2_ifma.cpp (x64 IFMA 2-way primitives) ──
+void test_fq51x2_ifma();
 
 // ── point_ran.cpp ──
 void test_ran_points();
@@ -69,6 +73,12 @@ void test_ran_msm();
 void test_shaw_msm();
 void test_msm_extended();
 void test_msm_fixed();
+
+// ── complete_add.cpp ──
+void test_complete_add();
+
+// ── msm_ct.cpp ──
+void test_msm_ct_cross_check();
 
 // ── sswu.cpp ──
 void test_ran_sswu();

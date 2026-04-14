@@ -26,6 +26,9 @@
 
 #include "x64/fq_sqrt.h"
 
+#include "fq_cmov.h"
+#include "fq_ops.h"
+#include "fq_tobytes.h"
 #include "ranshaw_secure_erase.h"
 #include "x64/fq51_chain.h"
 
@@ -42,7 +45,7 @@
  * Total: 252 sq + 50 mul (vs ~252 sq + 212 mul for naive bit-scan)
  */
 
-void fq_sqrt_x64(fq_fe out, const fq_fe z)
+int fq_sqrt_x64(fq_fe out, const fq_fe z)
 {
     /* Precomputed table entries z^2 through z^15 */
     fq_fe zt2, zt3, zt4, zt5, zt6, zt7, zt8, zt9, zt10, zt11, zt12, zt13, zt14, zt15;
@@ -164,12 +167,29 @@ void fq_sqrt_x64(fq_fe out, const fq_fe z)
     fq51_chain_sqn(acc, acc, 4);
     fq51_chain_mul(acc, acc, zt8); /* 8 */
 
-    out[0] = acc[0];
-    out[1] = acc[1];
-    out[2] = acc[2];
-    out[3] = acc[3];
-    out[4] = acc[4];
+    /* Legendre check: acc^2 must equal z for acc to be a principal sqrt.
+     * Since q ≡ 3 (mod 4), there is no sqrt(-1) in F_q, so the non-residue
+     * case yields acc with acc^2 ≡ -z; only the acc^2 == z test is needed. */
+    fq_fe check_sq, check_diff;
+    fq51_chain_sq(check_sq, acc);
+    fq_sub(check_diff, check_sq, z);
+    unsigned char check_bytes[32];
+    fq_tobytes(check_bytes, check_diff);
+    uint32_t byte_or = 0;
+    for (int i = 0; i < 32; i++)
+        byte_or |= check_bytes[i];
+    unsigned int is_qr = ((uint32_t)(byte_or - 1u)) >> 31; /* 1 if zero (QR), 0 otherwise */
 
+    fq_copy(out, acc);
+
+    /* If not QR, CT-overwrite output with zero */
+    fq_fe zero;
+    fq_0(zero);
+    fq_cmov(out, zero, 1u - is_qr);
+
+    ranshaw_secure_erase(check_sq, sizeof(fq_fe));
+    ranshaw_secure_erase(check_diff, sizeof(fq_fe));
+    ranshaw_secure_erase(check_bytes, sizeof(check_bytes));
     ranshaw_secure_erase(zt2, sizeof(fq_fe));
     ranshaw_secure_erase(zt3, sizeof(fq_fe));
     ranshaw_secure_erase(zt4, sizeof(fq_fe));
@@ -190,4 +210,6 @@ void fq_sqrt_x64(fq_fe out, const fq_fe z)
     ranshaw_secure_erase(x50, sizeof(fq_fe));
     ranshaw_secure_erase(x100, sizeof(fq_fe));
     ranshaw_secure_erase(acc, sizeof(fq_fe));
+
+    return -(int)(1u - is_qr);
 }

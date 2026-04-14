@@ -1,0 +1,51 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": {"major": 3, "minor": 21, "patch": 0},
+  "configurePresets": [
+    {
+      "name": "_base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "BUILD_TESTS": "ON",
+        "BUILD_BENCHMARKS": "ON",
+        "BUILD_TOOLS": "ON"
+      }
+    },
+    {"name": "_gcc",   "hidden": true, "inherits": "_base", "cacheVariables": {"CMAKE_C_COMPILER": "gcc",   "CMAKE_CXX_COMPILER": "g++"}},
+    {"name": "_clang", "hidden": true, "inherits": "_base", "cacheVariables": {"CMAKE_C_COMPILER": "clang", "CMAKE_CXX_COMPILER": "clang++"}},
+    {"name": "_msvc",  "hidden": true, "inherits": "_base", "cacheVariables": {"CMAKE_C_COMPILER": "cl",    "CMAKE_CXX_COMPILER": "cl"}},
+
+    {"name": "gcc-release",          "displayName": "GCC Release (default: AVX2 + IFMA)",              "inherits": "_gcc"},
+    {"name": "gcc-release-x64only",  "displayName": "GCC Release (x64 baseline only)",                  "inherits": "_gcc",   "cacheVariables": {"ENABLE_AVX2": "OFF", "ENABLE_AVX512": "OFF"}},
+    {"name": "gcc-release-noifma",   "displayName": "GCC Release (x64 + AVX2, no IFMA)",                "inherits": "_gcc",   "cacheVariables": {"ENABLE_AVX512": "OFF"}},
+    {"name": "gcc-release-portable", "displayName": "GCC Release (forced portable)",                    "inherits": "_gcc",   "cacheVariables": {"FORCE_PORTABLE": "ON"}},
+
+    {"name": "clang-release",          "displayName": "Clang Release (default: AVX2 + IFMA)",            "inherits": "_clang"},
+    {"name": "clang-release-x64only",  "displayName": "Clang Release (x64 baseline only)",                "inherits": "_clang", "cacheVariables": {"ENABLE_AVX2": "OFF", "ENABLE_AVX512": "OFF"}},
+    {"name": "clang-release-noifma",   "displayName": "Clang Release (x64 + AVX2, no IFMA)",              "inherits": "_clang", "cacheVariables": {"ENABLE_AVX512": "OFF"}},
+    {"name": "clang-release-portable", "displayName": "Clang Release (forced portable)",                  "inherits": "_clang", "cacheVariables": {"FORCE_PORTABLE": "ON"}},
+
+    {"name": "msvc-release",          "displayName": "MSVC Release (default: AVX2 + IFMA) — needs vcvars", "inherits": "_msvc"},
+    {"name": "msvc-release-x64only",  "displayName": "MSVC Release (x64 only) — needs vcvars",             "inherits": "_msvc",  "cacheVariables": {"ENABLE_AVX2": "OFF", "ENABLE_AVX512": "OFF"}},
+    {"name": "msvc-release-noifma",   "displayName": "MSVC Release (x64 + AVX2) — needs vcvars",           "inherits": "_msvc",  "cacheVariables": {"ENABLE_AVX512": "OFF"}},
+    {"name": "msvc-release-portable", "displayName": "MSVC Release (forced portable) — needs vcvars",      "inherits": "_msvc",  "cacheVariables": {"FORCE_PORTABLE": "ON"}}
+  ],
+  "buildPresets": [
+    {"name": "gcc-release",          "configurePreset": "gcc-release"},
+    {"name": "gcc-release-x64only",  "configurePreset": "gcc-release-x64only"},
+    {"name": "gcc-release-noifma",   "configurePreset": "gcc-release-noifma"},
+    {"name": "gcc-release-portable", "configurePreset": "gcc-release-portable"},
+    {"name": "clang-release",          "configurePreset": "clang-release"},
+    {"name": "clang-release-x64only",  "configurePreset": "clang-release-x64only"},
+    {"name": "clang-release-noifma",   "configurePreset": "clang-release-noifma"},
+    {"name": "clang-release-portable", "configurePreset": "clang-release-portable"},
+    {"name": "msvc-release",          "configurePreset": "msvc-release"},
+    {"name": "msvc-release-x64only",  "configurePreset": "msvc-release-x64only"},
+    {"name": "msvc-release-noifma",   "configurePreset": "msvc-release-noifma"},
+    {"name": "msvc-release-portable", "configurePreset": "msvc-release-portable"}
+  ]
+}

@@ -34,8 +34,7 @@
  *
  * Follows the Wahby-Boneh 2019 construction ("Fast and simple constant-time
  * hashing to the BLS12-381 elliptic curve", IACR TCHES 2019(4)). Caller
- * supplies the pre-hashed field element u. See docs/hash_to_curve_rationale.md
- * for the deviations from RFC 9380 Section 6.6.2.
+ * supplies the pre-hashed field element u.
  *
  * Note on Z = -1: with Z = -1 and A = -3 the normal-path term Z * u^2 * x1
  * simplifies, and B/(Z*A) = B/3 coincides with -B/A. Wahby-Boneh soundness is
@@ -56,6 +55,7 @@
 #include "fq_cneg.h"
 #include "fq_frombytes.h"
 #include "fq_invert.h"
+#include "fq_is_qr.h"
 #include "fq_mul.h"
 #include "fq_ops.h"
 #include "fq_sq.h"
@@ -66,36 +66,34 @@
 #include "shaw_constants.h"
 #include "shaw_ops.h"
 
+#if RANSHAW_FQ_NATIVE64
+/* Native radix-2^64 (uint64_t[4]); derived from the radix-2^51 limbs. */
 /* Z = -1 mod q */
 static const fq_fe SSWU_Z =
-    {0x04645EC70F85EULL, 0x1C72E61F4EE2DULL, 0x7FFFFFD2EC7ACULL, 0x7FFFFFFFFFFFFULL, 0x7FFFFFFFFFFFFULL};
+    {0x71684645EC70F85EULL, 0x4BB1EB0E39730FA7ULL, 0xFFFFFFFFFFFFFFFFULL, 0x7FFFFFFFFFFFFFFFULL};
 
 /* -B/A = b/3 mod q */
 static const fq_fe SSWU_NEG_B_OVER_A =
-    {0x1576D988C94B0ULL, 0x30416E92A6BF3ULL, 0x60E7CC341F1CDULL, 0x2DE0528CA1516ULL, 0x4C021D4F8D4FEULL};
+    {0x5F99576D988C94B0ULL, 0xD07C735820B74953ULL, 0x0A51942A2D839F30ULL, 0x4C021D4F8D4FE5BCULL};
 
 /* B/(Z*A) = b/((-1)*(-3)) = b/3 mod q */
 static const fq_fe SSWU_B_OVER_ZA =
-    {0x1576D988C94B0ULL, 0x30416E92A6BF3ULL, 0x60E7CC341F1CDULL, 0x2DE0528CA1516ULL, 0x4C021D4F8D4FEULL};
+    {0x5F99576D988C94B0ULL, 0xD07C735820B74953ULL, 0x0A51942A2D839F30ULL, 0x4C021D4F8D4FE5BCULL};
 
 /* A = -3 mod q */
 static const fq_fe SSWU_A =
+    {0x71684645EC70F85CULL, 0x4BB1EB0E39730FA7ULL, 0xFFFFFFFFFFFFFFFFULL, 0x7FFFFFFFFFFFFFFFULL};
+#else
+/* Original radix-2^51 uint64_t[5]. */
+static const fq_fe SSWU_Z =
+    {0x04645EC70F85EULL, 0x1C72E61F4EE2DULL, 0x7FFFFFD2EC7ACULL, 0x7FFFFFFFFFFFFULL, 0x7FFFFFFFFFFFFULL};
+static const fq_fe SSWU_NEG_B_OVER_A =
+    {0x1576D988C94B0ULL, 0x30416E92A6BF3ULL, 0x60E7CC341F1CDULL, 0x2DE0528CA1516ULL, 0x4C021D4F8D4FEULL};
+static const fq_fe SSWU_B_OVER_ZA =
+    {0x1576D988C94B0ULL, 0x30416E92A6BF3ULL, 0x60E7CC341F1CDULL, 0x2DE0528CA1516ULL, 0x4C021D4F8D4FEULL};
+static const fq_fe SSWU_A =
     {0x04645EC70F85CULL, 0x1C72E61F4EE2DULL, 0x7FFFFFD2EC7ACULL, 0x7FFFFFFFFFFFFULL, 0x7FFFFFFFFFFFFULL};
-
-/*
- * Constant-time equality check via serialization and OR-fold.
- * Returns a clean 0/1 unsigned int suitable for cmov.
- */
-static unsigned int fq_ct_equal(const fq_fe a, const fq_fe b)
-{
-    unsigned char sa[32], sb[32];
-    fq_tobytes(sa, a);
-    fq_tobytes(sb, b);
-    uint32_t d = 0;
-    for (int i = 0; i < 32; i++)
-        d |= sa[i] ^ sb[i];
-    return ((uint32_t)(d - 1u)) >> 31;
-}
+#endif
 
 /*
  * Constant-time simplified SWU (RFC 9380 section 6.6.2)
@@ -164,20 +162,22 @@ static void sswu_shaw(shaw_jacobian *r, const fq_fe u)
     fq_add(gx2, x2_cu, ax2);
     fq_add(gx2, gx2, SHAW_B);
 
-    /* Always compute sqrt of both gx1 and gx2 */
-    fq_fe sqrt_gx1, sqrt_gx2, check;
-    fq_sqrt(sqrt_gx1, gx1);
-    fq_sqrt(sqrt_gx2, gx2);
+    /* CT Legendre check on gx1: exactly one of (gx1, gx2) is a QR by the
+     * SSWU construction. Running fq_is_qr on gx1 picks the correct side
+     * at ~same cost as a single fq_sqrt, so we avoid the second fq_sqrt
+     * that the two-sqrt-then-check pattern required. */
+    unsigned int gx1_is_square = (unsigned int)fq_is_qr(gx1);
 
-    /* Verify gx1 is square by checking sqrt(gx1)^2 == gx1 */
-    fq_sq(check, sqrt_gx1);
-    unsigned int gx1_is_square = fq_ct_equal(check, gx1);
-
-    /* CT select: if gx1_is_square, use (x1, sqrt_gx1); else (x2, sqrt_gx2) */
+    /* CT select x-coordinate and (to-be-sqrted) gx based on which side is QR. */
+    fq_fe gx;
     fq_copy(x, x2);
-    fq_copy(y, sqrt_gx2);
+    fq_copy(gx, gx2);
     fq_cmov(x, x1, gx1_is_square);
-    fq_cmov(y, sqrt_gx1, gx1_is_square);
+    fq_cmov(gx, gx1, gx1_is_square);
+
+    /* Single sqrt on the QR side — fq_sqrt's internal Legendre post-check
+     * succeeds here by construction, so we discard its return code. */
+    (void)fq_sqrt(y, gx);
 
     /* CT sign adjustment: sgn0(u) != sgn0(y) => negate y */
     unsigned int u_sign = (unsigned int)fq_isnegative(u);

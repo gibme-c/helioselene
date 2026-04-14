@@ -4,6 +4,7 @@ if(NOT FORCE_PORTABLE AND CMAKE_SYSTEM_PROCESSOR MATCHES "^([xX]86_64|[aA][mM][d
     set(FQ_SRC
         src/x64/fq_frombytes.cpp
         src/x64/fq_invert.cpp
+        src/x64/fq_is_qr.cpp
         src/x64/fq_mul.cpp
         src/x64/fq_sq.cpp
         src/x64/fq_sq2.cpp
@@ -15,6 +16,7 @@ else()
     set(FQ_SRC
         src/portable/fq_frombytes.cpp
         src/portable/fq_invert.cpp
+        src/portable/fq_is_qr.cpp
         src/portable/fq_mul.cpp
         src/portable/fq_sq.cpp
         src/portable/fq_sq2.cpp

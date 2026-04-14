@@ -43,14 +43,22 @@
  */
 void fq_tobytes_x64(unsigned char *s, const fq_fe h)
 {
+#if RANSHAW_FQ_NATIVE64
+    /* Native radix-2^64: canonically reduce to [0, q), then the four limbs
+     * ARE the 32 little-endian bytes (no bit-repacking). */
+    uint64_t t[4];
+    fq64_reduce_canonical(t, h);
+    for (int i = 0; i < 4; i++)
+        for (int j = 0; j < 8; j++)
+            s[8 * i + j] = (unsigned char)(t[i] >> (8 * j));
+#else
+    /* Original radix-2^51 uint64_t[5] canonicalize + pack. */
     uint64_t t[5];
     t[0] = h[0];
     t[1] = h[1];
     t[2] = h[2];
     t[3] = h[3];
     t[4] = h[4];
-
-    /* First carry chain with gamma fold */
     uint64_t carry;
     carry = t[0] >> 51;
     t[1] += carry;
@@ -66,11 +74,9 @@ void fq_tobytes_x64(unsigned char *s, const fq_fe h)
     t[3] &= FQ51_MASK;
     carry = t[4] >> 51;
     t[4] &= FQ51_MASK;
-    /* Gamma fold */
     t[0] += carry * GAMMA_51[0];
     t[1] += carry * GAMMA_51[1];
     t[2] += carry * GAMMA_51[2];
-    /* Re-carry through all limbs after gamma fold */
     carry = t[0] >> 51;
     t[1] += carry;
     t[0] &= FQ51_MASK;
@@ -83,12 +89,6 @@ void fq_tobytes_x64(unsigned char *s, const fq_fe h)
     carry = t[3] >> 51;
     t[4] += carry;
     t[3] &= FQ51_MASK;
-
-    /*
-     * "Add gamma and check overflow" trick for canonicalization.
-     * If t >= q, then t + gamma >= 2^255, carry out of limb 4 is nonzero.
-     * The lower 255 bits of (t + gamma) give t - q.
-     */
     uint64_t u[5];
     u[0] = t[0] + GAMMA_51[0];
     carry = u[0] >> 51;
@@ -103,17 +103,13 @@ void fq_tobytes_x64(unsigned char *s, const fq_fe h)
     carry = u[3] >> 51;
     u[3] &= FQ51_MASK;
     u[4] = t[4] + carry;
-    uint64_t q = u[4] >> 51; /* 1 if t >= q, 0 otherwise */
-
-    /* Select: if q == 1, use u (= t - q); else use t */
+    uint64_t q = u[4] >> 51;
     uint64_t mask = 0 - q;
     t[0] = (t[0] & ~mask) | (u[0] & mask);
     t[1] = (t[1] & ~mask) | (u[1] & mask);
     t[2] = (t[2] & ~mask) | (u[2] & mask);
     t[3] = (t[3] & ~mask) | (u[3] & mask);
     t[4] = (t[4] & ~mask) | ((u[4] & FQ51_MASK) & mask);
-
-    /* Pack 5×51 limbs into 32 bytes LE (identical to fp_tobytes_x64) */
     s[0] = (unsigned char)(t[0]);
     s[1] = (unsigned char)(t[0] >> 8);
     s[2] = (unsigned char)(t[0] >> 16);
@@ -146,4 +142,5 @@ void fq_tobytes_x64(unsigned char *s, const fq_fe h)
     s[29] = (unsigned char)(t[4] >> 28);
     s[30] = (unsigned char)(t[4] >> 36);
     s[31] = (unsigned char)(t[4] >> 44);
+#endif
 }

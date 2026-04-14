@@ -32,5 +32,9 @@
 
 void fq_sq_x64(fq_fe h, const fq_fe f)
 {
+#if RANSHAW_FQ_NATIVE64
+    fq64_sq(h, f);
+#else
     fq51_sq_inline(h, f);
+#endif
 }

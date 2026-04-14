@@ -332,7 +332,7 @@ static void msm_pippenger(ran_jacobian *result, const unsigned char *scalars, co
 // Public API (portable)
 // ============================================================================
 
-static const size_t STRAUS_PIPPENGER_CROSSOVER = 16;
+static const size_t STRAUS_PIPPENGER_CROSSOVER = 8;
 
 void ran_msm_vartime_portable(ran_jacobian *result, const unsigned char *scalars, const ran_jacobian *points, size_t n)
 {

@@ -34,8 +34,7 @@
  *
  * Follows the Wahby-Boneh 2019 construction ("Fast and simple constant-time
  * hashing to the BLS12-381 elliptic curve", IACR TCHES 2019(4)). Caller
- * supplies the pre-hashed field element u. See docs/hash_to_curve_rationale.md
- * for the deviations from RFC 9380 Section 6.6.2.
+ * supplies the pre-hashed field element u.
  *
  * Note on Z = -1: with Z = -1 and A = -3 the normal-path term Z * u^2 * x1
  * simplifies, and B/(Z*A) = B/3 coincides with -B/A. Wahby-Boneh soundness is
@@ -56,6 +55,7 @@
 #include "fq_cneg.h"
 #include "fq_frombytes.h"
 #include "fq_invert.h"
+#include "fq_is_qr.h"
 #include "fq_mul.h"
 #include "fq_ops.h"
 #include "fq_sq.h"
@@ -112,21 +112,6 @@ static const uint64_t SSWU_A_LIMBS[5] =
 /* SHAW_B */
 static const uint64_t SHAW_B_LIMBS[5] =
     {0x3C002DD34C5B1ULL, 0x74516598A55ACULL, 0x22B764C970DBBULL, 0x9A0F7A5E3F44ULL, 0x640657EEA7EFBULL};
-
-/*
- * Constant-time equality check via serialization and OR-fold.
- * Returns a clean 0/1 unsigned int suitable for cmov.
- */
-static unsigned int fq_ct_equal(const fq_fe a, const fq_fe b)
-{
-    unsigned char sa[32], sb[32];
-    fq_tobytes(sa, a);
-    fq_tobytes(sb, b);
-    uint32_t d = 0;
-    for (int i = 0; i < 32; i++)
-        d |= sa[i] ^ sb[i];
-    return ((uint32_t)(d - 1u)) >> 31;
-}
 
 /*
  * Constant-time simplified SWU (RFC 9380 section 6.6.2)
@@ -203,20 +188,18 @@ static void sswu_shaw(shaw_jacobian *r, const fq_fe u)
     fq_add(gx2, x2_cu, ax2);
     fq_add(gx2, gx2, shaw_b);
 
-    /* Always compute sqrt of both gx1 and gx2 */
-    fq_fe sqrt_gx1, sqrt_gx2, check;
-    fq_sqrt(sqrt_gx1, gx1);
-    fq_sqrt(sqrt_gx2, gx2);
+    /* CT Legendre check on gx1 (see x64 backend for rationale). The portable
+     * fq_is_qr currently delegates to fq_sqrt, so this path sees no speedup
+     * but keeps the code shape consistent with the x64 backend. */
+    unsigned int gx1_is_square = (unsigned int)fq_is_qr(gx1);
 
-    /* Verify gx1 is square by checking sqrt(gx1)^2 == gx1 */
-    fq_sq(check, sqrt_gx1);
-    unsigned int gx1_is_square = fq_ct_equal(check, gx1);
-
-    /* CT select: if gx1_is_square, use (x1, sqrt_gx1); else (x2, sqrt_gx2) */
+    fq_fe gx;
     fq_copy(x, x2);
-    fq_copy(y, sqrt_gx2);
+    fq_copy(gx, gx2);
     fq_cmov(x, x1, gx1_is_square);
-    fq_cmov(y, sqrt_gx1, gx1_is_square);
+    fq_cmov(gx, gx1, gx1_is_square);
+
+    (void)fq_sqrt(y, gx);
 
     /* CT sign adjustment: sgn0(u) != sgn0(y) => negate y */
     unsigned int u_sign = (unsigned int)fq_isnegative(u);

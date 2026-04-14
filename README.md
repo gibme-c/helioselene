@@ -27,7 +27,7 @@ Both curves have the form **y² = x³ - 3x + b** (the a = -3 optimization enable
 
 ### Higher-Level Primitives
 
-- **Hash-to-curve** -- constant-time Simplified SWU (SSWU) mapping from field elements to curve points, following the [Wahby-Boneh 2019](https://eprint.iacr.org/2019/403) construction. Caller supplies the pre-hashed field element; see [`docs/hash_to_curve_rationale.md`](docs/hash_to_curve_rationale.md) for the deviations from RFC 9380 Section 6.6.2
+- **Hash-to-curve** -- constant-time Simplified SWU (SSWU) mapping from field elements to curve points, following the [Wahby-Boneh 2019](https://eprint.iacr.org/2019/403) construction. Caller supplies the pre-hashed field element. Ran uses `Z = -2`; Shaw uses `Z = -1`, which is Wahby-Boneh sound for `q ≡ 3 mod 4` but deviates from RFC 9380 §6.6.2 criterion 2 (a cleanness constraint, not a soundness one)
 - **Pedersen commitments** -- `r*H + Σ(s_i * P_i)` computed via MSM
 - **Batch affine conversion** -- [Montgomery's trick](https://cr.yp.to/bib/1987/montgomery.pdf) for converting multiple Jacobian points to affine coordinates with a single inversion
 - **Batch field inversion** -- standalone [Montgomery's trick](https://cr.yp.to/bib/1987/montgomery.pdf) utilities (`fp_batch_invert`, `fq_batch_invert`) for amortizing inversions across multiple elements

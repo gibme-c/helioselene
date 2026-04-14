@@ -471,7 +471,7 @@ static void msm_pippenger_avx2(ran_jacobian *result, const unsigned char *scalar
 // Public API (AVX2)
 // ============================================================================
 
-static const size_t STRAUS_PIPPENGER_CROSSOVER = 16;
+static const size_t STRAUS_PIPPENGER_CROSSOVER = 8;
 
 void ran_msm_vartime_avx2(ran_jacobian *result, const unsigned char *scalars, const ran_jacobian *points, size_t n)
 {

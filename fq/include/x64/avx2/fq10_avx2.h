@@ -79,16 +79,23 @@ static const int64_t FQ10_MASK25 = (1LL << 25) - 1;
  */
 static FQ10_AVX2_FORCE_INLINE void fq51_to_fq10(fq10 out, const fq_fe src)
 {
-    out[0] = (int64_t)(src[0] & 0x3FFFFFFULL);
-    out[1] = (int64_t)(src[0] >> 26);
-    out[2] = (int64_t)(src[1] & 0x3FFFFFFULL);
-    out[3] = (int64_t)(src[1] >> 26);
-    out[4] = (int64_t)(src[2] & 0x3FFFFFFULL);
-    out[5] = (int64_t)(src[2] >> 26);
-    out[6] = (int64_t)(src[3] & 0x3FFFFFFULL);
-    out[7] = (int64_t)(src[3] >> 26);
-    out[8] = (int64_t)(src[4] & 0x3FFFFFFULL);
-    out[9] = (int64_t)(src[4] >> 26);
+#if RANSHAW_FQ_NATIVE64
+    /* Native 4x64 fq_fe: expand to 5x51 first, then split each 51-bit limb. */
+    uint64_t s[5];
+    fq64_expand_5x51(s, src);
+#else
+    const uint64_t *s = src; /* fq_fe is already 5x51 */
+#endif
+    out[0] = (int64_t)(s[0] & 0x3FFFFFFULL);
+    out[1] = (int64_t)(s[0] >> 26);
+    out[2] = (int64_t)(s[1] & 0x3FFFFFFULL);
+    out[3] = (int64_t)(s[1] >> 26);
+    out[4] = (int64_t)(s[2] & 0x3FFFFFFULL);
+    out[5] = (int64_t)(s[2] >> 26);
+    out[6] = (int64_t)(s[3] & 0x3FFFFFFULL);
+    out[7] = (int64_t)(s[3] >> 26);
+    out[8] = (int64_t)(s[4] & 0x3FFFFFFULL);
+    out[9] = (int64_t)(s[4] >> 26);
 }
 
 /**
@@ -178,12 +185,22 @@ static FQ10_AVX2_FORCE_INLINE void fq10_to_fq51(fq_fe out, const fq10 src)
     t[9] += c;
     t[8] &= FQ10_MASK26;
 
-    // Merge pairs: out[k] = t[2k] | (t[2k+1] << 26)
+    // Merge pairs into 5x51.
+#if RANSHAW_FQ_NATIVE64
+    uint64_t s5[5];
+    s5[0] = (uint64_t)t[0] | ((uint64_t)t[1] << 26);
+    s5[1] = (uint64_t)t[2] | ((uint64_t)t[3] << 26);
+    s5[2] = (uint64_t)t[4] | ((uint64_t)t[5] << 26);
+    s5[3] = (uint64_t)t[6] | ((uint64_t)t[7] << 26);
+    s5[4] = (uint64_t)t[8] | ((uint64_t)t[9] << 26);
+    fq51_normalize5_pack4(out, s5); /* pack into native 4x64 fq_fe */
+#else
     out[0] = (uint64_t)t[0] | ((uint64_t)t[1] << 26);
     out[1] = (uint64_t)t[2] | ((uint64_t)t[3] << 26);
     out[2] = (uint64_t)t[4] | ((uint64_t)t[5] << 26);
     out[3] = (uint64_t)t[6] | ((uint64_t)t[7] << 26);
     out[4] = (uint64_t)t[8] | ((uint64_t)t[9] << 26);
+#endif
 }
 
 /**
