@@ -1,0 +1,42 @@
+Running PARI/GP verification...
+  PASS: q_prime
+  PASS: p_prime
+  PASS: q_lt_2_255
+  PASS: curve_a_order_eq_q
+  PASS: curve_b_order_eq_p
+  PASS: curve_a_gen_on_curve
+  PASS: curve_b_gen_on_curve
+  PASS: curve_a_gen_full_order
+  PASS: curve_b_gen_full_order
+  PASS: curve_a_b_nonsquare
+  PASS: curve_b_b_nonsquare
+  INFO: curve_a_twist_order = 57896044618658097711785492504343953926874658796020160248938533116686793377661
+  INFO: curve_b_twist_order = 57896044618658097711785492504343953926155659406420525561309309778496107704531
+  INFO: curve_a_twist_largest_factor = 19298681539552699237261830834781317975624886265340053416312844372228931125887
+  INFO: curve_b_twist_largest_factor = 19298681539552699237261830834781317975385219802140175187103103259498702568177
+  INFO: curve_a_twist_bits = 254
+  INFO: curve_b_twist_bits = 254
+  INFO: gamma = 239666463199878229209741112730228557729
+  INFO: gamma_bits = 128
+  INFO: q_mod_8 = 7
+
+=== Verification Report ===
+  [PASS] q is prime
+  [PASS] p is prime
+  [PASS] q < 2^255
+  [PASS] #CurveA(Fp) = q
+  [PASS] #CurveB(Fq) = p
+  [PASS] CurveA generator on curve
+  [PASS] CurveB generator on curve
+  [PASS] CurveA generator has full order q
+  [PASS] CurveB generator has full order p
+  [PASS] CurveA b is non-square in Fp
+  [PASS] CurveB b is non-square in Fq
+  gamma: 239666463199878229209741112730228557729
+  gamma_bits: 128
+  q_mod_8: 7
+  curve_a_twist_bits: 254
+  curve_b_twist_bits: 254
+  min_twist_bits: 254
+
+  Overall: ALL PASS
